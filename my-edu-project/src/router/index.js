@@ -1,16 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
-
 // 懒加载引入页面
 const Login = () => import('../views/Login.vue')
 const Home = () => import('../views/Home.vue')
 
-// ★★★ 关键：必须添加这一行！★★★
-const Admin = () => import('../views/Admin.vue')
-
 const routes = [
     {
         path: '/',
-        redirect: '/login'
+        redirect: '/login' // 默认跳到登录页
     },
     {
         path: '/login',
@@ -22,11 +18,12 @@ const routes = [
         name: 'Home',
         component: Home
     },
-    // 新增的管理员路由
+    // 【修改点】新增 /admin 路由
     {
         path: '/admin',
         name: 'Admin',
-        component: Admin // 这里用到的 Admin，必须在上面定义过
+        component: Home, // 暂时指向 Home 组件
+        meta: { title: '管理员首页' }
     }
 ]
 

@@ -92,13 +92,12 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { User, Lock, Checked, Postcard } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import axios from 'axios'
+import request from '@/utils/request' // 【修改点 1】引入 request 工具，代替 axios
 
 const router = useRouter()
 const isRegister = ref(false)
 const loading = ref(false)
-// 你的后端地址，如果在 vite.config.js 配置了 proxy，这里也可以写成 '/api'
-const BASE_URL = 'http://localhost:8080'
+// 【修改点 2】删除 BASE_URL 的硬编码，使用 request.js 里的 /api 代理
 
 const form = reactive({
   username: '',
@@ -132,12 +131,12 @@ const handleSubmit = async () => {
     try {
       loading.value = true
 
-      // 发送请求给后端
-      await axios.post(`${BASE_URL}/api/auth/register`, {
+      // 【修改点 3】使用 request.post
+      await request.post('/auth/register', {
         username: form.username,
         password: form.password,
         realName: form.realName,
-        roleType: 1
+        roleType: 1 // 注册默认角色为 1
       })
 
       // 成功
@@ -146,13 +145,7 @@ const handleSubmit = async () => {
 
     } catch (error) {
       console.error('注册失败', error)
-
-      // 获取后端返回的文字 "该学号...已被注册！"
-      if (error.response && error.response.data) {
-        ElMessage.error(error.response.data)
-      } else {
-        ElMessage.error('注册失败，请检查网络')
-      }
+      // request.js 的响应拦截器已经处理了错误提示
     } finally {
       loading.value = false
     }
@@ -161,19 +154,24 @@ const handleSubmit = async () => {
     // ============ 登录逻辑 ============
     try {
       loading.value = true
-      const res = await axios.post(`${BASE_URL}/api/auth/login`, {
+      // 【修改点 4】使用 request.post
+      const res = await request.post('/auth/login', {
         username: form.username,
         password: form.password
       })
 
-      const token = res.data.token
+      const token = res.token // request.js 已经返回了处理后的数据
       if (token) {
         localStorage.setItem('token', token)
-        localStorage.setItem('userInfo', JSON.stringify(res.data))
+        localStorage.setItem('userInfo', JSON.stringify(res))
         ElMessage.success('登录成功')
 
-        // ★★★★★ 关键修改：跳转到 /home (对应 router/index.js 的配置) ★★★★★
-        router.push('/home')
+        // 【修改点 5】根据 roleType 进行跳转判断
+        if (res.role === '0') {
+          router.push('/admin') // 角色为 '0' 跳转到 /admin
+        } else {
+          router.push('/home') // 其他角色跳转到 /home
+        }
 
       } else {
         ElMessage.warning('登录异常：未获取到令牌')
@@ -181,8 +179,7 @@ const handleSubmit = async () => {
 
     } catch (error) {
       console.error('登录失败', error)
-      const msg = error.response?.data?.message || '登录失败，请检查账号密码'
-      ElMessage.error(msg)
+      // request.js 的响应拦截器会处理错误提示
     } finally {
       loading.value = false
     }
@@ -191,6 +188,7 @@ const handleSubmit = async () => {
 </script>
 
 <style scoped lang="scss">
+/* 样式部分保持不变 */
 .login-wrapper {
   display: flex;
   height: 100vh;

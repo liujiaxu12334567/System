@@ -10,14 +10,41 @@
         <result property="username"     column="username" />
         <result property="password"     column="password" />
         <result property="realName"     column="real_name" />
+        <result property="email"        column="email" />
         <result property="roleType"     column="role_type" />
         <result property="teacherRank"  column="teacher_rank" />
+        <result property="accountStatus" column="account_status" />
+        <result property="classId"      column="class_id" />
         <result property="createTime"   column="create_time" />
     </resultMap>
 
     <select id="findByUsername" resultMap="UserResultMap">
-        SELECT * FROM sys_user
-        WHERE username = #{username}
+        SELECT
+            u.user_id,
+            u.username,
+            u.password,
+            u.real_name,
+            u.role_type
+        FROM sys_user u  WHERE u.username = #{username}
+    </select>
+
+    <insert id="insertUser" useGeneratedKeys="true" keyProperty="userId">
+        INSERT INTO sys_user ( username,
+                               password,
+                               real_name,
+                               role_type
+        )
+        VALUES (
+                   #{username},
+                   #{password},
+                   #{realName},
+                   #{roleType}
+               )
+    </insert>
+
+    <select id="findStudentsByClassId" resultMap="UserResultMap">
+        SELECT * FROM sys_user WHERE class_id = #{classId}
+                                 AND role_type = 'STUDENT'
     </select>
 
     <insert id="insert" parameterType="com.project.system.entity.User">
@@ -26,41 +53,14 @@
             password,
             real_name,
             role_type,
-            teacher_rank,
-            create_time
+            teacher_rank
         )
         VALUES (
                    #{username},
                    #{password},
                    #{realName},
                    #{roleType},
-                   #{teacherRank},
-                   NOW()
+                   #{teacherRank}
                )
     </insert>
-    <select id="selectAllUsers" resultMap="UserResultMap">
-        SELECT * FROM sys_user
-        <where>
-            <if test="username != null and username != ''">
-                AND (username LIKE concat('%', #{username}, '%') OR real_name LIKE concat('%', #{username}, '%'))
-            </if>
-        </where>
-        ORDER BY create_time DESC
-    </select>
-
-    <update id="updateUser" parameterType="com.project.system.entity.User">
-        UPDATE sys_user
-        <set>
-            <if test="password != null and password != ''">password = #{password},</if>
-            <if test="realName != null">real_name = #{realName},</if>
-            <if test="roleType != null">role_type = #{roleType},</if>
-            <if test="classId != null">class_id = #{classId},</if>
-            <if test="status != null">status = #{status},</if>
-        </set>
-        WHERE user_id = #{userId}
-    </update>
-
-    <delete id="deleteUserById">
-        DELETE FROM sys_user WHERE user_id = #{userId}
-    </delete>
 </mapper>
