@@ -92,12 +92,11 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { User, Lock, Checked, Postcard } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request' // 【修改点 1】引入 request 工具，代替 axios
+import request from '@/utils/request'
 
 const router = useRouter()
 const isRegister = ref(false)
 const loading = ref(false)
-// 【修改点 2】删除 BASE_URL 的硬编码，使用 request.js 里的 /api 代理
 
 const form = reactive({
   username: '',
@@ -130,22 +129,16 @@ const handleSubmit = async () => {
 
     try {
       loading.value = true
-
-      // 【修改点 3】使用 request.post
       await request.post('/auth/register', {
         username: form.username,
         password: form.password,
         realName: form.realName,
-        roleType: 1 // 注册默认角色为 1
+        roleType: 4 // 【修正点1】注册默认为 4 (学生)
       })
-
-      // 成功
       ElMessage.success('注册成功，请登录')
       toggleMode()
-
     } catch (error) {
       console.error('注册失败', error)
-      // request.js 的响应拦截器已经处理了错误提示
     } finally {
       loading.value = false
     }
@@ -154,23 +147,23 @@ const handleSubmit = async () => {
     // ============ 登录逻辑 ============
     try {
       loading.value = true
-      // 【修改点 4】使用 request.post
       const res = await request.post('/auth/login', {
         username: form.username,
         password: form.password
       })
 
-      const token = res.token // request.js 已经返回了处理后的数据
+      const token = res.token
       if (token) {
         localStorage.setItem('token', token)
         localStorage.setItem('userInfo', JSON.stringify(res))
         ElMessage.success('登录成功')
 
-        // 【修改点 5】根据 roleType 进行跳转判断
-        if (res.role === '0') {
-          router.push('/admin') // 角色为 '0' 跳转到 /admin
+        // 【修正点2】统一使用字符串 '1' 判断管理员
+        // 确保数据库 role_type 为 1 时跳转到 /admin
+        if (String(res.role) === '1') {
+          router.push('/admin')
         } else {
-          router.push('/home') // 其他角色跳转到 /home
+          router.push('/home')
         }
 
       } else {
@@ -179,7 +172,6 @@ const handleSubmit = async () => {
 
     } catch (error) {
       console.error('登录失败', error)
-      // request.js 的响应拦截器会处理错误提示
     } finally {
       loading.value = false
     }
@@ -188,7 +180,6 @@ const handleSubmit = async () => {
 </script>
 
 <style scoped lang="scss">
-/* 样式部分保持不变 */
 .login-wrapper {
   display: flex;
   height: 100vh;

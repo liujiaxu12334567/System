@@ -19,33 +19,34 @@
     </resultMap>
 
     <select id="findByUsername" resultMap="UserResultMap">
-        SELECT
-            u.user_id,
-            u.username,
-            u.password,
-            u.real_name,
-            u.role_type
-        FROM sys_user u  WHERE u.username = #{username}
+        SELECT * FROM sys_user WHERE username = #{username}
     </select>
 
-    <insert id="insertUser" useGeneratedKeys="true" keyProperty="userId">
-        INSERT INTO sys_user ( username,
-                               password,
-                               real_name,
-                               role_type
-        )
-        VALUES (
-                   #{username},
-                   #{password},
-                   #{realName},
-                   #{roleType}
-               )
-    </insert>
-
-    <select id="findStudentsByClassId" resultMap="UserResultMap">
-        SELECT * FROM sys_user WHERE class_id = #{classId}
-                                 AND role_type = 'STUDENT'
+    <select id="selectAllUsers" resultMap="UserResultMap">
+        SELECT * FROM sys_user
+        <where>
+            <if test="username != null and username != ''">
+                AND (username LIKE concat('%', #{username}, '%')
+                OR real_name LIKE concat('%', #{username}, '%'))
+            </if>
+        </where>
+        ORDER BY user_id DESC
     </select>
+
+    <update id="updateUser">
+        UPDATE sys_user
+        <set>
+            <if test="realName != null and realName != ''">real_name = #{realName},</if>
+            <if test="password != null and password != ''">password = #{password},</if>
+            <if test="roleType != null">role_type = #{roleType},</if>
+            <if test="teacherRank != null">teacher_rank = #{teacherRank},</if>
+        </set>
+        WHERE user_id = #{userId}
+    </update>
+
+    <delete id="deleteUserById">
+        DELETE FROM sys_user WHERE user_id = #{userId}
+    </delete>
 
     <insert id="insert" parameterType="com.project.system.entity.User">
         INSERT INTO sys_user (
@@ -53,14 +54,17 @@
             password,
             real_name,
             role_type,
-            teacher_rank
+            teacher_rank,
+            create_time
         )
         VALUES (
                    #{username},
                    #{password},
                    #{realName},
                    #{roleType},
-                   #{teacherRank}
+                   #{teacherRank},
+                   NOW()
                )
     </insert>
+
 </mapper>

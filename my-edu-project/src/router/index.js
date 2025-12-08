@@ -1,12 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
-// 懒加载引入页面
+
+// 1. 引入 Admin 组件 (这一行你之前漏了或者没用上)
 const Login = () => import('../views/Login.vue')
 const Home = () => import('../views/Home.vue')
+const Admin = () => import('../views/Admin.vue') // <--- 【新增】
 
 const routes = [
     {
         path: '/',
-        redirect: '/login' // 默认跳到登录页
+        redirect: '/login'
     },
     {
         path: '/login',
@@ -18,11 +20,10 @@ const routes = [
         name: 'Home',
         component: Home
     },
-    // 【修改点】新增 /admin 路由
     {
         path: '/admin',
         name: 'Admin',
-        component: Home, // 暂时指向 Home 组件
+        component: Admin, // <--- 【必须改这里】之前你写的是 Home，现在改成 Admin
         meta: { title: '管理员首页' }
     }
 ]

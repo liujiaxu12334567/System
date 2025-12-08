@@ -34,7 +34,7 @@
             <el-button size="small" @click="openDialog(scope.row)">编辑</el-button>
 
             <el-button
-                v-if="scope.row.roleType === 3"
+                v-if="String(scope.row.roleType) === '3'"
                 size="small"
                 type="success"
                 @click="changeRole(scope.row, 2)"
@@ -42,7 +42,7 @@
               升为组长
             </el-button>
             <el-button
-                v-if="scope.row.roleType === 2"
+                v-if="String(scope.row.roleType) === '2'"
                 size="small"
                 type="warning"
                 @click="changeRole(scope.row, 3)"
@@ -90,10 +90,9 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import axios from 'axios'
+import request from '@/utils/request' // 【关键点】引入 request 工具
 import { ElMessage } from 'element-plus'
 
-const BASE_URL = 'http://localhost:8080'
 const userList = ref([])
 const keyword = ref('')
 const dialogVisible = ref(false)
@@ -101,11 +100,16 @@ const form = ref({})
 
 // 获取用户列表
 const fetchUsers = async () => {
-  const res = await axios.get(`${BASE_URL}/api/admin/user/list`, {
-    params: { keyword: keyword.value },
-    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-  })
-  userList.value = res.data
+  try {
+    // 【关键点】使用 request.get，不需要写 http://localhost...
+    const res = await request.get('/admin/user/list', {
+      params: { keyword: keyword.value }
+    })
+    // request.js 拦截器返回的是 response.data，如果是 List 直接赋值即可
+    userList.value = res || []
+  } catch (error) {
+    console.error("加载用户失败", error)
+  }
 }
 
 // 打开弹窗
@@ -120,56 +124,50 @@ const openDialog = (row) => {
 
 // 提交表单
 const submitForm = async () => {
-  const url = form.value.userId ? `${BASE_URL}/api/admin/user/update` : `${BASE_URL}/api/admin/user/add`
+  const url = form.value.userId ? '/admin/user/update' : '/admin/user/add'
   try {
-    await axios.post(url, form.value, {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
+    await request.post(url, form.value)
     ElMessage.success('操作成功')
     dialogVisible.value = false
     fetchUsers()
   } catch (error) {
-    ElMessage.error('操作失败')
+    // 错误由 request.js 处理
   }
 }
 
-// 快速修改角色 (任命/撤销组长)
+// 快速修改角色
 const changeRole = async (row, newRole) => {
   try {
-    await axios.post(`${BASE_URL}/api/admin/user/update`, {
+    await request.post('/admin/user/update', {
       userId: row.userId,
       roleType: newRole
-    }, {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
     ElMessage.success('身份变更成功')
     fetchUsers()
   } catch (error) {
-    ElMessage.error('变更失败')
+    // 错误由 request.js 处理
   }
 }
 
 // 删除
 const handleDelete = async (id) => {
   try {
-    await axios.post(`${BASE_URL}/api/admin/user/delete/${id}`, {}, {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-    })
+    await request.post(`/admin/user/delete/${id}`)
     ElMessage.success('删除成功')
     fetchUsers()
   } catch (error) {
-    ElMessage.error('删除失败')
+    // 错误由 request.js 处理
   }
 }
 
-// 辅助函数
+// 辅助函数 (转成字符串比较更稳)
 const getRoleName = (type) => {
-  const map = {1:'管理员', 2:'课程组长', 3:'普通教师', 4:'学生'}
-  return map[type] || '未知'
+  const map = {'1':'管理员', '2':'课程组长', '3':'普通教师', '4':'学生'}
+  return map[String(type)] || '未知'
 }
 const getRoleTag = (type) => {
-  const map = {1:'danger', 2:'success', 3:'primary', 4:'info'}
-  return map[type]
+  const map = {'1':'danger', '2':'success', '3':'primary', '4':'info'}
+  return map[String(type)]
 }
 
 onMounted(fetchUsers)
