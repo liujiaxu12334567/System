@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.project.system.mapper.UserMapper">
+
+    <resultMap id="UserResultMap" type="com.project.system.entity.User">
+        <id     property="userId"       column="user_id" />
+        <result property="username"     column="username" />
+        <result property="password"     column="password" />
+        <result property="realName"     column="real_name" />
+        <result property="email"        column="email" />
+        <result property="roleType"     column="role_type" />
+        <result property="teacherRank"  column="teacher_rank" />
+        <result property="accountStatus" column="account_status" />
+        <result property="classId"      column="class_id" />
+        <result property="createTime"   column="create_time" />
+    </resultMap>
+
+    <select id="findByUsername" resultMap="UserResultMap">
+        SELECT
+            u.user_id,
+            u.username,
+            u.password,
+            u.real_name,
+            u.email,
+            u.role_type,
+            u.teacher_rank,
+            u.account_status,
+            u.create_time,
+            u.class_id
+        FROM T_USER u
+                 LEFT JOIN T_CLASS c ON u.class_id = c.class_id
+        WHERE u.username = #{username}
+    </select>
+
+    <insert id="insertUser" useGeneratedKeys="true" keyProperty="userId">
+        INSERT INTO T_USER (
+            username,
+            password,
+            real_name,
+            email,
+            role_type,
+            teacher_rank,
+            account_status,
+            class_id,
+            create_time
+        )
+        VALUES (
+                   #{username},
+                   #{password},
+                   #{realName},
+                   #{email},
+                   #{roleType},
+                   #{teacherRank},
+                   #{accountStatus},
+                   #{classId},
+                   NOW()
+               )
+    </insert>
+
+    <select id="findStudentsByClassId" resultMap="UserResultMap">
+        SELECT * FROM T_USER
+        WHERE class_id = #{classId}
+          AND role_type = 'STUDENT'
+    </select>
+
+    <insert id="insert" parameterType="com.project.system.entity.User">
+        INSERT INTO sys_user (
+            username,
+            password,
+            real_name,
+            role_type,
+            teacher_rank
+        )
+        VALUES (
+                   #{username},
+                   #{password},
+                   #{realName},
+                   #{roleType},
+                   #{teacherRank}
+               )
+    </insert>
+</mapper>
