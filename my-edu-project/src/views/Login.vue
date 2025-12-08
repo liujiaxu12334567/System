@@ -97,6 +97,7 @@ import axios from 'axios'
 const router = useRouter()
 const isRegister = ref(false)
 const loading = ref(false)
+// 你的后端地址，如果在 vite.config.js 配置了 proxy，这里也可以写成 '/api'
 const BASE_URL = 'http://localhost:8080'
 
 const form = reactive({
@@ -146,7 +147,7 @@ const handleSubmit = async () => {
     } catch (error) {
       console.error('注册失败', error)
 
-      // 【修改点】这里会获取后端返回的文字 "该学号...已被注册！"
+      // 获取后端返回的文字 "该学号...已被注册！"
       if (error.response && error.response.data) {
         ElMessage.error(error.response.data)
       } else {
@@ -170,14 +171,16 @@ const handleSubmit = async () => {
         localStorage.setItem('token', token)
         localStorage.setItem('userInfo', JSON.stringify(res.data))
         ElMessage.success('登录成功')
-        router.push('/index')
+
+        // ★★★★★ 关键修改：跳转到 /home (对应 router/index.js 的配置) ★★★★★
+        router.push('/home')
+
       } else {
         ElMessage.warning('登录异常：未获取到令牌')
       }
 
     } catch (error) {
       console.error('登录失败', error)
-      // 登录失败通常也是显示后端返回的错误信息
       const msg = error.response?.data?.message || '登录失败，请检查账号密码'
       ElMessage.error(msg)
     } finally {

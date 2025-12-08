@@ -1,192 +1,401 @@
 <template>
-  <div class="home-layout">
-    <el-container style="height: 100vh;">
+  <div class="home-container">
+    <header class="neu-header">
+      <div class="header-inner">
+        <div class="left-section">
+          <h1 class="logo">Neuedu</h1>
+          <nav class="nav-links">
+            <a href="#" class="active">首页</a>
+            <a href="#">课程学习</a>
+            <a href="#">个性学习</a>
+            <a href="#">考试</a>
+            <a href="#">素质活动</a>
+            <a href="#">毕业设计</a>
+          </nav>
+        </div>
+        <div class="right-section">
+          <el-button type="primary" round class="ai-btn">
+            <el-icon style="margin-right: 4px"><MagicStick /></el-icon> NEU AI
+          </el-button>
+          <div class="icon-wrap">
+            <el-badge is-dot class="badge-dot">
+              <el-icon :size="20" color="#606266"><Bell /></el-icon>
+            </el-badge>
+          </div>
+          <div class="user-info">
+            <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
+            <span class="username">{{ userInfo.realName || '同学' }}</span>
+          </div>
+        </div>
+      </div>
+    </header>
 
-      <el-aside width="80px" class="sidebar">
-        <div class="logo-area">
-          <el-icon :size="40" color="#409EFF"><Reading /></el-icon>
-          <span style="font-size: 12px; font-weight: bold; margin-top: 5px;">NEU AI</span>
+    <div class="banner-section">
+      <div class="banner-inner">
+        <div class="greeting-box">
+          <h2>Hello, {{ userInfo.realName || '同学' }}</h2>
+          <p>欢迎登录东软智慧教育平台</p>
+          <div class="semester-box">
+            <el-select v-model="currentSemester" class="custom-select" :teleported="false">
+              <el-option label="2025-2026学年 第1学期" value="2025-1" />
+              <el-option label="2024-2025学年 第2学期" value="2024-2" />
+            </el-select>
+          </div>
+        </div>
+        <div class="banner-img">
+          <el-icon :size="220" color="rgba(255,255,255,0.15)"><Platform /></el-icon>
+        </div>
+      </div>
+    </div>
+
+    <main class="main-content">
+
+      <section class="content-block">
+        <div class="block-header">
+          <h3 class="title">我的课程 <span class="count">({{ courseList.length }})</span></h3>
+          <el-link :underline="false" class="more-link">更多 <el-icon><ArrowRight /></el-icon></el-link>
         </div>
 
-        <div class="nav-menu">
-          <div class="nav-item">
-            <el-icon :size="24"><ChatLineRound /></el-icon>
-            <span>对话</span>
+        <el-skeleton :rows="3" animated v-if="loading" />
+
+        <div class="course-grid" v-else>
+          <div class="course-card"
+               v-for="item in courseList"
+               :key="item.id"
+               :class="'bg-' + (item.color || 'blue')"> <div class="status-row">
+            <span class="status-tag">{{ item.status }}</span>
           </div>
-          <div class="nav-item active">
-            <el-icon :size="24"><Suitcase /></el-icon>
-            <span>工具箱</span>
-          </div>
-          <div class="nav-item">
-            <el-icon :size="24"><Cpu /></el-icon>
-            <span>智能体</span>
-          </div>
-        </div>
-      </el-aside>
 
-      <el-main style="padding: 0; background-color: #F7F8FC;">
-
-        <div class="top-banner">
-          <h1>AI工具箱，为您打造高效课堂</h1>
-          <p>运用多元工具，丰富教学形式，催生课堂新效能</p>
-        </div>
-
-        <div class="content-area">
-          <h3>效率工具</h3>
-
-          <div class="tool-grid">
-            <div
-                class="tool-card"
-                v-for="(item, index) in tools"
-                :key="index"
-            >
-              <div class="icon-box" :style="{ backgroundColor: item.bg }">
-                <el-icon :size="24" :color:="item.color">
-                  <component :is="item.icon" />
-                </el-icon>
+            <div class="card-info">
+              <h4 class="course-name">{{ item.name }}</h4>
+              <div class="course-meta">
+                <span>{{ item.semester }}</span>
+                <span class="divider">|</span>
+                <span>{{ item.teacher }}</span>
               </div>
-              <div class="text-box">
-                <h4>{{ item.title }}</h4>
-                <p>{{ item.desc }}</p>
-              </div>
+              <p class="course-code">{{ item.code }}</p>
+            </div>
+
+            <div class="card-action">
+              <span class="enter-text" v-if="item.isTop === 1">置顶</span>
+              <span class="enter-text" v-else></span>
+              <span class="start-btn">开始学习</span>
             </div>
           </div>
         </div>
+      </section>
 
-      </el-main>
-    </el-container>
+      <section class="content-block">
+        <div class="block-header">
+          <h3 class="title">我的项目 <span class="count">(0)</span></h3>
+          <el-link :underline="false" class="more-link">更多 <el-icon><ArrowRight /></el-icon></el-link>
+        </div>
+        <div class="empty-area">
+          <div class="custom-empty">
+            <el-icon :size="60" color="#e0e0e0"><Box /></el-icon>
+            <p>暂无项目</p>
+          </div>
+        </div>
+      </section>
+
+      <div class="bottom-row">
+        <section class="content-block half-block">
+          <div class="block-header">
+            <div class="header-left">
+              <h3 class="title">我的学习任务</h3>
+              <div class="tabs">
+                <span class="tab active">未作答</span>
+                <span class="tab">作答中</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="task-list" v-if="taskList.length > 0">
+            <div class="task-item" v-for="task in taskList" :key="task.id">
+              <div class="item-left">
+                <el-tag type="warning" effect="plain" size="small" class="type-tag">测验</el-tag>
+                <div class="item-content">
+                  <div class="task-title">{{ task.name }}</div>
+                  <div class="task-desc">截止时间：{{ task.deadline }} <span class="sep">| {{ task.courseName }}</span></div>
+                </div>
+              </div>
+              <el-button type="primary" plain round size="small" class="action-btn">
+                {{ task.status === '未作答' ? '去作答' : task.status }}
+              </el-button>
+            </div>
+          </div>
+          <div class="empty-area small" v-else>
+            <div class="custom-empty">
+              <el-icon :size="50" color="#e0e0e0"><Document /></el-icon>
+              <p>暂无任务</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-block half-block">
+          <div class="block-header">
+            <h3 class="title">我的考试</h3>
+            <el-link :underline="false" class="more-link">更多 <el-icon><ArrowRight /></el-icon></el-link>
+          </div>
+          <div class="empty-area small">
+            <div class="custom-empty">
+              <el-icon :size="50" color="#e0e0e0"><Tickets /></el-icon>
+              <p>暂无考试</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+    </main>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { Bell, MagicStick, Platform, ArrowRight, Box, Document, Tickets } from '@element-plus/icons-vue'
+import axios from 'axios'
+import { ElMessage } from 'element-plus'
 
-const tools = ref([
-  { title: '代码纠错', desc: '扫描代码文本，AI 精准定位错误', icon: 'Edit', bg: '#FFEBEE', color: '#FF5252' },
-  { title: '代码解读', desc: '拆解复杂代码，AI 梳理逻辑', icon: 'Document', bg: '#F3E5F5', color: '#9C27B0' },
-  { title: '代码优化', desc: '定位性能瓶颈，AI 重构代码', icon: 'Cpu', bg: '#E8F5E9', color: '#4CAF50' },
-  { title: '智能阅读', desc: 'AI 深度解析文档，提炼关键信息', icon: 'Reading', bg: '#FFF3E0', color: '#FF9800' },
-  { title: '智能推荐', desc: '洞察学习偏好，智能推荐资源', icon: 'Star', bg: '#E3F2FD', color: '#2196F3' },
-  { title: '智能写作', desc: '输入创作思路，AI 挥笔成章', icon: 'EditPen', bg: '#E0F7FA', color: '#00BCD4' },
-  { title: '智能翻译', desc: '打破语言藩篱，AI 秒速翻译', icon: 'Connection', bg: '#E1F5FE', color: '#03A9F4' },
-  { title: '试题陪练', desc: '定制练习计划，AI 陪练提升', icon: 'DataBoard', bg: '#FCE4EC', color: '#E91E63' },
-])
+const BASE_URL = 'http://localhost:8080'
+const userInfo = ref({ realName: '' })
+const currentSemester = ref('2025-1')
+const loading = ref(true)
+const courseList = ref([])
+const taskList = ref([])
+
+onMounted(() => {
+  // 1. 先尝试从缓存显示名字，防止闪烁
+  const storedUser = localStorage.getItem('userInfo')
+  if (storedUser) {
+    try { userInfo.value = JSON.parse(storedUser) } catch(e) {}
+  }
+  // 2. 调用后端接口
+  fetchHomeData()
+})
+
+const fetchHomeData = async () => {
+  try {
+    const token = localStorage.getItem('token')
+    const res = await axios.get(`${BASE_URL}/api/home/data`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+
+    if (res.data) {
+      // 更新姓名
+      if (res.data.realName) {
+        userInfo.value.realName = res.data.realName
+      }
+      // 更新课程列表
+      courseList.value = res.data.courses || []
+      // 更新任务列表
+      taskList.value = res.data.tasks || []
+    }
+  } catch (error) {
+    console.error(error)
+  } finally {
+    loading.value = false
+  }
+}
 </script>
 
 <style scoped lang="scss">
-.sidebar {
-  background: #fff;
-  border-right: 1px solid #eee;
+/* 90% 宽度，配合你之前的全局样式 style.css */
+$content-width: 90%;
+
+.home-container {
+  min-height: 100vh;
+  background-color: #F5F7FA;
+  width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding-top: 20px;
+}
 
-  .logo-area {
+/* Header */
+.neu-header {
+  background: #fff;
+  height: 60px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  width: 100%;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.05);
+
+  .header-inner {
+    width: $content-width;
+    margin: 0 auto;
+    height: 100%;
     display: flex;
-    flex-direction: column;
+    justify-content: space-between;
     align-items: center;
-    margin-bottom: 40px;
-  }
 
-  .nav-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    width: 60px;
-    height: 60px;
-    margin-bottom: 20px;
-    color: #909399;
-    cursor: pointer;
-    font-size: 12px;
-    border-radius: 10px;
-
-    &:hover {
-      background-color: #f5f7fa;
+    .left-section {
+      display: flex; align-items: center;
+      .logo {
+        font-size: 24px; color: #0041AB; margin-right: 40px;
+        font-weight: 900; letter-spacing: -0.5px;
+      }
+      .nav-links a {
+        text-decoration: none; color: #606266; margin-right: 32px; font-size: 15px; font-weight: 500;
+        &:hover, &.active { color: #245FE6; font-weight: 700; }
+      }
     }
-
-    &.active {
-      color: #409EFF;
-      background-color: #ecf5ff;
-    }
-
-    span {
-      margin-top: 5px;
+    .right-section {
+      display: flex; align-items: center; gap: 20px;
+      .ai-btn {
+        background: linear-gradient(90deg, #5383FC 0%, #766DFF 100%);
+        border: none; padding: 18px 22px; font-weight: 600; font-style: italic; border-radius: 20px;
+      }
+      .icon-wrap { cursor: pointer; display: flex; align-items: center; }
+      .user-info {
+        display: flex; align-items: center; gap: 10px; cursor: pointer;
+        .username { font-size: 14px; color: #333; font-weight: 500;}
+      }
     }
   }
 }
 
-.top-banner {
-  background: linear-gradient(90deg, #EBF5FF 0%, #F5F0FF 100%);
-  padding: 40px;
-  text-align: center;
+/* Banner */
+.banner-section {
+  width: 100%;
+  height: 360px;
+  background: linear-gradient(135deg, #2E5CF6 0%, #1593F8 100%);
+  color: #fff;
+  padding-top: 50px;
 
-  h1 {
-    color: #409EFF;
-    margin: 0 0 10px 0;
-  }
-  p {
-    color: #606266;
-    margin: 0;
+  .banner-inner {
+    width: $content-width;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    position: relative;
+
+    .greeting-box {
+      h2 { font-size: 40px; margin: 0 0 10px 0; font-weight: 500; letter-spacing: 0.5px; }
+      p { font-size: 16px; opacity: 0.8; margin-bottom: 30px; }
+
+      :deep(.custom-select) {
+        width: 280px;
+        .el-input__wrapper {
+          background-color: rgba(255,255,255,0.15);
+          box-shadow: none;
+          border: 1px solid rgba(255,255,255,0.3);
+          border-radius: 4px;
+          .el-input__inner { color: #fff; }
+        }
+      }
+    }
+    .banner-img { margin-right: 40px; margin-top: 10px; opacity: 0.9; }
   }
 }
 
-.content-area {
-  padding: 30px;
-  max-width: 1200px;
-  margin: 0 auto;
+/* Main Content */
+.main-content {
+  width: $content-width;
+  margin: -130px auto 40px;
+  position: relative;
+  z-index: 10;
+  padding-bottom: 20px;
+}
 
-  h3 {
-    margin-bottom: 20px;
-    font-size: 18px;
-    color: #303133;
-  }
+/* 通用块 */
+.content-block {
+  margin-bottom: 24px;
 
-  .tool-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr); /* 一行4个 */
-    gap: 20px;
-  }
-
-  .tool-card {
-    background: #fff;
-    padding: 20px;
-    border-radius: 8px;
-    display: flex;
-    align-items: flex-start;
-    cursor: pointer;
-    transition: all 0.3s;
-
-    &:hover {
-      transform: translateY(-5px);
-      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+  .block-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;
+    padding-left: 2px;
+    .title {
+      font-size: 16px; font-weight: 700; color: #303133; margin: 0;
+      border-left: 4px solid #FFA500; padding-left: 10px; line-height: 16px;
+      .count { color: #909399; font-weight: 400; font-size: 14px; margin-left: 5px; }
     }
+    .more-link { font-size: 12px; color: #909399; &:hover { color: #245FE6; } }
 
-    .icon-box {
-      width: 40px;
-      height: 40px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-right: 15px;
-      flex-shrink: 0;
-    }
-
-    .text-box {
-      h4 {
-        margin: 0 0 8px 0;
-        font-size: 15px;
-        color: #333;
-      }
-      p {
-        margin: 0;
-        font-size: 12px;
-        color: #999;
-        line-height: 1.5;
+    .header-left {
+      display: flex; align-items: center; gap: 30px;
+      .tabs {
+        display: flex; gap: 20px; font-size: 14px;
+        .tab { color: #909399; cursor: pointer; &.active { color: #245FE6; font-weight: bold; } }
       }
     }
+  }
+}
+
+/* 课程卡片 */
+.course-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.course-card {
+  background: #fff;
+  border-radius: 8px;
+  height: 160px;
+  padding: 18px 22px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  transition: transform 0.2s;
+
+  &:hover { transform: translateY(-3px); }
+
+  /* 颜色 */
+  &.bg-pink { background: linear-gradient(135deg, #FF758C 0%, #FF7EB3 100%); }
+  &.bg-blue { background: linear-gradient(135deg, #6B8DD6 0%, #8E9EFC 100%); }
+  &.bg-purple { background: linear-gradient(135deg, #A18CD1 0%, #FBC2EB 100%); }
+  &.bg-red { background: linear-gradient(135deg, #FF9A9E 0%, #FAD0C4 100%); }
+
+  .status-row { text-align: right; margin-bottom: 0; }
+  .status-tag {
+    background: rgba(255,255,255,0.25); font-size: 12px; padding: 2px 8px; border-radius: 4px;
+  }
+
+  .card-info {
+    .course-name { font-size: 18px; margin: 0 0 8px 0; font-weight: 700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+    .course-meta { font-size: 12px; opacity: 0.95; margin-bottom: 4px; .divider { margin: 0 5px; opacity: 0.6; } }
+    .course-code { font-size: 12px; opacity: 0.75; font-family: monospace; margin: 0; }
+  }
+
+  .card-action {
+    display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px;
+    .enter-text { font-size: 12px; opacity: 0.8; cursor: pointer; }
+    .start-btn {
+      font-size: 12px; background: #fff; color: #333; padding: 2px 10px; border-radius: 12px; font-weight: 500;
+    }
+  }
+}
+
+.empty-area {
+  background: #fff; border-radius: 8px; height: 180px;
+  display: flex; justify-content: center; align-items: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  .custom-empty { text-align: center; color: #ccc; p { font-size: 13px; margin-top: 10px; } }
+  &.small { height: 300px; }
+}
+
+.bottom-row { display: flex; gap: 20px; .half-block { flex: 1; } }
+
+.task-list {
+  background: #fff; border-radius: 8px; padding: 0 20px; min-height: 300px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  .task-item {
+    display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-bottom: 1px solid #f5f5f5;
+    &:last-child { border-bottom: none; }
+    .item-left {
+      display: flex; gap: 12px; align-items: flex-start;
+      .type-tag { margin-top: 2px; }
+      .item-content {
+        .task-title { font-size: 14px; color: #333; margin-bottom: 4px; display:flex; align-items:center; gap:5px; font-weight: 500;}
+        .task-desc { font-size: 12px; color: #999; .sep { margin-left: 10px; } }
+      }
+    }
+    .action-btn { font-size: 12px; padding: 6px 15px; }
   }
 }
 </style>
