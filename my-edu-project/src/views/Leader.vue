@@ -3,15 +3,15 @@
     <el-aside width="220px" class="sidebar">
       <div class="logo">课题组管理中心</div>
       <el-menu default-active="1" class="el-menu-vertical" background-color="#2a2d43" text-color="#bfcbd9" active-text-color="#ffffff">
-        <el-menu-item index="1"><el-icon><DataLine /></el-icon>课程管理</el-menu-item>
-        <el-menu-item index="2"><el-icon><UserFilled /></el-icon>教师调配</el-menu-item>
-        <el-menu-item index="3"><el-icon><Reading /></el-icon>考试安排</el-menu-item>
+        <el-menu-item index="1"><el-icon><DataLine /></el-icon>我的课程管理</el-menu-item>
+        <el-menu-item index="2"><el-icon><UserFilled /></el-icon>课题组成员</el-menu-item>
+        <el-menu-item index="3"><el-icon><Reading /></el-icon>团队资料</el-menu-item>
       </el-menu>
     </el-aside>
 
     <el-main class="main-content">
       <div class="header-bar">
-        <div class="breadcrumb">首页 / 课题组管理</div>
+        <div class="breadcrumb">首页 / 课程资料下发</div>
         <div class="user-profile">
           <span>欢迎您，{{ userInfo.realName || '组长' }}</span>
           <el-button link type="primary" @click="logout" style="margin-left: 15px">退出</el-button>
@@ -20,86 +20,66 @@
 
       <div class="content-panel">
         <div class="panel-header">
-          <h3>课程管理与排课</h3>
-          <div class="header-buttons">
-            <el-button type="warning" @click="openBatchAssignDialog" style="margin-right: 10px;">批量分配课程</el-button>
-            <el-button type="primary" @click="openCourseDialog">+ 发布新课程</el-button>
-          </div>
+          <h3>我的课程列表与内容下发</h3>
         </div>
+
+        <el-alert title="说明：您只能管理您在教师列表中承担任课任务的课程。" type="info" show-icon style="margin-bottom: 20px;" />
 
         <el-table :data="courseList" border stripe style="width: 100%">
           <el-table-column prop="name" label="课程名称" width="180" />
           <el-table-column prop="classId" label="所属班级" width="100" />
-          <el-table-column prop="code" label="课程代码" width="100" />
           <el-table-column prop="semester" label="学期" width="150" />
-          <el-table-column prop="teacher" label="任课教师">
+          <el-table-column prop="teacher" label="任课教师" min-width="150" />
+          <el-table-column label="操作" width="280">
             <template #default="scope">
-              <el-tag v-if="scope.row.teacher" type="success">{{ scope.row.teacher }}</el-tag>
-              <el-tag v-else type="info">未分配</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="status" label="状态" width="100">
-            <template #default="scope">
-              <el-tag effect="plain">{{ scope.row.status }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="250">
-            <template #default="scope">
-              <el-button size="small" type="warning" @click="openAssignDialog(scope.row)">分配教师</el-button>
+              <el-button size="small" type="success" plain @click="openContentDialog(scope.row)">下发资料/测验</el-button>
+
+              <el-button size="small" type="warning" @click="openAssignDialog(scope.row)">调整教师</el-button>
 
               <el-popconfirm title="确定删除该课程吗？" @confirm="handleDelete(scope.row.id)">
                 <template #reference>
                   <el-button size="small" type="danger">删除</el-button>
                 </template>
               </el-popconfirm>
-
-              <el-button size="small" type="primary" plain>发布考试</el-button>
             </template>
           </el-table-column>
         </el-table>
       </div>
 
-      <el-dialog v-model="courseDialogVisible" title="发布新课程" width="500px">
-        <el-form :model="courseForm" label-width="80px">
-          <el-form-item label="课程名称">
-            <el-input v-model="courseForm.name" placeholder="例如：高级Java程序设计" />
-          </el-form-item>
-          <el-form-item label="所属学期">
-            <el-select v-model="courseForm.semester" placeholder="请选择学期" style="width: 100%">
-              <el-option label="2025-2026学年 第1学期" value="2025-1" />
-              <el-option label="2024-2025学年 第2学期" value="2024-2" />
-            </el-select>
-          </el-form-item>
+      <el-dialog v-model="contentDialogVisible" :title="'下发内容 - ' + currentRow.name + ' (' + currentRow.classId + ')'" width="750px">
+        <el-alert title="请选择您要下发的内容类型，并点击提交按钮下发给学生。" type="warning" :closable="false" style="margin-bottom: 20px;" />
 
-          <el-form-item label="所属班级">
-            <el-select v-model="courseForm.classId" placeholder="请选择所属班级 (必填)" style="width: 100%">
-              <el-option
-                  v-for="c in classList"
-                  :key="c.id"
-                  :label="c.name + ' (ID: ' + c.id + ')'"
-                  :value="c.id"
-              />
-            </el-select>
-          </el-form-item>
+        <div class="content-tabs">
+          <el-button
+              v-for="item in contentTypes"
+              :key="item"
+              :type="selectedContentType === item ? 'primary' : 'default'"
+              @click="selectedContentType = item"
+              style="margin: 0 10px 10px 0"
+          >
+            {{ item }}
+          </el-button>
+        </div>
 
-          <el-form-item label="主讲教师">
-            <el-select v-model="courseForm.teacher" placeholder="请选择(可选)" style="width: 100%">
-              <el-option
-                  v-for="t in teacherList"
-                  :key="t.userId"
-                  :label="t.realName"
-                  :value="t.realName"
-              />
-            </el-select>
+        <el-form label-width="100px" style="margin-top: 20px;">
+          <el-form-item :label="selectedContentType">
+            <el-input
+                v-model="contentPayload"
+                :rows="3"
+                type="textarea"
+                placeholder="在此处填写资料链接、测验题目描述或上传文件..."
+            />
           </el-form-item>
         </el-form>
+
         <template #footer>
-          <el-button @click="courseDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="submitCourse">确认发布</el-button>
+          <el-button @click="contentDialogVisible = false">取消</el-button>
+          <el-button type="success" @click="submitCourseMaterial">提交并下发内容</el-button>
         </template>
       </el-dialog>
 
-      <el-dialog v-model="assignDialogVisible" title="分配任课教师" width="400px">
+
+      <el-dialog v-model="assignDialogVisible" title="调整任课教师" width="400px">
         <p style="margin-bottom: 5px">当前课程：{{ currentRow.name }}</p>
         <p style="margin-bottom: 15px; font-weight: bold;">所属班级ID: {{ currentRow.classId }}</p>
         <el-select v-model="selectedTeacher" placeholder="请选择教师" style="width: 100%">
@@ -112,48 +92,7 @@
         </el-select>
         <template #footer>
           <el-button @click="assignDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="submitAssign">确认分配</el-button>
-        </template>
-      </el-dialog>
-
-      <el-dialog v-model="batchAssignDialogVisible" title="批量分配/复制课程" width="600px">
-        <el-form :model="batchAssignForm" label-width="100px">
-          <el-form-item label="课程名称">
-            <el-input v-model="batchAssignForm.name" placeholder="例如：高级Java程序设计" />
-          </el-form-item>
-          <el-form-item label="所属学期">
-            <el-select v-model="batchAssignForm.semester" placeholder="请选择学期" style="width: 100%">
-              <el-option label="2025-2026学年 第1学期" value="2025-1" />
-              <el-option label="2024-2025学年 第2学期" value="2024-2" />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="分配教师">
-            <el-select v-model="batchAssignForm.teacherNames" multiple placeholder="请选择主讲教师 (可多选)" style="width: 100%">
-              <el-option
-                  v-for="t in teacherList"
-                  :key="t.userId"
-                  :label="t.realName"
-                  :value="t.realName"
-              />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="目标班级">
-            <el-select v-model="batchAssignForm.classIds" multiple placeholder="请选择要分配的班级 (可多选)" style="width: 100%">
-              <el-option
-                  v-for="c in classList"
-                  :key="c.id"
-                  :label="c.name + ' (ID: ' + c.id + ')'"
-                  :value="c.id"
-              />
-            </el-select>
-          </el-form-item>
-
-        </el-form>
-        <template #footer>
-          <el-button @click="batchAssignDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="submitBatchAssign">确认批量分配</el-button>
+          <el-button type="primary" @click="submitAssign">确认调整</el-button>
         </template>
       </el-dialog>
 
@@ -164,7 +103,7 @@
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { DataLine, UserFilled, Reading } from '@element-plus/icons-vue' // 移除 Notebook, 保持当前图标
+import { DataLine, UserFilled, Reading, Setting } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 
@@ -172,16 +111,18 @@ const router = useRouter()
 const userInfo = ref({})
 const courseList = ref([])
 const teacherList = ref([]) // 包含 Leader 和 Teacher
-const classList = ref([]) // 存储班级列表
+const classList = ref([]) // 班级列表 (未使用，但保留)
 
 // 弹窗控制
-const courseDialogVisible = ref(false)
+const contentDialogVisible = ref(false) // 内容下发弹窗
 const assignDialogVisible = ref(false)
-const batchAssignDialogVisible = ref(false)
-const courseForm = ref({ name: '', semester: '2025-1', teacher: '', classId: null })
 const currentRow = ref({})
 const selectedTeacher = ref('')
-const batchAssignForm = reactive({ name: '', semester: '2025-1', teacherNames: [], classIds: [] })
+
+// 内容下发状态
+const contentTypes = ref(['导学', '教材', '教学目标', '知识图谱', '目录', 'FAQ', '学习资料', '测验', '作业', '项目'])
+const selectedContentType = ref('导学')
+const contentPayload = ref('')
 
 
 onMounted(() => {
@@ -194,18 +135,17 @@ onMounted(() => {
 
 const fetchData = async () => {
   try {
-    // 1. 获取课程列表
+    // 1. 获取当前 Leader 负责的课程列表 (LeaderController 已经限制了 scope)
     const resCourses = await request.get('/leader/course/list')
     courseList.value = resCourses || []
 
-    // 2. 获取教师和组长列表 (LeaderController 接口返回 Role=2 和 Role=3)
+    // 2. 获取教师和组长列表 (用于调整教师的下拉框)
     const resTeachers = await request.get('/leader/teacher/list')
     teacherList.value = resTeachers || []
 
-    // 3. 获取所有已创建的班级列表 (复用 Admin 接口)
-    // 注意：AdminController 中的 /admin/classes 接口返回的班级列表用于课程分配
-    const resClasses = await request.get('/admin/classes');
-    classList.value = Array.isArray(resClasses) ? resClasses : [];
+    // 3. 获取所有已创建的班级列表 (虽然 Leader 不发布新课程，但保留接口调用)
+    // const resClasses = await request.get('/admin/classes');
+    // classList.value = Array.isArray(resClasses) ? resClasses : [];
 
   } catch (error) {
     console.error(error)
@@ -213,27 +153,38 @@ const fetchData = async () => {
   }
 }
 
-// === 发布课程 ===
-const openCourseDialog = () => {
-  courseForm.value = { name: '', semester: '2025-1', teacher: '', classId: null }
-  courseDialogVisible.value = true
+// === 内容下发功能 ===
+const openContentDialog = (row) => {
+  currentRow.value = row
+  selectedContentType.value = '导学' // 默认选择
+  contentPayload.value = ''
+  contentDialogVisible.value = true
 }
 
-const submitCourse = async () => {
-  if(!courseForm.value.name) return ElMessage.warning('请填写课程名称')
-  if(!courseForm.value.classId) return ElMessage.warning('请选择所属班级')
+const submitCourseMaterial = async () => {
+  if(!contentPayload.value) {
+    return ElMessage.warning(`请为 [${selectedContentType.value}] 填写内容`);
+  }
+
   try {
-    // 调用 Leader Controller 的 add 接口
-    await request.post('/leader/course/add', courseForm.value)
-    ElMessage.success('课程发布成功')
-    courseDialogVisible.value = false
-    fetchData()
+    const payload = {
+      type: selectedContentType.value,
+      content: contentPayload.value
+    };
+
+    // 调用后端的内容下发接口
+    await request.post(`/leader/course/${currentRow.value.id}/upload-material`, payload);
+
+    ElMessage.success(`[${selectedContentType.value}] 资料已成功下发！`);
+    contentDialogVisible.value = false;
+
   } catch (e) {
-    ElMessage.error(e.response?.data || '课程发布失败')
+    ElMessage.error(e.response?.data || '资料下发失败');
   }
 }
 
-// === 单个分配教师 ===
+
+// === 调整教师 ===
 const openAssignDialog = (row) => {
   currentRow.value = row
   selectedTeacher.value = row.teacher || ''
@@ -243,48 +194,17 @@ const openAssignDialog = (row) => {
 const submitAssign = async () => {
   if(!selectedTeacher.value) return ElMessage.warning('请选择任课教师')
   try {
-    // 传递 classId 和 courseId，以便后端更新 teaching_classes
+    // 传递 classId 和 courseId，以便后端更新 teaching_classes (复用 Admin/Leader update 接口)
     await request.post('/leader/course/update', {
       id: currentRow.value.id,
       teacher: selectedTeacher.value,
       classId: currentRow.value.classId
     })
-    ElMessage.success('教师分配成功，执教班级已同步更新')
+    ElMessage.success('教师调整成功，执教班级已同步更新')
     assignDialogVisible.value = false
     fetchData()
   } catch (e) {
-    ElMessage.error(e.response?.data || '分配教师失败')
-  }
-}
-
-// === 批量分配 (核心下发) ===
-const openBatchAssignDialog = () => {
-  batchAssignForm.name = '';
-  batchAssignForm.semester = '2025-1';
-  batchAssignForm.teacherNames = [];
-  batchAssignForm.classIds = [];
-  batchAssignDialogVisible.value = true;
-}
-
-const submitBatchAssign = async () => {
-  const form = batchAssignForm;
-  if (!form.name || form.teacherNames.length === 0 || form.classIds.length === 0) {
-    return ElMessage.warning('请填写课程名称，并选择至少一位教师和至少一个班级');
-  }
-
-  try {
-    // 调用 Leader Controller 的批量分配接口
-    await request.post('/leader/course/batch-assign', {
-      name: form.name,
-      semester: form.semester,
-      teacherNames: form.teacherNames,
-      classIds: form.classIds
-    });
-    ElMessage.success(`成功分配课程给 ${form.classIds.length} 个班级，教师执教班级已同步更新。`);
-    batchAssignDialogVisible.value = false;
-    fetchData();
-  } catch (e) {
-    ElMessage.error(`批量分配失败`);
+    ElMessage.error(e.response?.data || '调整教师失败')
   }
 }
 
@@ -292,7 +212,6 @@ const submitBatchAssign = async () => {
 // === 删除课程 ===
 const handleDelete = async (id) => {
   try {
-    // 调用 Leader Controller 的删除接口
     await request.post(`/leader/course/delete/${id}`)
     ElMessage.success('删除成功')
     fetchData()

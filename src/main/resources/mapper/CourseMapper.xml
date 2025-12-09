@@ -50,4 +50,10 @@
     <delete id="deleteCourseById">
         DELETE FROM sys_course WHERE id = #{id}
     </delete>
+
+    <select id="selectCoursesByTeacherName" resultMap="CourseResultMap">
+        SELECT * FROM sys_course
+        WHERE teacher LIKE concat('%', #{teacherName}, '%')
+        ORDER BY id DESC
+    </select>
 </mapper>

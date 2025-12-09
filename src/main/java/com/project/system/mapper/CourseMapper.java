@@ -1,4 +1,4 @@
-// src/main/java/com.project.system.mapper/CourseMapper.java
+// src/main/java/com/project/system/mapper/CourseMapper.java
 
 package com.project.system.mapper;
 
@@ -10,10 +10,12 @@ import java.util.List;
 @Mapper
 public interface CourseMapper {
     int insertCourse(Course course);
-    // 【新增】批量插入课程 (用于分配给多个班级)
     int insertBatchCourses(@Param("list") List<Course> list);
 
     List<Course> selectAllCourses();
     int updateCourse(Course course);
     int deleteCourseById(Long id);
+
+    // 【新增/核心方法】根据任课教师姓名查询课程 (用于 Leader 限定scope)
+    List<Course> selectCoursesByTeacherName(@Param("teacherName") String teacherName);
 }
