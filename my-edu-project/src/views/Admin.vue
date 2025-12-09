@@ -136,7 +136,32 @@
         <h2>批量学生入学与分班</h2>
         <el-alert title="说明：批量创建的学生默认角色为 '学生'，默认密码为 '123456'。" type="info" show-icon style="margin-bottom: 20px;" />
 
-        <el-card shadow="hover" header="表格导入分班">
+        <el-card shadow="hover" header="学号范围批量分班">
+          <el-form :model="rangeForm" label-width="120px" :inline="true">
+            <el-form-item label="学号起始">
+              <el-input v-model="rangeForm.startUsername" placeholder="例如: 24107311201" style="width: 200px;" />
+            </el-form-item>
+            <el-form-item label="学号结束">
+              <el-input v-model="rangeForm.endUsername" placeholder="例如: 24107311220" style="width: 200px;" />
+            </el-form-item>
+
+            <el-form-item label="目标班级ID">
+              <el-input v-model="rangeForm.targetClassId" placeholder="请输入班级ID (例如: 202303)" type="number" style="width: 200px;" />
+            </el-form-item>
+
+            <el-form-item label="所属专业">
+              <el-input v-model="rangeForm.major" placeholder="请输入专业名称 (例如: 计算机科学)" style="width: 200px;" />
+            </el-form-item>
+
+            <el-form-item>
+              <el-button type="primary" :loading="loading.range" @click="submitRangeEnroll">
+                批量创建并分班
+              </el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+
+        <el-card shadow="hover" header="表格导入分班" style="margin-top: 20px;">
           <el-form :model="uploadForm" label-width="120px" :inline="true">
 
             <el-form-item label="目标班级ID">
@@ -151,30 +176,19 @@
               <el-input v-model="uploadForm.startUsername" placeholder="例如: 24107311201" style="width: 200px;" />
               <el-tag style="margin-left: 20px" type="warning">导入前必须填写此项，系统将顺序分配学号</el-tag>
             </el-form-item>
-
-            <el-form-item>
-              <el-button
-                  type="primary"
-                  :loading="loading.upload"
-                  @click="submitUpload"
-                  :disabled="!uploadForm.startUsername || !uploadForm.targetClassId || !uploadForm.major"
-              >
-                提交导入
-              </el-button>
-            </el-form-item>
-
           </el-form>
 
           <el-upload
               class="upload-demo"
-              ref="uploadRef"  drag
+              drag
               :action="uploadActionUrl"
               :show-file-list="true"
               :before-upload="beforeUploadCheck"
               :on-success="handleUploadSuccess"
               :on-error="handleUploadError"
               :on-progress="handleUploadProgress"
-              :auto-upload="false"  :data="{ targetClassId: uploadForm.targetClassId, startUsername: uploadForm.startUsername, major: uploadForm.major }"
+              :disabled="loading.upload"
+              :data="{ targetClassId: uploadForm.targetClassId, startUsername: uploadForm.startUsername, major: uploadForm.major }"
               :headers="uploadHeaders"
               :limit="1"
           >
@@ -288,7 +302,7 @@
             </el-select>
           </el-form-item>
 
-          <el-form-item label="所选班级">
+          <el-form-item label="所属班级">
             <el-select v-model="courseForm.classId" placeholder="请选择所属班级 (必填)" style="width: 100%">
               <el-option
                   v-for="c in classList"
@@ -400,7 +414,6 @@ const rangeForm = reactive({ startUsername: '', endUsername: '', targetClassId: 
 const uploadForm = reactive({ targetClassId: null, startUsername: '', major: null })
 const uploadActionUrl = '/api/admin/batch/upload'
 const uploadHeaders = { Authorization: `Bearer ${localStorage.getItem('token')}` }
-const uploadRef = ref(null) // 【核心】新增 ref 引用
 
 
 // --- 课程管理状态 ---
@@ -658,34 +671,30 @@ const beforeUploadCheck = (file) => {
   return isXlsx;
 };
 
-// 【核心修改】实现手动上传
-const submitUpload = () => {
-  // 1. 触发字段校验
-  if (!uploadForm.targetClassId || !uploadForm.startUsername || !uploadForm.major) {
-    return ElMessage.warning('请确保班级ID、专业和起始学号都已填写！');
+const submitRangeEnroll = async () => {
+  if (!rangeForm.startUsername || !rangeForm.endUsername || !rangeForm.targetClassId || !rangeForm.major) {
+    return ElMessage.warning('请填写完整的学号范围、目标班级ID和所属专业');
   }
 
-  // 2. 检查是否有文件待上传
-  // 【修复点】使用可选链操作符安全地检查文件列表长度
-  if (!uploadRef.value || !uploadRef.value.uploadFiles || uploadRef.value.uploadFiles.length === 0) {
-    return ElMessage.warning('请先选择或拖拽文件！');
+  try {
+    loading.range = true;
+    // 提交包含 major 的数据
+    const res = await request.post('/admin/batch/enroll', rangeForm);
+    ElMessage.success(res);
+  } catch (e) {
+    ElMessage.error(e.response.data || '批量创建失败');
+  } finally {
+    loading.range = false;
   }
-
-  // 3. 手动触发上传
-  uploadRef.value.submit();
 };
 
 const handleUploadSuccess = (response, file) => {
   loading.upload = false;
-  // 清空文件列表，允许再次上传
-  uploadRef.value.clearFiles();
   ElMessage.success(response);
-  fetchUsers(); // 刷新用户列表
 };
 
 const handleUploadError = (error) => {
   loading.upload = false;
-  uploadRef.value.clearFiles();
   let message = '文件上传失败';
   if (error.response && error.response.data) {
     message = error.response.data;

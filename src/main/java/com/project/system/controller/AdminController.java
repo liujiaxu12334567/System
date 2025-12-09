@@ -58,7 +58,7 @@ public class AdminController {
     @Autowired
     private ClassMapper classMapper;
 
-    // 【辅助方法 1】检查并插入新班级 (核心修复：接收 major 参数)
+    // 【核心修复】辅助方法：检查并插入新班级 (对 major 字段进行修剪和安全检查)
     private void checkAndInsertClass(Long classId, String major) {
         if (classId == null) return;
 
@@ -66,15 +66,19 @@ public class AdminController {
 
         if (existingClass == null) {
             String className = String.valueOf(classId) + "班";
-            // 使用传入的 major，如果为空则使用占位符
-            String finalMajor = (major != null && !major.isEmpty()) ? major : "未分配专业";
+
+            // 【关键修复点】：修剪 major 字段，防止前端传入的空格导致校验失败
+            String trimmedMajor = (major != null) ? major.trim() : null;
+
+            // 使用修剪后的 major 进行判断
+            String finalMajor = (trimmedMajor != null && !trimmedMajor.isEmpty()) ? trimmedMajor : "未分配专业";
 
             Class newClass = new Class(classId, className, finalMajor);
             classMapper.insert(newClass);
         }
     }
 
-    // 【重载】如果只需要 classId，则使用占位符 major
+    // 【重载】如果只需要 classId (例如课程分配)，则使用占位符 major
     private void checkAndInsertClass(Long classId) {
         checkAndInsertClass(classId, null);
     }
