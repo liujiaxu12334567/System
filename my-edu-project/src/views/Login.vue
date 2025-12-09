@@ -133,7 +133,7 @@ const handleSubmit = async () => {
         username: form.username,
         password: form.password,
         realName: form.realName,
-        roleType: 4 // 【修正点1】注册默认为 4 (学生)
+        roleType: 4 // 注册默认还是学生，防止乱注册管理员
       })
       ElMessage.success('注册成功，请登录')
       toggleMode()
@@ -158,10 +158,19 @@ const handleSubmit = async () => {
         localStorage.setItem('userInfo', JSON.stringify(res))
         ElMessage.success('登录成功')
 
-        // 【修正点2】统一使用字符串 '1' 判断管理员
-        // 确保数据库 role_type 为 1 时跳转到 /admin
-        if (String(res.role) === '1') {
+        // 【核心修改】精准的角色跳转逻辑
+        // 1 = 管理员 -> /admin
+        // 2 = 课程组长 -> /leader
+        // 3 = 普通教师 -> /teacher (预留)
+        // 4 = 学生 -> /home
+        const role = String(res.role)
+
+        if (role === '1') {
           router.push('/admin')
+        } else if (role === '2') {
+          router.push('/leader') // <--- 跳转到组长页面
+        } else if (role === '3') {
+          router.push('/teacher') // <--- 跳转到普通教师页面 (如果没有这个页，可以暂时跳 /home)
         } else {
           router.push('/home')
         }

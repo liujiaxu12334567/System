@@ -10,9 +10,12 @@ public class User {
     private String password;
     private String realName;
     private String email;
-    private String roleType;    // ADMIN, TEACHER, STUDENT
-    private String teacherRank; // NORMAL, LEADER
+    private String roleType;    // 1=Admin, 2=Leader, 3=Teacher, 4=Student
+    private String teacherRank;
     private String accountStatus;
-    private Long classId;       // 新增：班级ID
+
+    private Long classId;           // 【学生用】所属班级
+    private String teachingClasses; // 【教师用】执教班级 (例如 "101,102")
+
     private LocalDateTime createTime;
 }

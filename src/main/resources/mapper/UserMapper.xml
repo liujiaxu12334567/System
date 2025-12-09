@@ -15,8 +15,29 @@
         <result property="teacherRank"  column="teacher_rank" />
         <result property="accountStatus" column="account_status" />
         <result property="classId"      column="class_id" />
+        <result property="teachingClasses" column="teaching_classes" />
         <result property="createTime"   column="create_time" />
     </resultMap>
+
+    <sql id="FilterWhereClause">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (username LIKE concat('%', #{keyword}, '%')
+                OR real_name LIKE concat('%', #{keyword}, '%'))
+            </if>
+            <if test="roleType != null and roleType != ''">
+                AND role_type = #{roleType}
+            </if>
+            <if test="classId != null and classId != ''">
+                AND class_id = #{classId}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countAllUsers" resultType="long">
+        SELECT count(user_id) FROM sys_user
+        <include refid="FilterWhereClause"/>
+    </select>
 
     <select id="findByUsername" resultMap="UserResultMap">
         SELECT * FROM sys_user WHERE username = #{username}
@@ -24,22 +45,20 @@
 
     <select id="selectAllUsers" resultMap="UserResultMap">
         SELECT * FROM sys_user
-        <where>
-            <if test="username != null and username != ''">
-                AND (username LIKE concat('%', #{username}, '%')
-                OR real_name LIKE concat('%', #{username}, '%'))
-            </if>
-        </where>
+        <include refid="FilterWhereClause"/>
         ORDER BY user_id DESC
+        LIMIT #{pageSize} OFFSET #{offset}
     </select>
 
     <update id="updateUser">
         UPDATE sys_user
         <set>
-            <if test="realName != null and realName != ''">real_name = #{realName},</if>
+            <if test="realName != null">real_name = #{realName},</if>
             <if test="password != null and password != ''">password = #{password},</if>
             <if test="roleType != null">role_type = #{roleType},</if>
             <if test="teacherRank != null">teacher_rank = #{teacherRank},</if>
+            <if test="classId != null">class_id = #{classId},</if>
+            <if test="teachingClasses != null">teaching_classes = #{teachingClasses},</if>
         </set>
         WHERE user_id = #{userId}
     </update>
@@ -48,23 +67,45 @@
         DELETE FROM sys_user WHERE user_id = #{userId}
     </delete>
 
+    <select id="selectUsersByRole" resultMap="UserResultMap">
+        SELECT user_id, real_name, username FROM sys_user WHERE role_type = #{roleType}
+    </select>
+
+    <select id="selectStudentsByClassIds" resultMap="UserResultMap">
+        SELECT * FROM sys_user
+        WHERE role_type = '4'
+        AND class_id IN
+        <foreach item="item" index="index" collection="classIds" open="(" separator="," close=")">
+            #{item}
+        </foreach>
+    </select>
+
     <insert id="insert" parameterType="com.project.system.entity.User">
         INSERT INTO sys_user (
-            username,
-            password,
-            real_name,
-            role_type,
-            teacher_rank,
-            create_time
+            username, password, real_name, role_type,
+            teacher_rank, class_id, teaching_classes, create_time
         )
         VALUES (
-                   #{username},
-                   #{password},
-                   #{realName},
-                   #{roleType},
-                   #{teacherRank},
-                   NOW()
+                   #{username}, #{password}, #{realName}, #{roleType},
+                   #{teacherRank}, #{classId}, #{teachingClasses}, NOW()
                )
+    </insert>
+
+    <insert id="insertBatchStudents" parameterType="java.util.List">
+        INSERT INTO sys_user (
+        username, password, real_name, role_type, class_id, create_time
+        )
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (
+            #{item.username},
+            #{item.password},
+            #{item.realName},
+            '4',
+            #{item.classId},
+            NOW()
+            )
+        </foreach>
     </insert>
 
 </mapper>

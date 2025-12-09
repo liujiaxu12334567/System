@@ -4,8 +4,10 @@ import { createRouter, createWebHistory } from 'vue-router'
 const Login = () => import('../views/Login.vue')
 const Home = () => import('../views/Home.vue')
 const Admin = () => import('../views/Admin.vue') // <--- 【新增】
-
+const Teacher = () => import('../views/Teacher.vue')
+const Leader = () => import('../views/Leader.vue')
 const routes = [
+
     {
         path: '/',
         redirect: '/login'
@@ -25,6 +27,18 @@ const routes = [
         name: 'Admin',
         component: Admin, // <--- 【必须改这里】之前你写的是 Home，现在改成 Admin
         meta: { title: '管理员首页' }
+    },
+    {
+        path: '/teacher',
+        name: 'Teacher',
+        component: Teacher,
+        meta: { title: '教师工作台' }
+    },
+    {
+        path: '/leader',
+        name: 'Leader',
+        component: Leader,
+        meta: { title: '课题组长工作台' }
     }
 ]
 
