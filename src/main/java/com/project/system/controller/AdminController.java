@@ -2,6 +2,7 @@ package com.project.system.controller;
 
 import com.project.system.dto.BatchEnrollmentRequest;
 import com.project.system.dto.BatchEnrollmentRequest.StudentInfo;
+import com.project.system.dto.PaginationResponse; // 导入 DTO
 import com.project.system.entity.Class;
 import com.project.system.entity.Course;
 import com.project.system.entity.User;
@@ -25,22 +26,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.Arrays;
 import java.util.HashMap;
-
-// 用于返回分页数据的包装类
-@Data
-class PaginationResponse<T> {
-    private List<T> list;
-    private long total;
-    private int pageNum;
-    private int pageSize;
-
-    public PaginationResponse(List<T> list, long total, int pageNum, int pageSize) {
-        this.list = list;
-        this.total = total;
-        this.pageNum = pageNum;
-        this.pageSize = pageSize;
-    }
-}
+import java.util.HashSet;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -58,7 +45,7 @@ public class AdminController {
     @Autowired
     private ClassMapper classMapper;
 
-    // 【核心修复】辅助方法：检查并插入新班级 (对 major 字段进行修剪和安全检查)
+    // 【辅助方法 1】检查并插入新班级
     private void checkAndInsertClass(Long classId, String major) {
         if (classId == null) return;
 
@@ -66,11 +53,8 @@ public class AdminController {
 
         if (existingClass == null) {
             String className = String.valueOf(classId) + "班";
-
-            // 【关键修复点】：修剪 major 字段，防止前端传入的空格导致校验失败
+            // 对 major 字段进行修剪和安全检查
             String trimmedMajor = (major != null) ? major.trim() : null;
-
-            // 使用修剪后的 major 进行判断
             String finalMajor = (trimmedMajor != null && !trimmedMajor.isEmpty()) ? trimmedMajor : "未分配专业";
 
             Class newClass = new Class(classId, className, finalMajor);
@@ -78,7 +62,7 @@ public class AdminController {
         }
     }
 
-    // 【重载】如果只需要 classId (例如课程分配)，则使用占位符 major
+    // 【重载】如果只需要 classId，则使用占位符 major
     private void checkAndInsertClass(Long classId) {
         checkAndInsertClass(classId, null);
     }
@@ -312,7 +296,7 @@ public class AdminController {
     }
 
 
-    // --- 课程管理 APIs (保持不变) ---
+    // --- 课程管理 APIs ---
 
     // 8. 获取所有课程列表
     @GetMapping("/course/list")
@@ -320,20 +304,31 @@ public class AdminController {
         return ResponseEntity.ok(courseMapper.selectAllCourses());
     }
 
-    // 9. 发布新课程
+    // 9. 发布新课程 (同步更新教师执教班级)
     @PostMapping("/course/add")
     public ResponseEntity<?> addCourse(@RequestBody Course course) {
         if (course.getClassId() == null) {
             return ResponseEntity.badRequest().body("发布课程必须指定班级ID。");
         }
 
-        // 发布课程前，检查并创建班级记录 (使用占位符 major)
+        // 1. 确保班级记录存在
         checkAndInsertClass(course.getClassId());
 
         course.setCode("C" + System.currentTimeMillis() % 10000);
         course.setStatus("进行中");
         course.setColor("blue");
+
+        // 2. 插入课程
         courseMapper.insertCourse(course);
+
+        // 3. 如果分配了教师，同步更新其执教班级 (合并模式)
+        if (course.getTeacher() != null && !course.getTeacher().isEmpty() && course.getClassId() != null) {
+            List<String> teacherNames = Arrays.asList(course.getTeacher().split(","));
+            List<Long> classIds = Collections.singletonList(course.getClassId());
+
+            updateTeacherTeachingClasses(teacherNames, classIds);
+        }
+
         return ResponseEntity.ok("课程发布成功");
     }
 
@@ -366,6 +361,7 @@ public class AdminController {
         for (Long classId : classIds) {
             checkAndInsertClass(classId); // 确保班级记录存在 (使用占位符 major)
 
+            // 【！！！已修复的错误！！！】：这里之前错误地写成了 new User()
             Course newCourse = new Course();
             newCourse.setName(name);
             newCourse.setSemester(semester != null ? semester : "2025-1");
@@ -385,61 +381,33 @@ public class AdminController {
         }
 
         // 4. 更新教师的执教班级 (teachingClasses)
-        List<User> allTeachers = new ArrayList<>();
-        allTeachers.addAll(userMapper.selectUsersByRole("2"));
-        allTeachers.addAll(userMapper.selectUsersByRole("3"));
-
-        for (String teacherName : teacherNames) {
-            User teacherToUpdate = allTeachers.stream()
-                    .filter(t -> teacherName.equals(t.getRealName()))
-                    .findFirst()
-                    .orElse(null);
-
-            if (teacherToUpdate != null) {
-                String currentClasses = teacherToUpdate.getTeachingClasses();
-
-                List<String> combinedClasses = new ArrayList<>();
-                if (currentClasses != null && !currentClasses.isEmpty()) {
-                    combinedClasses.addAll(Arrays.asList(currentClasses.split(",")));
-                }
-
-                boolean hasUpdate = false;
-                for (Long classId : classIds) {
-                    String classStr = String.valueOf(classId);
-                    if (!combinedClasses.contains(classStr)) {
-                        combinedClasses.add(classStr);
-                        hasUpdate = true;
-                    }
-                }
-
-                if (hasUpdate) {
-                    String updatedClasses = combinedClasses.stream()
-                            .distinct()
-                            .collect(Collectors.joining(","));
-
-                    User userUpdate = new User();
-                    userUpdate.setUserId(teacherToUpdate.getUserId());
-                    userUpdate.setTeachingClasses(updatedClasses);
-
-                    userMapper.updateUser(userUpdate);
-                }
-            }
-        }
+        updateTeacherTeachingClasses(teacherNames, classIds);
 
         return ResponseEntity.ok("成功为 " + coursesToInsert.size() + " 个班级分配了课程，并更新了相关教师的执教班级。");
     }
 
-    // 11. 更新课程
+    // 11. 更新课程 (包含同步更新教师执教班级)
     @PostMapping("/course/update")
     public ResponseEntity<?> updateCourse(@RequestBody Course course) {
+        // 1. 更新课程记录
         courseMapper.updateCourse(course);
+
+        // 2. 如果提供了 teacher 和 classId，同步更新教师的执教班级列表
+        if (course.getTeacher() != null && course.getClassId() != null) {
+            List<String> teacherNames = Arrays.asList(course.getTeacher().split(","));
+            List<Long> classIds = Collections.singletonList(course.getClassId());
+
+            updateTeacherTeachingClasses(teacherNames, classIds);
+        }
+
         return ResponseEntity.ok("更新成功");
     }
 
     // 12. 删除课程
     @PostMapping("/course/delete/{id}")
     public ResponseEntity<?> deleteCourse(@PathVariable Long id) {
-        userMapper.deleteUserById(id);
+        // 应该调用 courseMapper 来删除课程记录
+        courseMapper.deleteCourseById(id);
         return ResponseEntity.ok("删除成功");
     }
 
@@ -460,5 +428,62 @@ public class AdminController {
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(formattedClasses);
+    }
+
+    // 【核心私有方法】封装更新教师执教班级的通用逻辑 (合并模式，防空格和陈旧数据)
+    private void updateTeacherTeachingClasses(List<String> teacherNames, List<Long> classIds) {
+
+        // 1. 找到所有老师/组长 (此列表仅用于查找 userId/username)
+        List<User> allTeachers = new ArrayList<>();
+        allTeachers.addAll(userMapper.selectUsersByRole("2")); // 课题组长
+        allTeachers.addAll(userMapper.selectUsersByRole("3")); // 普通教师
+
+        for (String teacherName : teacherNames) {
+            // 2. 找到当前老师的缓存信息 (包含 username)
+            User cachedTeacher = allTeachers.stream()
+                    .filter(t -> teacherName.equals(t.getRealName()))
+                    .findFirst()
+                    .orElse(null);
+
+            if (cachedTeacher != null) {
+                // 3. *** 关键修复：从数据库获取最新的完整记录，确保 teachingClasses 不是陈旧值 ***
+                // 必须使用 username 重新查询，获取最新的 teachingClasses
+                User latestTeacher = userMapper.findByUsername(cachedTeacher.getUsername());
+
+                if (latestTeacher == null) continue;
+
+                String currentClasses = latestTeacher.getTeachingClasses();
+
+                // 4. 使用 Set 存储现有班级ID，并清理空格
+                Set<String> classSet = new HashSet<>();
+                if (currentClasses != null && !currentClasses.isEmpty()) {
+                    Arrays.stream(currentClasses.split(","))
+                            .map(String::trim) // 清理空格
+                            .filter(s -> !s.isEmpty())
+                            .forEach(classSet::add);
+                }
+
+                boolean addedNewClass = false;
+                for (Long classId : classIds) {
+                    String classStr = String.valueOf(classId);
+                    // 5. 尝试将新班级ID添加到 Set 中。如果 Set.add 返回 true，说明班级ID是新的。
+                    if (classSet.add(classStr)) {
+                        addedNewClass = true;
+                    }
+                }
+
+                // 6. 只有在添加了新班级后才执行更新
+                if (addedNewClass) {
+                    // 重新构建去重后的班级字符串，并用逗号连接
+                    String updatedClasses = String.join(",", classSet);
+
+                    User userUpdate = new User();
+                    userUpdate.setUserId(latestTeacher.getUserId()); // 使用最新的 ID
+                    userUpdate.setTeachingClasses(updatedClasses); // 写入合并后的新字符串
+
+                    userMapper.updateUser(userUpdate);
+                }
+            }
+        }
     }
 }

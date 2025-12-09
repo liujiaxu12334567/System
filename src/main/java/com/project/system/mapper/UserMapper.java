@@ -32,4 +32,18 @@ public interface UserMapper {
     List<User> selectStudentsByClassIds(@Param("classIds") List<Long> classIds);
     int insertBatchStudents(@Param("list") List<com.project.system.entity.User> list);
     List<Long> selectDistinctClassIds();
+    long countStudentsByTeachingClasses(
+            @Param("keyword") String keyword,
+            @Param("classId") String classId,
+            @Param("classIds") List<String> classIds
+    );
+
+    // 【新增】教师端分页查询学生列表
+    List<User> selectStudentsByTeachingClasses(
+            @Param("keyword") String keyword,
+            @Param("classId") String classId,
+            @Param("classIds") List<String> classIds,
+            @Param("offset") int offset,
+            @Param("pageSize") int pageSize
+    );
 }

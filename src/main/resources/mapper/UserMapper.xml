@@ -71,15 +71,6 @@
         SELECT user_id, real_name, username FROM sys_user WHERE role_type = #{roleType}
     </select>
 
-    <select id="selectStudentsByClassIds" resultMap="UserResultMap">
-        SELECT * FROM sys_user
-        WHERE role_type = '4'
-        AND class_id IN
-        <foreach item="item" index="index" collection="classIds" open="(" separator="," close=")">
-            #{item}
-        </foreach>
-    </select>
-
     <insert id="insert" parameterType="com.project.system.entity.User">
         INSERT INTO sys_user (
             username, password, real_name, role_type,
@@ -112,5 +103,45 @@
         SELECT DISTINCT class_id FROM sys_user
         WHERE role_type = '4' AND class_id IS NOT NULL
         ORDER BY class_id ASC
+    </select>
+
+    <select id="selectStudentsByClassIds" resultMap="UserResultMap">
+        SELECT * FROM sys_user
+        WHERE role_type = '4'
+        AND class_id IN
+        <foreach item="item" index="index" collection="classIds" open="(" separator="," close=")">
+            #{item}
+        </foreach>
+    </select>
+
+    <sql id="TeacherStudentWhereClause">
+        <where>
+            AND role_type = '4'
+            AND class_id IN
+            <foreach item="item" index="index" collection="classIds" open="(" separator="," close=")">
+                #{item}
+            </foreach>
+
+            <if test="keyword != null and keyword != ''">
+                AND (username LIKE concat('%', #{keyword}, '%')
+                OR real_name LIKE concat('%', #{keyword}, '%'))
+            </if>
+
+            <if test="classId != null and classId != ''">
+                AND class_id = #{classId}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countStudentsByTeachingClasses" resultType="long">
+        SELECT count(user_id) FROM sys_user
+        <include refid="TeacherStudentWhereClause"/>
+    </select>
+
+    <select id="selectStudentsByTeachingClasses" resultMap="UserResultMap">
+        SELECT * FROM sys_user
+        <include refid="TeacherStudentWhereClause"/>
+        ORDER BY username ASC
+        LIMIT #{pageSize} OFFSET #{offset}
     </select>
 </mapper>
