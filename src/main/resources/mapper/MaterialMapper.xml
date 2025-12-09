@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.project.system.mapper.MaterialMapper">
+
+    <insert id="insert" parameterType="com.project.system.entity.Material" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_material (course_id, type, content, file_name, file_path, create_time)
+        VALUES (#{courseId}, #{type}, #{content}, #{fileName}, #{filePath}, NOW())
+    </insert>
+
+    <select id="selectByCourseId" resultType="com.project.system.entity.Material">
+        SELECT * FROM sys_material WHERE course_id = #{courseId} ORDER BY create_time DESC
+    </select>
+
+</mapper>

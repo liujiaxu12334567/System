@@ -65,14 +65,17 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
                 .authorizeHttpRequests(auth -> auth
-                        // ★★★ 修改点：添加 "/register" 和 "/login" 到放行列表 ★★★
-                        // 注意：如果你的 Controller 是 @RequestMapping("/register")，这里必须写 "/register"
+                        // 1. 登录注册接口放行
                         .requestMatchers("/api/auth/**", "/login", "/register").permitAll()
 
-                        // 允许静态资源访问 (可选，如果只是 API 项目可以不加)
+                        // 2. ★★★ 核心修改：显式放行上传文件的访问路径 ★★★
+                        // 必须加这一行，否则浏览器访问图片/PDF会报 403 Forbidden
+                        .requestMatchers("/uploads/**").permitAll()
+
+                        // 3. 允许静态资源访问 (可选)
                         .requestMatchers("/static/**", "/resources/**").permitAll()
 
-                        // 其他接口需要认证
+                        // 4. 其他接口需要认证
                         .anyRequest().authenticated()
                 );
 
@@ -87,7 +90,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // 允许的前端域名，调试时可以用 "*" (生产环境建议换成具体域名，如 "http://localhost:5173")
+        // 允许的前端域名，调试时可以用 "*"
         configuration.setAllowedOriginPatterns(List.of("*"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "X-Requested-With"));

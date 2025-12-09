@@ -68,7 +68,7 @@
     </delete>
 
     <select id="selectUsersByRole" resultMap="UserResultMap">
-        SELECT user_id, real_name, username FROM sys_user WHERE role_type = #{roleType}
+        SELECT * FROM sys_user WHERE role_type = #{roleType}
     </select>
 
     <insert id="insert" parameterType="com.project.system.entity.User">

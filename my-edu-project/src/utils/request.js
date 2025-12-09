@@ -25,9 +25,12 @@ service.interceptors.request.use(
 service.interceptors.response.use(
     response => {
         const res = response.data
-        // 如果后端返回没有 code 字段，或者 code 是 200，都视为成功
-        // 请根据你实际后端的返回结构调整这里的判断
-        if (res.code && res.code !== 200) {
+
+        // 【🔥 核心修复点 🔥】
+        // 原逻辑：if (res.code && res.code !== 200)
+        // 修改后：增加类型判断 typeof res.code === 'number'
+        // 原因：防止业务数据中包含 'code' 字段（如课程代码、商品编码）且值为字符串时，被误判为接口错误。
+        if (res.code && typeof res.code === 'number' && res.code !== 200) {
             ElMessage.error(res.msg || '系统错误')
             return Promise.reject(new Error(res.msg || 'Error'))
         } else {
@@ -35,7 +38,19 @@ service.interceptors.response.use(
         }
     },
     error => {
-        ElMessage.error(error.response?.data?.msg || '网络连接失败')
+        console.log('err' + error) // for debug
+        let message = error.message || '网络连接失败'
+
+        if (error.response) {
+            // 尝试读取后端返回的具体错误信息
+            if (typeof error.response.data === 'string') {
+                message = error.response.data
+            } else if (error.response.data && error.response.data.message) {
+                message = error.response.data.message
+            }
+        }
+
+        ElMessage.error(message)
         return Promise.reject(error)
     }
 )

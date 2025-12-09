@@ -6,6 +6,8 @@ const Home = () => import('../views/Home.vue')
 const Admin = () => import('../views/Admin.vue') // <--- 【新增】
 const Teacher = () => import('../views/Teacher.vue')
 const Leader = () => import('../views/Leader.vue')
+const CourseStudy = () => import('../views/CourseStudy.vue')
+const QuizDetail = () => import('../views/QuizDetail.vue')
 const routes = [
 
     {
@@ -39,6 +41,18 @@ const routes = [
         name: 'Leader',
         component: Leader,
         meta: { title: '课题组长工作台' }
+    },
+    {
+        path: '/course-study/:id',
+        name: 'CourseStudy',
+        component: CourseStudy,
+        meta: { title: '课程学习' }
+    },
+    {
+        path: '/quiz/:courseId/:materialId',
+        name: 'QuizDetail', // 这个名字必须和 CourseStudy.vue 里的 router.push({ name: 'QuizDetail' }) 一致
+        component: QuizDetail,
+        meta: { title: '在线测验' }
     }
 ]
 

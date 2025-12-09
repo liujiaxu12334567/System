@@ -14,17 +14,25 @@
         <result column="status" property="status"/>
         <result column="color" property="color"/>
         <result column="is_top" property="isTop"/>
+        <result column="class_id" property="classId"/>
     </resultMap>
 
     <resultMap id="TaskMap" type="com.project.system.entity.Task">
         <id column="id" property="id"/>
         <result column="name" property="name"/>
-        <result column="course_name" property="courseName"/> <result column="deadline" property="deadline"/>
+        <result column="course_name" property="courseName"/>
+        <result column="deadline" property="deadline"/>
         <result column="status" property="status"/>
     </resultMap>
 
     <select id="selectAllCourses" resultMap="CourseMap">
         SELECT * FROM sys_course ORDER BY is_top DESC, id ASC
+    </select>
+
+    <select id="selectCoursesByClassId" resultMap="CourseMap">
+        SELECT * FROM sys_course
+        WHERE class_id = #{classId}
+        ORDER BY is_top DESC, id ASC
     </select>
 
     <select id="selectAllTasks" resultMap="TaskMap">

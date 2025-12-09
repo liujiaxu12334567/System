@@ -80,9 +80,10 @@
           <div class="course-card"
                v-for="item in courseList"
                :key="item.id"
-               :class="'bg-' + (item.color || 'blue')"> <div class="status-row">
-            <span class="status-tag">{{ item.status }}</span>
-          </div>
+               :class="'bg-' + (item.color || 'blue')">
+            <div class="status-row">
+              <span class="status-tag">{{ item.status }}</span>
+            </div>
 
             <div class="card-info">
               <h4 class="course-name">{{ item.name }}</h4>
@@ -97,7 +98,7 @@
             <div class="card-action">
               <span class="enter-text" v-if="item.isTop === 1">置顶</span>
               <span class="enter-text" v-else></span>
-              <span class="start-btn">开始学习</span>
+              <span class="start-btn" @click="goToCourse(item.id)">开始学习</span>
             </div>
           </div>
         </div>
@@ -301,6 +302,11 @@ const submitPasswordChange = () => {
       return false
     }
   })
+}
+
+// 【新增功能】跳转到课程学习详情页
+const goToCourse = (courseId) => {
+  router.push(`/course-study/${courseId}`)
 }
 
 // 退出登录

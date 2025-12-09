@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,17 +34,33 @@ public class HomeController {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String username = auth.getName();
 
-        // 2. 查询真实姓名
+        User user = null;
         String realName = "同学";
+
         if (username != null) {
-            User user = userMapper.findByUsername(username);
+            user = userMapper.findByUsername(username);
             if (user != null && user.getRealName() != null) {
                 realName = user.getRealName();
             }
         }
 
-        // 3. 查询课程和任务
-        List<Course> courses = homeMapper.selectAllCourses();
+        // 2. 查询课程 (根据角色筛选) [核心修改点]
+        List<Course> courses = new ArrayList<>();
+
+        if (user != null && "4".equals(user.getRoleType())) {
+            // 如果是学生 (Role=4)，且已分班，只查询该班级的课程
+            if (user.getClassId() != null) {
+                courses = homeMapper.selectCoursesByClassId(user.getClassId());
+            } else {
+                // 如果学生还没分班，暂时不显示课程
+                courses = new ArrayList<>();
+            }
+        } else {
+            // 如果是管理员或其他角色，默认查看所有课程
+            courses = homeMapper.selectAllCourses();
+        }
+
+        // 3. 查询任务 (这里也可以根据 user 做进一步筛选，目前保持不变)
         List<Task> tasks = homeMapper.selectAllTasks();
 
         // 4. 封装返回
