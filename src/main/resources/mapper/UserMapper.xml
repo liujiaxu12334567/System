@@ -108,4 +108,9 @@
         </foreach>
     </insert>
 
+    <select id="selectDistinctClassIds" resultType="java.lang.Long">
+        SELECT DISTINCT class_id FROM sys_user
+        WHERE role_type = '4' AND class_id IS NOT NULL
+        ORDER BY class_id ASC
+    </select>
 </mapper>

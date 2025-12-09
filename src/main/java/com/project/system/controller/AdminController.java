@@ -2,24 +2,31 @@ package com.project.system.controller;
 
 import com.project.system.dto.BatchEnrollmentRequest;
 import com.project.system.dto.BatchEnrollmentRequest.StudentInfo;
+import com.project.system.entity.Class;
+import com.project.system.entity.Course;
 import com.project.system.entity.User;
+import com.project.system.mapper.ClassMapper;
+import com.project.system.mapper.CourseMapper;
 import com.project.system.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-// Apache POI 核心导入，用于 Excel 文件解析
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import lombok.Data; // 导入 Lombok 的 Data 注解
+import lombok.Data;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.io.InputStream;
-import java.util.Collections; // 导入 Collections
+import java.util.Collections;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.Arrays;
+import java.util.HashMap;
 
-// 【新增】用于返回分页数据的包装类
+// 用于返回分页数据的包装类
 @Data
 class PaginationResponse<T> {
     private List<T> list;
@@ -45,7 +52,35 @@ public class AdminController {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    // 1. 【核心修改】获取用户列表 (支持分页和筛选)
+    @Autowired
+    private CourseMapper courseMapper;
+
+    @Autowired
+    private ClassMapper classMapper;
+
+    // 【辅助方法 1】检查并插入新班级 (核心修复：接收 major 参数)
+    private void checkAndInsertClass(Long classId, String major) {
+        if (classId == null) return;
+
+        Class existingClass = classMapper.findById(classId);
+
+        if (existingClass == null) {
+            String className = String.valueOf(classId) + "班";
+            // 使用传入的 major，如果为空则使用占位符
+            String finalMajor = (major != null && !major.isEmpty()) ? major : "未分配专业";
+
+            Class newClass = new Class(classId, className, finalMajor);
+            classMapper.insert(newClass);
+        }
+    }
+
+    // 【重载】如果只需要 classId，则使用占位符 major
+    private void checkAndInsertClass(Long classId) {
+        checkAndInsertClass(classId, null);
+    }
+
+
+    // 1. 获取用户列表 (支持多重筛选)
     @GetMapping("/user/list")
     public ResponseEntity<?> listUsers(
             @RequestParam(required = false) String keyword,
@@ -54,49 +89,69 @@ public class AdminController {
             @RequestParam(required = false, defaultValue = "1") int pageNum,
             @RequestParam(required = false, defaultValue = "10") int pageSize) {
 
-        // 1. 获取总记录数
+        int offset = (pageNum - 1) * pageSize;
         long total = userMapper.countAllUsers(keyword, roleType, classId);
 
-        // 2. 如果没有记录，直接返回空列表
         if (total == 0) {
             return ResponseEntity.ok(new PaginationResponse<>(Collections.emptyList(), 0, pageNum, pageSize));
         }
 
-        // 3. 计算 offset
-        int offset = (pageNum - 1) * pageSize;
-        if (offset < 0) offset = 0;
-
-        // 4. 获取分页列表
         List<User> list = userMapper.selectAllUsers(keyword, roleType, classId, offset, pageSize);
-
-        // 5. 返回封装好的分页响应
         return ResponseEntity.ok(new PaginationResponse<>(list, total, pageNum, pageSize));
     }
 
 
-    // 2. 新增用户 (管理员直接添加)
+    // 2. 新增用户 (接收 Map 来处理 major 字段)
     @PostMapping("/user/add")
-    public ResponseEntity<?> addUser(@RequestBody User user) {
-        if (userMapper.findByUsername(user.getUsername()) != null) {
+    public ResponseEntity<?> addUser(@RequestBody Map<String, Object> userMap) {
+        String username = (String) userMap.get("username");
+        String password = (String) userMap.get("password");
+        String realName = (String) userMap.get("realName");
+        String roleType = String.valueOf(userMap.get("roleType"));
+        Long classId = userMap.get("classId") != null ? Long.valueOf(userMap.get("classId").toString()) : null;
+        String major = (String) userMap.get("major"); // 接收前端新增的 major 字段
+
+        if (username == null || realName == null) {
+            return ResponseEntity.badRequest().body("账号和姓名不能为空");
+        }
+
+        if (userMapper.findByUsername(username) != null) {
             return ResponseEntity.badRequest().body("用户名已存在");
         }
-        // 默认密码 123456
-        if (user.getPassword() == null || user.getPassword().isEmpty()) {
-            user.setPassword("123456");
+
+        User user = new User();
+        user.setUsername(username);
+        user.setRealName(realName);
+        user.setRoleType(roleType);
+        user.setClassId(classId);
+
+        // 密码处理
+        if (password == null || password.isEmpty()) {
+            password = "123456";
         }
-        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        user.setPassword(passwordEncoder.encode(password));
+
+        // 如果用户是学生且有班级，检查并创建班级记录 (使用前端提供的 major)
+        if ("4".equals(roleType) && classId != null) {
+            checkAndInsertClass(classId, major); // 传递 major
+        }
+
         userMapper.insert(user);
         return ResponseEntity.ok("添加成功");
     }
 
-    // 3. 更新用户 (核心功能：任命组长/修改密码)
+    // 3. 更新用户
     @PostMapping("/user/update")
     public ResponseEntity<?> updateUser(@RequestBody User user) {
-        // 如果修改了密码，需要加密
         if (user.getPassword() != null && !user.getPassword().isEmpty()) {
             user.setPassword(passwordEncoder.encode(user.getPassword()));
         } else {
-            user.setPassword(null); // 避免覆盖原密码
+            user.setPassword(null);
+        }
+
+        // 如果用户是学生且有班级，检查并创建班级记录 (更新操作，使用占位符 major)
+        if ("4".equals(user.getRoleType()) && user.getClassId() != null) {
+            checkAndInsertClass(user.getClassId());
         }
 
         userMapper.updateUser(user);
@@ -121,10 +176,11 @@ public class AdminController {
     public ResponseEntity<?> batchEnrollFromFile(
             @RequestParam("file") MultipartFile file,
             @RequestParam("targetClassId") String targetClassIdString,
-            @RequestParam("startUsername") String startUsername) {
+            @RequestParam("startUsername") String startUsername,
+            @RequestParam("major") String major) { // 明确接收 major 参数
 
-        if (file.isEmpty() || targetClassIdString == null || targetClassIdString.isEmpty() || startUsername == null || startUsername.isEmpty()) {
-            return ResponseEntity.badRequest().body("文件、目标班级ID和起始学号都不能为空");
+        if (file.isEmpty() || targetClassIdString == null || targetClassIdString.isEmpty() || startUsername == null || startUsername.isEmpty() || major == null || major.isEmpty()) {
+            return ResponseEntity.badRequest().body("文件、目标班级ID、起始学号和专业都不能为空");
         }
 
         // --- 转换参数 ---
@@ -143,7 +199,6 @@ public class AdminController {
         try (InputStream inputStream = file.getInputStream()) {
             Workbook workbook = null;
 
-            // 仅支持 XLSX 格式
             if (file.getOriginalFilename() != null && file.getOriginalFilename().endsWith(".xlsx")) {
                 workbook = new XSSFWorkbook(inputStream);
             } else {
@@ -152,12 +207,10 @@ public class AdminController {
 
             Sheet sheet = workbook.getSheetAt(0);
 
-            // 遍历所有行，从第二行开始（跳过表头）
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
                 if (row == null) continue;
 
-                // 假设真实姓名在第一列 (索引为 0)
                 Cell nameCell = row.getCell(0);
                 if (nameCell != null) {
                     nameCell.setCellType(CellType.STRING);
@@ -172,29 +225,24 @@ public class AdminController {
             }
 
         } catch (Exception e) {
-            // 捕获 POI 解析错误或IO错误
             return ResponseEntity.status(500).body("文件读取或解析失败，请确保文件未被占用且格式正确。错误信息: " + e.getMessage());
         }
 
-        // 【核心逻辑】顺序生成学号并填充 StudentInfo
         for (StudentInfo info : importedNames) {
-            // 顺序分配学号
             info.setUsername(String.valueOf(currentId++));
         }
 
-        // 过滤掉那些名字为空的记录
         importedNames.removeIf(info -> info.getUsername() == null);
 
-        // 封装成请求 DTO，调用统一处理方法
         BatchEnrollmentRequest request = new BatchEnrollmentRequest();
         request.setTargetClassId(targetClassId);
         request.setStudentList(importedNames);
+        request.setMajor(major); // 将 major 放入 request DTO
 
-        // 调用统一的批量处理方法
         return processBatchEnrollment(request);
     }
 
-    // 7. 统一的批量处理私有方法，供范围和文件导入使用
+    // 7. 统一的批量处理私有方法 (供 /batch/enroll 和 /batch/upload 调用)
     private ResponseEntity<?> processBatchEnrollment(BatchEnrollmentRequest request) {
         List<User> usersToInsert = new ArrayList<>();
         String defaultPassword = "123456";
@@ -204,6 +252,10 @@ public class AdminController {
         if (classId == null) {
             return ResponseEntity.badRequest().body("分班失败：请指定目标班级ID");
         }
+
+        // 确保班级记录存在，并使用 DTO 中的 major 字段
+        checkAndInsertClass(classId, request.getMajor());
+
 
         // --- 逻辑 1: 学号范围生成 ---
         if (request.getStartUsername() != null && request.getEndUsername() != null) {
@@ -235,7 +287,6 @@ public class AdminController {
         // --- 逻辑 2: 导入列表处理 (包括文件上传后的列表) ---
         else if (request.getStudentList() != null && !request.getStudentList().isEmpty()) {
             for (StudentInfo info : request.getStudentList()) {
-                // 确保学号和姓名都存在（学号在文件上传逻辑中已生成）
                 if (info.getUsername() != null && userMapper.findByUsername(info.getUsername()) == null) {
                     User user = new User();
                     user.setUsername(info.getUsername());
@@ -248,12 +299,162 @@ public class AdminController {
             }
         }
 
-        // 执行插入操作
         if (!usersToInsert.isEmpty()) {
             int insertedCount = userMapper.insertBatchStudents(usersToInsert);
             return ResponseEntity.ok("成功创建并分配班级给 " + insertedCount + " 个学生账号。默认密码：123456");
         }
 
         return ResponseEntity.ok("没有新的学生账号需要创建。");
+    }
+
+
+    // --- 课程管理 APIs (保持不变) ---
+
+    // 8. 获取所有课程列表
+    @GetMapping("/course/list")
+    public ResponseEntity<?> listCourses() {
+        return ResponseEntity.ok(courseMapper.selectAllCourses());
+    }
+
+    // 9. 发布新课程
+    @PostMapping("/course/add")
+    public ResponseEntity<?> addCourse(@RequestBody Course course) {
+        if (course.getClassId() == null) {
+            return ResponseEntity.badRequest().body("发布课程必须指定班级ID。");
+        }
+
+        // 发布课程前，检查并创建班级记录 (使用占位符 major)
+        checkAndInsertClass(course.getClassId());
+
+        course.setCode("C" + System.currentTimeMillis() % 10000);
+        course.setStatus("进行中");
+        course.setColor("blue");
+        courseMapper.insertCourse(course);
+        return ResponseEntity.ok("课程发布成功");
+    }
+
+    // 10. 批量分配课程给多个班级和教师 (实现课程复制功能)
+    @PostMapping("/course/batch-assign")
+    public ResponseEntity<?> batchAssignCourse(@RequestBody Map<String, Object> request) {
+        String name = (String) request.get("name");
+        String semester = (String) request.get("semester");
+        List<String> teacherNames = (List<String>) request.get("teacherNames");
+        List<Object> rawClassIds = (List<Object>) request.get("classIds");
+
+        if (name == null || teacherNames == null || rawClassIds == null || teacherNames.isEmpty() || rawClassIds.isEmpty()) {
+            return ResponseEntity.badRequest().body("课程信息、教师或班级列表不完整。");
+        }
+
+        // 1. 转换 classIds (确保是 Long)
+        List<Long> classIds = rawClassIds.stream()
+                .map(obj -> {
+                    if (obj instanceof Integer) return ((Integer) obj).longValue();
+                    if (obj instanceof String) return Long.parseLong((String) obj);
+                    return (Long) obj;
+                })
+                .collect(Collectors.toList());
+
+        String baseCode = "C" + System.currentTimeMillis() % 10000;
+        List<Course> coursesToInsert = new ArrayList<>();
+        String teachersString = String.join(",", teacherNames);
+
+        // 2. 创建课程记录 (课程复制)
+        for (Long classId : classIds) {
+            checkAndInsertClass(classId); // 确保班级记录存在 (使用占位符 major)
+
+            Course newCourse = new Course();
+            newCourse.setName(name);
+            newCourse.setSemester(semester != null ? semester : "2025-1");
+            newCourse.setCode(baseCode + "-" + classId);
+            newCourse.setTeacher(teachersString);
+            newCourse.setStatus("进行中");
+            newCourse.setColor("blue");
+            newCourse.setIsTop(0);
+            newCourse.setClassId(classId);
+
+            coursesToInsert.add(newCourse);
+        }
+
+        // 3. 批量插入课程
+        if (!coursesToInsert.isEmpty()) {
+            courseMapper.insertBatchCourses(coursesToInsert);
+        }
+
+        // 4. 更新教师的执教班级 (teachingClasses)
+        List<User> allTeachers = new ArrayList<>();
+        allTeachers.addAll(userMapper.selectUsersByRole("2"));
+        allTeachers.addAll(userMapper.selectUsersByRole("3"));
+
+        for (String teacherName : teacherNames) {
+            User teacherToUpdate = allTeachers.stream()
+                    .filter(t -> teacherName.equals(t.getRealName()))
+                    .findFirst()
+                    .orElse(null);
+
+            if (teacherToUpdate != null) {
+                String currentClasses = teacherToUpdate.getTeachingClasses();
+
+                List<String> combinedClasses = new ArrayList<>();
+                if (currentClasses != null && !currentClasses.isEmpty()) {
+                    combinedClasses.addAll(Arrays.asList(currentClasses.split(",")));
+                }
+
+                boolean hasUpdate = false;
+                for (Long classId : classIds) {
+                    String classStr = String.valueOf(classId);
+                    if (!combinedClasses.contains(classStr)) {
+                        combinedClasses.add(classStr);
+                        hasUpdate = true;
+                    }
+                }
+
+                if (hasUpdate) {
+                    String updatedClasses = combinedClasses.stream()
+                            .distinct()
+                            .collect(Collectors.joining(","));
+
+                    User userUpdate = new User();
+                    userUpdate.setUserId(teacherToUpdate.getUserId());
+                    userUpdate.setTeachingClasses(updatedClasses);
+
+                    userMapper.updateUser(userUpdate);
+                }
+            }
+        }
+
+        return ResponseEntity.ok("成功为 " + coursesToInsert.size() + " 个班级分配了课程，并更新了相关教师的执教班级。");
+    }
+
+    // 11. 更新课程
+    @PostMapping("/course/update")
+    public ResponseEntity<?> updateCourse(@RequestBody Course course) {
+        courseMapper.updateCourse(course);
+        return ResponseEntity.ok("更新成功");
+    }
+
+    // 12. 删除课程
+    @PostMapping("/course/delete/{id}")
+    public ResponseEntity<?> deleteCourse(@PathVariable Long id) {
+        userMapper.deleteUserById(id);
+        return ResponseEntity.ok("删除成功");
+    }
+
+    // 13. 获取所有已建立的班级列表 API
+    @GetMapping("/classes")
+    public ResponseEntity<?> listClasses() {
+        // 从 sys_class 表中获取所有班级数据
+        List<Class> classEntities = classMapper.selectAllClasses();
+
+        // 格式化为前端所需的 { id: number, name: string } 格式
+        List<Map<String, Object>> formattedClasses = classEntities.stream()
+                .map(entity -> {
+                    Map<String, Object> classMap = new HashMap<>();
+                    classMap.put("id", entity.getClassId());
+                    classMap.put("name", entity.getClassName());
+                    return classMap;
+                })
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(formattedClasses);
     }
 }

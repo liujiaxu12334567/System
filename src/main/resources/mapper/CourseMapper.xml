@@ -2,12 +2,39 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.project.system.mapper.CourseMapper">
 
+    <resultMap id="CourseResultMap" type="com.project.system.entity.Course">
+        <id column="id" property="id"/>
+        <result column="name" property="name"/>
+        <result column="semester" property="semester"/>
+        <result column="teacher" property="teacher"/>
+        <result column="code" property="code"/>
+        <result column="status" property="status"/>
+        <result column="color" property="color"/>
+        <result column="is_top" property="isTop"/>
+        <result column="class_id" property="classId"/> </resultMap>
+
+
     <insert id="insertCourse">
-        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top)
-        VALUES (#{name}, #{semester}, #{teacher}, #{code}, #{status}, #{color}, 0)
+        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top, class_id)
+        VALUES (#{name}, #{semester}, #{teacher}, #{code}, #{status}, #{color}, 0, #{classId}) </insert>
+
+    <insert id="insertBatchCourses" parameterType="java.util.List">
+        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top, class_id)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (
+            #{item.name},
+            #{item.semester},
+            #{item.teacher},
+            #{item.code},
+            #{item.status},
+            #{item.color},
+            0,
+            #{item.classId}  )
+        </foreach>
     </insert>
 
-    <select id="selectAllCourses" resultType="com.project.system.entity.Course">
+    <select id="selectAllCourses" resultMap="CourseResultMap">
         SELECT * FROM sys_course ORDER BY id DESC
     </select>
 
@@ -16,7 +43,7 @@
         <set>
             <if test="teacher != null">teacher = #{teacher},</if>
             <if test="status != null">status = #{status},</if>
-        </set>
+            <if test="classId != null">class_id = #{classId},</if> </set>
         WHERE id = #{id}
     </update>
 

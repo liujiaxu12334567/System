@@ -31,4 +31,5 @@ public interface UserMapper {
     List<User> selectUsersByRole(@Param("roleType") String roleType);
     List<User> selectStudentsByClassIds(@Param("classIds") List<Long> classIds);
     int insertBatchStudents(@Param("list") List<com.project.system.entity.User> list);
+    List<Long> selectDistinctClassIds();
 }
