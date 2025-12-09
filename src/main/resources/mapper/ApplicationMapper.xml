@@ -26,7 +26,9 @@
     <select id="findByStatus" resultMap="ApplicationResultMap">
         SELECT * FROM sys_application WHERE status = #{status} ORDER BY create_time DESC
     </select>
-
+    <select id="findById" resultMap="ApplicationResultMap">
+        SELECT * FROM sys_application WHERE id = #{id}
+    </select>
     <update id="updateStatus">
         UPDATE sys_application SET status = #{status} WHERE id = #{id}
     </update>

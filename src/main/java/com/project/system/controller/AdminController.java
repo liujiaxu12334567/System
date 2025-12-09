@@ -3,20 +3,22 @@ package com.project.system.controller;
 import com.project.system.dto.BatchEnrollmentRequest;
 import com.project.system.dto.BatchEnrollmentRequest.StudentInfo;
 import com.project.system.dto.PaginationResponse; // 导入 DTO
+import com.project.system.entity.Application;
 import com.project.system.entity.Class;
 import com.project.system.entity.Course;
 import com.project.system.entity.User;
+import com.project.system.mapper.ApplicationMapper; // 导入 Application Mapper
 import com.project.system.mapper.ClassMapper;
 import com.project.system.mapper.CourseMapper;
 import com.project.system.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional; // 导入事务注解
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import lombok.Data;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +30,9 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 
 @RestController
 @RequestMapping("/api/admin")
@@ -44,6 +49,9 @@ public class AdminController {
 
     @Autowired
     private ClassMapper classMapper;
+
+    @Autowired
+    private ApplicationMapper applicationMapper; // 注入 Application Mapper
 
     // 【辅助方法 1】检查并插入新班级
     private void checkAndInsertClass(Long classId, String major) {
@@ -361,8 +369,7 @@ public class AdminController {
         for (Long classId : classIds) {
             checkAndInsertClass(classId); // 确保班级记录存在 (使用占位符 major)
 
-            // 【！！！已修复的错误！！！】：这里之前错误地写成了 new User()
-            Course newCourse = new Course();
+            Course newCourse = new Course(); // 【已修复】确保使用 new Course()
             newCourse.setName(name);
             newCourse.setSemester(semester != null ? semester : "2025-1");
             newCourse.setCode(baseCode + "-" + classId);
@@ -430,6 +437,105 @@ public class AdminController {
         return ResponseEntity.ok(formattedClasses);
     }
 
+    // 14. 【新增】获取所有待审核的教师申请
+    @GetMapping("/applications/pending")
+    public ResponseEntity<?> listPendingApplications() {
+        // 假设 ApplicationMapper 有 findByStatus 方法
+        List<Application> pendingList = applicationMapper.findByStatus("PENDING");
+        return ResponseEntity.ok(pendingList);
+    }
+
+    // 15. 【新增】处理审核操作 (批准或拒绝)
+    @PostMapping("/applications/review")
+    @Transactional // 确保整个操作要么成功要么失败
+    public ResponseEntity<?> reviewApplication(@RequestBody Map<String, Object> request) {
+        Long appId = Long.valueOf(request.get("id").toString());
+        String status = (String) request.get("status"); // APPROVED 或 REJECTED
+
+        if (appId == null || status == null) {
+            return ResponseEntity.badRequest().body("审核参数不完整");
+        }
+
+        // 假设 ApplicationMapper 有 findById 方法
+        Application app = applicationMapper.findById(appId);
+        if (app == null) {
+            return ResponseEntity.badRequest().body("找不到对应的申请记录");
+        }
+
+        if (!"APPROVED".equals(status)) {
+            // 如果是 REJECTED，直接更新状态并返回
+            applicationMapper.updateStatus(appId, status);
+            return ResponseEntity.ok("申请已拒绝");
+        }
+
+        // --- 核心批准逻辑 ---
+        String type = app.getType();
+        Long targetId = app.getTargetId();
+
+        try {
+            switch (type) {
+                case "DELETE":
+                    if (targetId != null) {
+                        userMapper.deleteUserById(targetId);
+                        break;
+                    }
+                    return ResponseEntity.badRequest().body("删除操作缺少目标用户ID");
+
+                case "RESET_PWD":
+                    if (targetId != null) {
+                        User user = new User();
+                        user.setUserId(targetId);
+                        user.setPassword(passwordEncoder.encode("123456")); // 重置为默认密码
+                        userMapper.updateUser(user);
+                        break;
+                    }
+                    return ResponseEntity.badRequest().body("重置密码操作缺少目标用户ID");
+
+                case "ADD":
+                    // 解析新增学生信息: "新增学生：张三 (241010101), 班级ID: 202401"
+                    Pattern pattern = Pattern.compile("新增学生：\\s*([^\\s]+)\\s*\\(([^\\)]+)\\),\\s*班级ID:\\s*(\\d+)");
+                    Matcher matcher = pattern.matcher(app.getContent());
+
+                    if (matcher.find()) {
+                        String realName = matcher.group(1).trim();
+                        String username = matcher.group(2).trim();
+                        String classIdStr = matcher.group(3).trim();
+                        Long classId = Long.parseLong(classIdStr);
+
+                        if (userMapper.findByUsername(username) == null) { // 再次检查是否重复
+                            User newUser = new User();
+                            newUser.setUsername(username);
+                            newUser.setRealName(realName);
+                            newUser.setRoleType("4");
+                            newUser.setClassId(classId);
+                            newUser.setPassword(passwordEncoder.encode("123456"));
+
+                            // 确保班级存在 (这里我们无法获取 Major，所以使用占位符)
+                            checkAndInsertClass(classId);
+                            userMapper.insert(newUser);
+                            break;
+                        } else {
+                            return ResponseEntity.badRequest().body("用户已存在，无法新增");
+                        }
+                    }
+                    return ResponseEntity.badRequest().body("新增申请内容格式不正确");
+
+                default:
+                    return ResponseEntity.badRequest().body("未知的申请类型");
+            }
+
+            // 批准成功后，更新申请状态
+            applicationMapper.updateStatus(appId, "APPROVED");
+            return ResponseEntity.ok("操作已批准并执行成功");
+
+        } catch (Exception e) {
+            // 如果执行数据库操作失败，抛出异常以触发事务回滚
+            System.err.println("Error processing application " + appId + ": " + e.getMessage());
+            return ResponseEntity.status(500).body("处理请求时发生系统错误：" + e.getMessage());
+        }
+    }
+
+
     // 【核心私有方法】封装更新教师执教班级的通用逻辑 (合并模式，防空格和陈旧数据)
     private void updateTeacherTeachingClasses(List<String> teacherNames, List<Long> classIds) {
 
@@ -447,7 +553,6 @@ public class AdminController {
 
             if (cachedTeacher != null) {
                 // 3. *** 关键修复：从数据库获取最新的完整记录，确保 teachingClasses 不是陈旧值 ***
-                // 必须使用 username 重新查询，获取最新的 teachingClasses
                 User latestTeacher = userMapper.findByUsername(cachedTeacher.getUsername());
 
                 if (latestTeacher == null) continue;

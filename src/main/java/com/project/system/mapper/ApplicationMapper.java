@@ -15,7 +15,7 @@ public interface ApplicationMapper {
 
     // 查询所有待审核申请 (预留给 Admin/LeaderController 调用)
     List<Application> findByStatus(@Param("status") String status);
-
+    Application findById(@Param("id") Long id);
     // (预留给 Admin/LeaderController) 审核后更新状态
     int updateStatus(@Param("id") Long id, @Param("status") String status);
 }

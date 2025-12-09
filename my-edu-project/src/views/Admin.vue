@@ -13,6 +13,7 @@
         <el-menu-item index="1"><el-icon><User /></el-icon>用户管理</el-menu-item>
         <el-menu-item index="2"><el-icon><Tickets /></el-icon>批量分班/入学</el-menu-item>
         <el-menu-item index="3"><el-icon><Reading /></el-icon>课程管理</el-menu-item>
+        <el-menu-item index="4"><el-icon><DocumentChecked /></el-icon>申请审核</el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -136,7 +137,32 @@
         <h2>批量学生入学与分班</h2>
         <el-alert title="说明：批量创建的学生默认角色为 '学生'，默认密码为 '123456'。" type="info" show-icon style="margin-bottom: 20px;" />
 
-        <el-card shadow="hover" header="表格导入分班">
+        <el-card shadow="hover" header="学号范围批量分班">
+          <el-form :model="rangeForm" label-width="120px" :inline="true">
+            <el-form-item label="学号起始">
+              <el-input v-model="rangeForm.startUsername" placeholder="例如: 24107311201" style="width: 200px;" />
+            </el-form-item>
+            <el-form-item label="学号结束">
+              <el-input v-model="rangeForm.endUsername" placeholder="例如: 24107311220" style="width: 200px;" />
+            </el-form-item>
+
+            <el-form-item label="目标班级ID">
+              <el-input v-model="rangeForm.targetClassId" placeholder="请输入班级ID (例如: 202303)" type="number" style="width: 200px;" />
+            </el-form-item>
+
+            <el-form-item label="所属专业">
+              <el-input v-model="rangeForm.major" placeholder="请输入专业名称 (例如: 计算机科学)" style="width: 200px;" />
+            </el-form-item>
+
+            <el-form-item>
+              <el-button type="primary" :loading="loading.range" @click="submitRangeEnroll">
+                批量创建并分班
+              </el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+
+        <el-card shadow="hover" header="表格导入分班" style="margin-top: 20px;">
           <el-form :model="uploadForm" label-width="120px" :inline="true">
 
             <el-form-item label="目标班级ID">
@@ -156,8 +182,7 @@
               <el-button
                   type="primary"
                   :loading="loading.upload"
-                  @click="submitUpload"
-                  :disabled="!uploadForm.startUsername || !uploadForm.targetClassId || !uploadForm.major"
+                  @click="submitUpload" :disabled="!uploadForm.startUsername || !uploadForm.targetClassId || !uploadForm.major"
               >
                 提交导入
               </el-button>
@@ -174,7 +199,7 @@
               :on-success="handleUploadSuccess"
               :on-error="handleUploadError"
               :on-progress="handleUploadProgress"
-              :auto-upload="false"  :data="{ targetClassId: uploadForm.targetClassId, startUsername: uploadForm.startUsername, major: uploadForm.major }"
+              :auto-upload="false" :data="{ targetClassId: uploadForm.targetClassId, startUsername: uploadForm.startUsername, major: uploadForm.major }"
               :headers="uploadHeaders"
               :limit="1"
           >
@@ -233,6 +258,30 @@
             </el-table-column>
           </el-table>
         </el-card>
+      </div>
+
+      <div v-if="activeMenu === '4'" class="application-review-container">
+        <h2>待审核的教师申请</h2>
+        <el-alert v-if="applicationList.length === 0" title="当前没有待审核的申请记录" type="success" show-icon style="margin-bottom: 20px;" />
+
+        <el-table :data="applicationList" border stripe style="width: 100%">
+          <el-table-column prop="id" label="ID" width="60" />
+          <el-table-column prop="teacherName" label="申请人" width="100" />
+          <el-table-column prop="type" label="类型" width="120">
+            <template #default="scope">
+              <el-tag :type="getTypeTag(scope.row.type)">{{ formatType(scope.row.type) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="content" label="申请内容" min-width="180" show-overflow-tooltip/>
+          <el-table-column prop="reason" label="申请理由" min-width="150" show-overflow-tooltip/>
+          <el-table-column prop="createTime" label="提交时间" width="160" />
+          <el-table-column label="操作" width="160" fixed="right">
+            <template #default="scope">
+              <el-button size="small" type="success" @click="handleReview(scope.row.id, 'APPROVED')">批准</el-button>
+              <el-button size="small" type="danger" @click="handleReview(scope.row.id, 'REJECTED')">驳回</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
       </div>
 
 
@@ -318,14 +367,15 @@
 
       <el-dialog v-model="assignDialogVisible" title="分配任课教师" width="400px">
         <p style="margin-bottom: 5px">当前课程：{{ currentRow.name }}</p>
-        <p style="margin-bottom: 15px; font-weight: bold;">所属班级ID: {{ currentRow.classId }}</p> <el-select v-model="selectedTeacher" placeholder="请选择教师" style="width: 100%">
-        <el-option
-            v-for="t in teacherList"
-            :key="t.userId"
-            :label="t.realName"
-            :value="t.realName"
-        />
-      </el-select>
+        <p style="margin-bottom: 15px; font-weight: bold;">所属班级ID: {{ currentRow.classId }}</p>
+        <el-select v-model="selectedTeacher" placeholder="请选择教师" style="width: 100%">
+          <el-option
+              v-for="t in teacherList"
+              :key="t.userId"
+              :label="t.realName"
+              :value="t.realName"
+          />
+        </el-select>
         <template #footer>
           <el-button @click="assignDialogVisible = false">取消</el-button>
           <el-button type="primary" @click="submitAssign">确认分配</el-button>
@@ -381,7 +431,7 @@
 import { ref, onMounted, reactive, nextTick } from 'vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
-import { User, Reading, DataBoard, Tickets, UploadFilled } from '@element-plus/icons-vue'
+import { User, Reading, DataBoard, Tickets, UploadFilled, DocumentChecked } from '@element-plus/icons-vue'
 
 const userList = ref([])
 const keyword = ref('')
@@ -402,7 +452,6 @@ const uploadActionUrl = '/api/admin/batch/upload'
 const uploadHeaders = { Authorization: `Bearer ${localStorage.getItem('token')}` }
 const uploadRef = ref(null)
 
-
 // --- 课程管理状态 ---
 const courseList = ref([])
 const teacherList = ref([])
@@ -414,6 +463,9 @@ const currentRow = ref({})
 const selectedTeacher = ref('')
 const batchAssignForm = ref({ name: '', semester: '2025-1', teacherNames: [], classIds: [] })
 const classList = ref([]);
+
+// --- 申请审核状态 ---
+const applicationList = ref([]);
 
 
 onMounted(() => {
@@ -441,7 +493,6 @@ const fetchUsers = async () => {
       }
     });
 
-    // 假设后端返回 { list: [...], total: 100, pageNum: 1, pageSize: 10 }
     const res = await request.get('/admin/user/list', { params });
 
     userList.value = res.list || [];
@@ -457,11 +508,11 @@ const fetchUsers = async () => {
 // 获取课程、教师和班级数据
 const fetchCourseAndTeacherData = async () => {
   try {
-    // 1. 获取课程列表 (现在是 Admin 权限)
+    // 1. 获取课程列表 (Admin 权限)
     const resCourses = await request.get('/admin/course/list');
     courseList.value = resCourses || [];
 
-    // 2. 获取教师列表
+    // 2. 获取教师列表 (该接口已合并 Leader(2) 和 Teacher(3) - 后端已实现)
     const resTeachers = await request.get('/leader/teacher/list');
     teacherList.value = resTeachers || [];
 
@@ -471,6 +522,17 @@ const fetchCourseAndTeacherData = async () => {
 
   } catch (error) {
     console.error("加载课程、教师或班级数据失败", error);
+  }
+}
+
+// 【新增】获取待审核的申请列表
+const fetchPendingApplications = async () => {
+  try {
+    const res = await request.get('/admin/applications/pending');
+    applicationList.value = res || [];
+  } catch (e) {
+    ElMessage.error('加载待审核申请失败');
+    console.error(e);
   }
 }
 
@@ -499,7 +561,9 @@ const handleMenuSelect = (index) => {
   if (index === '1') {
     fetchUsers()
   } else if (index === '3') {
-    fetchCourseAndTeacherData(); // 切换到课程管理时刷新课程和班级数据
+    fetchCourseAndTeacherData();
+  } else if (index === '4') { // 切换到申请审核
+    fetchPendingApplications();
   }
 }
 
@@ -507,19 +571,17 @@ const handleMenuSelect = (index) => {
 
 const openDialog = (row) => {
   if (row) {
-    // 编辑用户：仅加载通用信息
     form.value = {
       userId: row.userId,
       username: row.username,
       realName: row.realName,
       roleType: Number(row.roleType),
-      password: '', // 密码默认清空
+      password: '',
       classId: row.classId,
       teachingClasses: row.teachingClasses,
-      major: null // 编辑时major不加载或保留
+      major: null
     }
   } else {
-    // 【修改】新增用户：默认学生，新增 major 字段
     form.value = { roleType: 4, classId: null, teachingClasses: null, major: null, username: '', realName: '' }
   }
   dialogVisible.value = true
@@ -532,13 +594,11 @@ const submitForm = async () => {
     return ElMessage.warning('请填写账号和真实姓名');
   }
 
-  // 【新增学生时的校验】
   if (form.value.roleType === 4 && !form.value.userId) {
     if (!form.value.classId) return ElMessage.warning('新增学生必须填写班级ID');
-    if (!form.value.major) return ElMessage.warning('新增学生必须填写专业名称'); // 强制要求 major
+    if (!form.value.major) return ElMessage.warning('新增学生必须填写专业名称');
   }
 
-  // 我们直接发送 form.value，后端 AdminController 必须能够处理 Map 结构并提取 major。
   const payload = {
     ...form.value,
     roleType: String(form.value.roleType),
@@ -616,15 +676,13 @@ const openAssignDialog = (row) => {
 const submitAssign = async () => {
   if(!selectedTeacher.value) return ElMessage.warning('请选择任课教师');
 
-  // 【核心修改】构建包含 course ID, teacher name, 和 class ID 的 payload
   const payload = {
-    id: currentRow.value.id, // Course ID
-    teacher: selectedTeacher.value, // New Teacher Name
-    classId: currentRow.value.classId // The class this course belongs to
+    id: currentRow.value.id,
+    teacher: selectedTeacher.value,
+    classId: currentRow.value.classId
   };
 
   try {
-    // 发送包含 classId 的数据，后端将负责更新 sys_user 表中的 teachingClasses
     await request.post('/admin/course/update', payload);
 
     ElMessage.success('教师分配成功，执教班级已同步更新。');
@@ -652,7 +710,6 @@ const beforeUploadCheck = (file) => {
     ElMessage.error('请先填写起始学号');
     return false;
   }
-  // 【新增校验】
   if (!uploadForm.major) {
     ElMessage.error('请先填写所属专业');
     return false;
@@ -665,28 +722,47 @@ const beforeUploadCheck = (file) => {
   return isXlsx;
 };
 
-// 【核心修改】实现手动上传
+// 【修复：学号范围批量分班】
+const submitRangeEnroll = async () => {
+  if (!rangeForm.startUsername || !rangeForm.endUsername || !rangeForm.targetClassId || !rangeForm.major) {
+    return ElMessage.warning('请填写完整的学号范围、目标班级ID和所属专业');
+  }
+
+  try {
+    loading.range = true;
+    const res = await request.post('/admin/batch/enroll', rangeForm);
+    ElMessage.success(res);
+  } catch (e) {
+    ElMessage.error(e.response?.data || '批量创建失败');
+  } finally {
+    loading.range = false;
+  }
+};
+
+
+// 【修复：表格导入分班】
 const submitUpload = () => {
   // 1. 触发字段校验
   if (!uploadForm.targetClassId || !uploadForm.startUsername || !uploadForm.major) {
     return ElMessage.warning('请确保班级ID、专业和起始学号都已填写！');
   }
 
-  // 2. 检查是否有文件待上传
-  if (!uploadRef.value || !uploadRef.value.uploadFiles || uploadRef.value.uploadFiles.length === 0) {
-    return ElMessage.warning('请先选择或拖拽文件！');
-  }
+  // 使用 nextTick 确保文件状态更新完成 (关键修复)
+  nextTick(() => {
+    if (!uploadRef.value || !uploadRef.value.uploadFiles || uploadRef.value.uploadFiles.length === 0) {
+      return ElMessage.warning('请先选择或拖拽文件！');
+    }
 
-  // 3. 手动触发上传
-  uploadRef.value.submit();
+    // 3. 手动触发上传
+    uploadRef.value.submit();
+  });
 };
 
 const handleUploadSuccess = (response, file) => {
   loading.upload = false;
-  // 清空文件列表，允许再次上传
   uploadRef.value.clearFiles();
   ElMessage.success(response);
-  fetchUsers(); // 刷新用户列表
+  fetchUsers();
 };
 
 const handleUploadError = (error) => {
@@ -703,8 +779,21 @@ const handleUploadProgress = (event, file, fileList) => {
   loading.upload = true;
 };
 
+// --- 申请审核逻辑 ---
 
-// --- 辅助函数 (保持不变) ---
+const handleReview = async (id, status) => {
+  const action = status === 'APPROVED' ? '批准' : '驳回';
+  try {
+    await request.post('/admin/applications/review', { id, status });
+    ElMessage.success(`操作成功：申请已${action}`);
+    fetchPendingApplications(); // 刷新列表
+  } catch (e) {
+    ElMessage.error(`${action}失败：` + (e.response?.data || '服务器错误'));
+    console.error(e);
+  }
+}
+
+// --- 辅助函数 ---
 
 const getRoleName = (type) => {
   const map = {'1':'管理员', '2':'课题组长', '3':'普通教师', '4':'学生'}
@@ -713,6 +802,14 @@ const getRoleName = (type) => {
 const getRoleTag = (type) => {
   const map = {'1':'danger', '2':'success', '3':'primary', '4':'info'}
   return map[String(type)]
+}
+const formatType = (type) => {
+  const map = { ADD: '新增学生', DELETE: '删除学生', RESET_PWD: '重置密码' }
+  return map[type] || type
+}
+const getTypeTag = (type) => {
+  const map = { ADD: 'success', DELETE: 'danger', RESET_PWD: 'warning' }
+  return map[type] || 'info'
 }
 
 onMounted(() => {

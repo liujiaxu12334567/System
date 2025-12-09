@@ -22,10 +22,28 @@
               <el-icon :size="20" color="#606266"><Bell /></el-icon>
             </el-badge>
           </div>
-          <div class="user-info">
-            <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
-            <span class="username">{{ userInfo.realName || '同学' }}</span>
-          </div>
+
+          <el-dropdown trigger="click">
+            <div class="user-info">
+              <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
+              <span class="username">{{ userInfo.realName || '同学' }}</span>
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+
+                <el-dropdown-item @click="openPasswordDialog">
+                  <el-icon><Setting /></el-icon>
+                  修改密码
+                </el-dropdown-item>
+
+                <el-dropdown-item divided @click="logout">
+                  <el-icon><SwitchButton /></el-icon>
+                  退出登录
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </div>
     </header>
@@ -147,54 +165,148 @@
       </div>
 
     </main>
+
+    <el-dialog v-model="settingsDialogVisible" title="账户设置 - 修改密码" width="400px">
+      <el-form
+          :model="passwordForm"
+          ref="passwordFormRef"
+          :rules="passwordRules"
+          label-width="100px"
+          size="default"
+      >
+        <el-form-item label="原密码" prop="oldPassword">
+          <el-input v-model="passwordForm.oldPassword" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="新密码" prop="newPassword">
+          <el-input v-model="passwordForm.newPassword" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="确认密码" prop="confirmNewPassword">
+          <el-input v-model="passwordForm.confirmNewPassword" type="password" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="settingsDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitPasswordChange">确认修改</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { Bell, MagicStick, Platform, ArrowRight, Box, Document, Tickets } from '@element-plus/icons-vue'
+import { ref, onMounted, reactive } from 'vue'
+import { useRouter } from 'vue-router'
+import { Bell, MagicStick, Platform, ArrowRight, Box, Document, Tickets, ArrowDown, Setting, SwitchButton } from '@element-plus/icons-vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import request from '@/utils/request' // 使用自定义 request 实例
 
-const BASE_URL = 'http://localhost:8080'
+const router = useRouter()
 const userInfo = ref({ realName: '' })
 const currentSemester = ref('2025-1')
 const loading = ref(true)
 const courseList = ref([])
 const taskList = ref([])
 
+// 弹窗和表单
+const settingsDialogVisible = ref(false)
+const passwordFormRef = ref(null)
+const passwordForm = reactive({
+  oldPassword: '',
+  newPassword: '',
+  confirmNewPassword: ''
+})
+
+// 自定义校验规则：检查两次输入的新密码是否一致
+const validatePass = (rule, value, callback) => {
+  if (value === '') {
+    callback(new Error('请再次输入新密码'))
+  } else if (value !== passwordForm.newPassword) {
+    callback(new Error('两次输入密码不一致!'))
+  } else {
+    callback()
+  }
+}
+
+const passwordRules = reactive({
+  oldPassword: [{ required: true, message: '请输入原密码', trigger: 'blur' }],
+  newPassword: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    { min: 6, message: '新密码不能少于6位', trigger: 'blur' }
+  ],
+  confirmNewPassword: [{ required: true, validator: validatePass, trigger: 'blur' }]
+})
+
+
 onMounted(() => {
-  // 1. 先尝试从缓存显示名字，防止闪烁
   const storedUser = localStorage.getItem('userInfo')
   if (storedUser) {
     try { userInfo.value = JSON.parse(storedUser) } catch(e) {}
   }
-  // 2. 调用后端接口
   fetchHomeData()
 })
 
 const fetchHomeData = async () => {
   try {
-    const token = localStorage.getItem('token')
-    const res = await axios.get(`${BASE_URL}/api/home/data`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
+    const res = await request.get('/home/data')
 
-    if (res.data) {
-      // 更新姓名
-      if (res.data.realName) {
-        userInfo.value.realName = res.data.realName
+    if (res) {
+      if (res.realName) {
+        userInfo.value.realName = res.realName
       }
-      // 更新课程列表
-      courseList.value = res.data.courses || []
-      // 更新任务列表
-      taskList.value = res.data.tasks || []
+      courseList.value = res.courses || []
+      taskList.value = res.tasks || []
     }
   } catch (error) {
     console.error(error)
   } finally {
     loading.value = false
   }
+}
+
+// 1. 点击头像菜单中的“修改密码”
+const openPasswordDialog = () => {
+  // 重置表单状态
+  passwordForm.oldPassword = ''
+  passwordForm.newPassword = ''
+  passwordForm.confirmNewPassword = ''
+
+  // 清除校验结果
+  if (passwordFormRef.value) {
+    passwordFormRef.value.resetFields()
+  }
+  settingsDialogVisible.value = true
+}
+
+// 2. 提交密码修改请求
+const submitPasswordChange = () => {
+  // 触发表单校验
+  passwordFormRef.value.validate(async (valid) => {
+    if (valid) {
+      try {
+        // 调用后端的修改密码接口
+        await request.post('/auth/update-password', {
+          oldPassword: passwordForm.oldPassword,
+          newPassword: passwordForm.newPassword
+        })
+
+        ElMessage.success('密码修改成功，请重新登录')
+        settingsDialogVisible.value = false
+        logout() // 修改密码后强制用户重新登录
+
+      } catch (error) {
+        console.error('密码修改失败', error)
+      }
+    } else {
+      ElMessage.warning('请检查输入项')
+      return false
+    }
+  })
+}
+
+// 退出登录
+const logout = () => {
+  localStorage.clear()
+  router.push('/login')
 }
 </script>
 
@@ -246,8 +358,18 @@ $content-width: 90%;
         border: none; padding: 18px 22px; font-weight: 600; font-style: italic; border-radius: 20px;
       }
       .icon-wrap { cursor: pointer; display: flex; align-items: center; }
+
+      // Dropdown and User Info Styles
+      :deep(.el-dropdown) {
+        cursor: pointer;
+      }
       .user-info {
-        display: flex; align-items: center; gap: 10px; cursor: pointer;
+        display: flex; align-items: center; gap: 10px;
+        padding: 0 5px;
+        border-radius: 4px;
+        &:hover {
+          background-color: #f0f2f5;
+        }
         .username { font-size: 14px; color: #333; font-weight: 500;}
       }
     }
