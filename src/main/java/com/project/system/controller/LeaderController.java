@@ -41,13 +41,11 @@ public class LeaderController {
     // 【Leader端特有】获取所有可选教师 (Role=3) 和课题组长 (Role=2)
     @GetMapping("/teacher/list")
     public ResponseEntity<?> listTeachersAndLeaders() {
-        // 1. 获取所有普通教师 (Role=3)
         List<User> teachers = userMapper.selectUsersByRole("3");
-        // 2. 获取所有课题组长 (Role=2)
         List<User> leaders = userMapper.selectUsersByRole("2");
 
         List<User> all = new ArrayList<>(teachers);
-        all.addAll(leaders); // 合并列表
+        all.addAll(leaders);
 
         return ResponseEntity.ok(all);
     }
@@ -65,8 +63,7 @@ public class LeaderController {
         }
 
         // 2. 调用 Mapper，查询该 Leader 负责的所有课程
-        // 前提：UserMapper.xml 需支持 selectCoursesByTeacherName 方法
-        List<Course> courses = courseMapper.selectCoursesByTeacherName(leaderName);
+        List<Course> courses = courseMapper.selectCoursesByManagerName(leaderName);
         return ResponseEntity.ok(courses);
     }
 
@@ -76,20 +73,18 @@ public class LeaderController {
         String materialType = (String) data.get("type");
         String content = (String) data.get("content");
 
-        // 实际业务逻辑：将 materialType, content, courseId 存入 Task/Material 表
-        // 这里仅模拟成功
-
         if (content == null || content.isEmpty()) {
             return ResponseEntity.badRequest().body("下发内容不能为空。");
         }
 
+        // 实际业务逻辑：内容应该存入 Task/Material 表，并关联到 courseId
         System.out.println("Leader is deploying content type: " + materialType + " for Course ID: " + courseId + " with content: " + content.substring(0, Math.min(content.length(), 30)) + "...");
 
         return ResponseEntity.ok("课程资料 [" + materialType + "] 提交成功，已下发给教师和学生。");
     }
 
 
-    // 3. 【课程管理】更新课程 (用于分配单个教师)
+    // 3. 【课程管理】更新课程 (用于调整教师)
     @PostMapping("/course/update")
     @Transactional
     public ResponseEntity<?> updateCourse(@RequestBody Course course) {
@@ -113,10 +108,16 @@ public class LeaderController {
         return ResponseEntity.ok("删除成功");
     }
 
-    // 5. 【排课/下发内容】批量分配课程 (Leader 辅助功能)
+    // 5. 【排课/下发内容】批量分配课程 ( Leader 辅助 Admin 创建课程的替代功能)
     @PostMapping("/course/batch-assign")
     @Transactional
     public ResponseEntity<?> batchAssignCourse(@RequestBody Map<String, Object> request) {
+
+        // 1. 获取当前组长信息
+        String currentUsername = SecurityContextHolder.getContext().getAuthentication().getName();
+        User currentUser = userMapper.findByUsername(currentUsername);
+        String managerName = currentUser.getRealName();
+
         String name = (String) request.get("name");
         String semester = (String) request.get("semester");
         List<String> teacherNames = (List<String>) request.get("teacherNames");
@@ -150,6 +151,8 @@ public class LeaderController {
             newCourse.setColor("blue");
             newCourse.setIsTop(0);
             newCourse.setClassId(classId);
+            newCourse.setManagerName(managerName); // 【关键】设置 Leader 姓名
+
 
             coursesToInsert.add(newCourse);
         }

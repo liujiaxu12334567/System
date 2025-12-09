@@ -100,6 +100,9 @@
               <span v-if="scope.row.roleType === '4'">
                   所属班级: <el-tag size="small">{{ scope.row.classId || '未分班' }}</el-tag>
               </span>
+              <span v-else-if="scope.row.roleType === '2'">
+                  负责课程: <el-tag size="small">{{ scope.row.teacherRank || '未分配' }}</el-tag>
+              </span>
               <span v-else-if="scope.row.teachingClasses">
                   执教班级: {{ scope.row.teachingClasses }}
               </span>
@@ -182,7 +185,8 @@
               <el-button
                   type="primary"
                   :loading="loading.upload"
-                  @click="submitUpload" :disabled="!uploadForm.startUsername || !uploadForm.targetClassId || !uploadForm.major"
+                  @click="submitUpload"
+                  :disabled="!uploadForm.startUsername || !uploadForm.targetClassId || !uploadForm.major"
               >
                 提交导入
               </el-button>
@@ -192,14 +196,16 @@
 
           <el-upload
               class="upload-demo"
-              ref="uploadRef"  drag
+              ref="uploadRef"
+              drag
               :action="uploadActionUrl"
               :show-file-list="true"
               :before-upload="beforeUploadCheck"
               :on-success="handleUploadSuccess"
               :on-error="handleUploadError"
               :on-progress="handleUploadProgress"
-              :auto-upload="false" :data="{ targetClassId: uploadForm.targetClassId, startUsername: uploadForm.startUsername, major: uploadForm.major }"
+              :auto-upload="false"
+              :data="{ targetClassId: uploadForm.targetClassId, startUsername: uploadForm.startUsername, major: uploadForm.major }"
               :headers="uploadHeaders"
               :limit="1"
           >
@@ -317,6 +323,25 @@
               <el-input v-model="form.classId" placeholder="请输入班级ID (例如: 202303)" type="number" />
             </el-form-item>
           </template>
+
+          <template v-if="form.roleType === 2">
+            <el-form-item label="负责课程" prop="managerCourses">
+              <el-select
+                  v-model="form.managerCourses"
+                  multiple
+                  placeholder="请选择课题组长负责的课程"
+                  style="width: 100%"
+              >
+                <el-option
+                    v-for="c in courseList"
+                    :key="c.id"
+                    :label="c.name"
+                    :value="c.name"
+                />
+              </el-select>
+            </el-form-item>
+          </template>
+
 
         </el-form>
         <template #footer>
@@ -443,7 +468,7 @@ const pageSize = ref(10)
 const total = ref(0)
 
 const dialogVisible = ref(false)
-const form = ref({})
+const form = ref({ managerCourses: [] }) // 【修改】初始化 form，包含 managerCourses
 const activeMenu = ref('1')
 const loading = reactive({ range: false, upload: false })
 const rangeForm = reactive({ startUsername: '', endUsername: '', targetClassId: null, major: null })
@@ -453,8 +478,8 @@ const uploadHeaders = { Authorization: `Bearer ${localStorage.getItem('token')}`
 const uploadRef = ref(null)
 
 // --- 课程管理状态 ---
-const courseList = ref([])
-const teacherList = ref([])
+const courseList = ref([]) // 所有课程列表
+const teacherList = ref([]) // 教师/组长列表
 const courseDialogVisible = ref(false)
 const assignDialogVisible = ref(false)
 const batchAssignDialogVisible = ref(false)
@@ -510,9 +535,9 @@ const fetchCourseAndTeacherData = async () => {
   try {
     // 1. 获取课程列表 (Admin 权限)
     const resCourses = await request.get('/admin/course/list');
-    courseList.value = resCourses || [];
+    courseList.value = resCourses || []; // 用于弹窗的课程列表
 
-    // 2. 获取教师列表 (该接口已合并 Leader(2) 和 Teacher(3) - 后端已实现)
+    // 2. 获取教师列表 (包含 Leader 和 Teacher)
     const resTeachers = await request.get('/leader/teacher/list');
     teacherList.value = resTeachers || [];
 
@@ -571,6 +596,9 @@ const handleMenuSelect = (index) => {
 
 const openDialog = (row) => {
   if (row) {
+    const isLeader = row.roleType === '2';
+
+    // 编辑用户：加载通用信息
     form.value = {
       userId: row.userId,
       username: row.username,
@@ -579,10 +607,22 @@ const openDialog = (row) => {
       password: '',
       classId: row.classId,
       teachingClasses: row.teachingClasses,
-      major: null
+      major: null,
+      // 【核心修改】课题组长（Role=2）时，从 teacherRank 中解析课程名列表
+      // 注意：我们假设 row.teacherRank 存储了逗号分隔的课程名
+      managerCourses: isLeader && row.teacherRank ? row.teacherRank.split(',') : [],
     }
   } else {
-    form.value = { roleType: 4, classId: null, teachingClasses: null, major: null, username: '', realName: '' }
+    // 新增用户
+    form.value = {
+      roleType: 4,
+      classId: null,
+      teachingClasses: null,
+      major: null,
+      username: '',
+      realName: '',
+      managerCourses: [] // 新增时初始化为空列表
+    }
   }
   dialogVisible.value = true
 }
@@ -599,13 +639,27 @@ const submitForm = async () => {
     if (!form.value.major) return ElMessage.warning('新增学生必须填写专业名称');
   }
 
+  // 【核心修改：构建 payload，处理课题组长负责课程】
+  const coursesToManage = form.value.managerCourses || [];
+
   const payload = {
     ...form.value,
     roleType: String(form.value.roleType),
+
+    // 关键：将课程名列表存储在 User.teacherRank 字段中
+    teacherRank: form.value.roleType === 2 ? coursesToManage.join(',') : form.value.teacherRank,
+
+    // 如果是课题组长，将负责课程名列表放在 teachingClasses 字段中传递给后端进行统一处理
+    // 否则使用原有的 teachingClasses（班级 ID）
+    teachingClasses: form.value.roleType === 2 ? coursesToManage.join(',') : form.value.teachingClasses,
   }
+
+  // 删除 managerCourses 避免它被发送到 User 实体中不存在的字段
+  delete payload.managerCourses;
 
   try {
     await request.post(url, payload)
+
     ElMessage.success('操作成功')
     dialogVisible.value = false
     fetchUsers()
@@ -635,8 +689,16 @@ const openCourseDialog = () => {
 const submitCourse = async () => {
   if(!courseForm.value.name) return ElMessage.warning('请填写课程名称');
   if(!courseForm.value.classId) return ElMessage.warning('请选择所属班级');
+
+  const currentAdmin = JSON.parse(localStorage.getItem('userInfo'));
+
   try {
-    await request.post('/admin/course/add', courseForm.value);
+    const payload = {
+      ...courseForm.value,
+      managerName: currentAdmin.realName // 设置课题组长字段，默认为当前管理员
+    };
+
+    await request.post('/admin/course/add', payload);
     ElMessage.success('课程发布成功');
     courseDialogVisible.value = false;
     fetchCourseAndTeacherData();
@@ -654,12 +716,15 @@ const submitBatchAssign = async () => {
     return ElMessage.warning('请填写课程名称，并选择至少一位教师和至少一个班级');
   }
 
+  const currentAdmin = JSON.parse(localStorage.getItem('userInfo'));
+
   try {
     await request.post('/admin/course/batch-assign', {
       name: form.name,
       semester: form.semester,
       teacherNames: form.teacherNames,
-      classIds: form.classIds
+      classIds: form.classIds,
+      managerName: currentAdmin.realName // 设置课题组长字段，默认为当前管理员
     });
     ElMessage.success(`成功分配课程给 ${form.classIds.length} 个班级，教师执教班级已同步更新。`);
     batchAssignDialogVisible.value = false;
@@ -722,7 +787,6 @@ const beforeUploadCheck = (file) => {
   return isXlsx;
 };
 
-// 【修复：学号范围批量分班】
 const submitRangeEnroll = async () => {
   if (!rangeForm.startUsername || !rangeForm.endUsername || !rangeForm.targetClassId || !rangeForm.major) {
     return ElMessage.warning('请填写完整的学号范围、目标班级ID和所属专业');
@@ -740,20 +804,16 @@ const submitRangeEnroll = async () => {
 };
 
 
-// 【修复：表格导入分班】
 const submitUpload = () => {
-  // 1. 触发字段校验
   if (!uploadForm.targetClassId || !uploadForm.startUsername || !uploadForm.major) {
     return ElMessage.warning('请确保班级ID、专业和起始学号都已填写！');
   }
 
-  // 使用 nextTick 确保文件状态更新完成 (关键修复)
   nextTick(() => {
     if (!uploadRef.value || !uploadRef.value.uploadFiles || uploadRef.value.uploadFiles.length === 0) {
       return ElMessage.warning('请先选择或拖拽文件！');
     }
 
-    // 3. 手动触发上传
     uploadRef.value.submit();
   });
 };

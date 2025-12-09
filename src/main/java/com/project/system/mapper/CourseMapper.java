@@ -16,6 +16,6 @@ public interface CourseMapper {
     int updateCourse(Course course);
     int deleteCourseById(Long id);
 
-    // 【新增/核心方法】根据任课教师姓名查询课程 (用于 Leader 限定scope)
-    List<Course> selectCoursesByTeacherName(@Param("teacherName") String teacherName);
+    // 【核心方法】根据课题组长姓名查询其负责的课程
+    List<Course> selectCoursesByManagerName(@Param("managerName") String managerName);
 }

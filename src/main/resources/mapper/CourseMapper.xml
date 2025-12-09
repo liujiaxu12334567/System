@@ -11,15 +11,17 @@
         <result column="status" property="status"/>
         <result column="color" property="color"/>
         <result column="is_top" property="isTop"/>
-        <result column="class_id" property="classId"/> </resultMap>
+        <result column="class_id" property="classId"/>
+        <result column="manager_name" property="managerName"/> </resultMap>
 
 
     <insert id="insertCourse">
-        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top, class_id)
-        VALUES (#{name}, #{semester}, #{teacher}, #{code}, #{status}, #{color}, 0, #{classId}) </insert>
+        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top, class_id, manager_name)
+        VALUES (#{name}, #{semester}, #{teacher}, #{code}, #{status}, #{color}, 0, #{classId}, #{managerName})
+    </insert>
 
     <insert id="insertBatchCourses" parameterType="java.util.List">
-        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top, class_id)
+        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top, class_id, manager_name)
         VALUES
         <foreach collection="list" item="item" separator=",">
             (
@@ -30,7 +32,9 @@
             #{item.status},
             #{item.color},
             0,
-            #{item.classId}  )
+            #{item.classId},
+            #{item.managerName}
+            )
         </foreach>
     </insert>
 
@@ -43,7 +47,8 @@
         <set>
             <if test="teacher != null">teacher = #{teacher},</if>
             <if test="status != null">status = #{status},</if>
-            <if test="classId != null">class_id = #{classId},</if> </set>
+            <if test="classId != null">class_id = #{classId},</if>
+            <if test="managerName != null">manager_name = #{managerName},</if> </set>
         WHERE id = #{id}
     </update>
 
@@ -51,9 +56,9 @@
         DELETE FROM sys_course WHERE id = #{id}
     </delete>
 
-    <select id="selectCoursesByTeacherName" resultMap="CourseResultMap">
+    <select id="selectCoursesByManagerName" resultMap="CourseResultMap">
         SELECT * FROM sys_course
-        WHERE teacher LIKE concat('%', #{teacherName}, '%')
+        WHERE manager_name = #{managerName}
         ORDER BY id DESC
     </select>
 </mapper>

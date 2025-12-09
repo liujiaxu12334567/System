@@ -6,6 +6,13 @@
         <el-menu-item index="1"><el-icon><DataLine /></el-icon>我的课程管理</el-menu-item>
         <el-menu-item index="2"><el-icon><UserFilled /></el-icon>课题组成员</el-menu-item>
         <el-menu-item index="3"><el-icon><Reading /></el-icon>团队资料</el-menu-item>
+
+        <el-divider style="margin: 10px 0; border-color: #444761;" />
+        <div class="switch-to-teacher">
+          <el-button type="warning" plain @click="goToTeacherPage">
+            <el-icon style="margin-right: 5px;"><Switch /></el-icon> 切换到教师工作台
+          </el-button>
+        </div>
       </el-menu>
     </el-aside>
 
@@ -103,18 +110,19 @@
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { DataLine, UserFilled, Reading, Setting } from '@element-plus/icons-vue'
+// 导入 Switch 图标
+import { DataLine, UserFilled, Reading, Setting, Switch } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const userInfo = ref({})
 const courseList = ref([])
-const teacherList = ref([]) // 包含 Leader 和 Teacher
-const classList = ref([]) // 班级列表 (未使用，但保留)
+const teacherList = ref([])
+// const classList = ref([]) // 班级列表 (在此组件中未使用，保持注释)
 
 // 弹窗控制
-const contentDialogVisible = ref(false) // 内容下发弹窗
+const contentDialogVisible = ref(false)
 const assignDialogVisible = ref(false)
 const currentRow = ref({})
 const selectedTeacher = ref('')
@@ -135,7 +143,7 @@ onMounted(() => {
 
 const fetchData = async () => {
   try {
-    // 1. 获取当前 Leader 负责的课程列表 (LeaderController 已经限制了 scope)
+    // 1. 获取当前 Leader 负责的课程列表
     const resCourses = await request.get('/leader/course/list')
     courseList.value = resCourses || []
 
@@ -143,15 +151,17 @@ const fetchData = async () => {
     const resTeachers = await request.get('/leader/teacher/list')
     teacherList.value = resTeachers || []
 
-    // 3. 获取所有已创建的班级列表 (虽然 Leader 不发布新课程，但保留接口调用)
-    // const resClasses = await request.get('/admin/classes');
-    // classList.value = Array.isArray(resClasses) ? resClasses : [];
-
   } catch (error) {
     console.error(error)
     ElMessage.error('数据加载失败，请检查后端服务');
   }
 }
+
+// 【新增功能】跳转到 /teacher 页面
+const goToTeacherPage = () => {
+  router.push('/teacher');
+}
+
 
 // === 内容下发功能 ===
 const openContentDialog = (row) => {
@@ -172,7 +182,6 @@ const submitCourseMaterial = async () => {
       content: contentPayload.value
     };
 
-    // 调用后端的内容下发接口
     await request.post(`/leader/course/${currentRow.value.id}/upload-material`, payload);
 
     ElMessage.success(`[${selectedContentType.value}] 资料已成功下发！`);
@@ -184,7 +193,7 @@ const submitCourseMaterial = async () => {
 }
 
 
-// === 调整教师 ===
+// === 调整教师 (保留，因为 Leader 有权调整自己负责的课程的任课教师) ===
 const openAssignDialog = (row) => {
   currentRow.value = row
   selectedTeacher.value = row.teacher || ''
@@ -194,7 +203,7 @@ const openAssignDialog = (row) => {
 const submitAssign = async () => {
   if(!selectedTeacher.value) return ElMessage.warning('请选择任课教师')
   try {
-    // 传递 classId 和 courseId，以便后端更新 teaching_classes (复用 Admin/Leader update 接口)
+    // 传递 classId 和 courseId，以便后端更新 teaching_classes (复用 Leader update 接口)
     await request.post('/leader/course/update', {
       id: currentRow.value.id,
       teacher: selectedTeacher.value,
@@ -227,11 +236,25 @@ const logout = () => {
 </script>
 
 <style scoped lang="scss">
-// 样式保持不变
 .leader-container { display: flex; height: 100vh; background-color: #f0f2f5; }
 .sidebar { background-color: #2a2d43; color: #fff; display: flex; flex-direction: column;
   .logo { height: 60px; line-height: 60px; text-align: center; font-size: 18px; font-weight: bold; background-color: #1f2233; color: #fff; }
-  .el-menu-vertical { border-right: none; }
+  .el-menu-vertical {
+    border-right: none;
+    // 样式用于将按钮添加到菜单项中
+    .switch-to-teacher {
+      padding: 10px 20px;
+      .el-button {
+        width: 100%;
+        font-weight: 600;
+        background-color: #3f4769; /* 稍微深一点的背景 */
+        border-color: #4f5787;
+        &:hover {
+          background-color: #555d88;
+        }
+      }
+    }
+  }
 }
 .main-content { padding: 0; display: flex; flex-direction: column; width: 100%; }
 .header-bar { height: 60px; background: #fff; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; box-shadow: 0 1px 4px rgba(0,21,41,.08);

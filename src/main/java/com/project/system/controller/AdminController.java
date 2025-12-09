@@ -2,19 +2,20 @@ package com.project.system.controller;
 
 import com.project.system.dto.BatchEnrollmentRequest;
 import com.project.system.dto.BatchEnrollmentRequest.StudentInfo;
-import com.project.system.dto.PaginationResponse; // 导入 DTO
+import com.project.system.dto.PaginationResponse;
 import com.project.system.entity.Application;
 import com.project.system.entity.Class;
 import com.project.system.entity.Course;
 import com.project.system.entity.User;
-import com.project.system.mapper.ApplicationMapper; // 导入 Application Mapper
+import com.project.system.mapper.ApplicationMapper;
 import com.project.system.mapper.ClassMapper;
 import com.project.system.mapper.CourseMapper;
 import com.project.system.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.transaction.annotation.Transactional; // 导入事务注解
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.apache.poi.ss.usermodel.*;
@@ -51,7 +52,7 @@ public class AdminController {
     private ClassMapper classMapper;
 
     @Autowired
-    private ApplicationMapper applicationMapper; // 注入 Application Mapper
+    private ApplicationMapper applicationMapper;
 
     // 【辅助方法 1】检查并插入新班级
     private void checkAndInsertClass(Long classId, String major) {
@@ -97,7 +98,7 @@ public class AdminController {
     }
 
 
-    // 2. 新增用户 (接收 Map 来处理 major 字段)
+    // 2. 新增用户 (接收 Map 来处理 major 字段和课题组长课程)
     @PostMapping("/user/add")
     public ResponseEntity<?> addUser(@RequestBody Map<String, Object> userMap) {
         String username = (String) userMap.get("username");
@@ -120,6 +121,16 @@ public class AdminController {
         user.setRealName(realName);
         user.setRoleType(roleType);
         user.setClassId(classId);
+
+        // 【核心修改：课题组长课程存储在 teacherRank 字段】
+        if ("2".equals(roleType)) {
+            // 前端将负责的课程名列表放在 managerCourses 字段中 (List<String>)
+            List<String> managerCourses = (List<String>) userMap.get("managerCourses");
+            if (managerCourses != null && !managerCourses.isEmpty()) {
+                user.setTeacherRank(String.join(",", managerCourses)); // 存储课程名列表
+            }
+        }
+
 
         // 密码处理
         if (password == null || password.isEmpty()) {
@@ -144,6 +155,15 @@ public class AdminController {
         } else {
             user.setPassword(null);
         }
+
+        // 【🚨 核心修复点】: 针对课题组长 (roleType=2)
+        if ("2".equals(user.getRoleType())) {
+            // 课题组长负责的课程在 teacherRank 字段中。
+            // 必须确保 teachingClasses 字段不会被前端意外传递的旧值或空字符串更新。
+            // 强制设置为 null，以依赖 MyBatis 的动态 SQL (如果配置正确) 跳过更新该字段。
+            user.setTeachingClasses(null);
+        }
+
 
         // 如果用户是学生且有班级，检查并创建班级记录 (更新操作，使用占位符 major)
         if ("4".equals(user.getRoleType()) && user.getClassId() != null) {
@@ -314,10 +334,15 @@ public class AdminController {
 
     // 9. 发布新课程 (同步更新教师执教班级)
     @PostMapping("/course/add")
+    @Transactional
     public ResponseEntity<?> addCourse(@RequestBody Course course) {
         if (course.getClassId() == null) {
             return ResponseEntity.badRequest().body("发布课程必须指定班级ID。");
         }
+
+        // 1. 获取当前 Admin 姓名作为默认 Leader
+        String currentUsername = SecurityContextHolder.getContext().getAuthentication().getName();
+        User currentUser = userMapper.findByUsername(currentUsername);
 
         // 1. 确保班级记录存在
         checkAndInsertClass(course.getClassId());
@@ -325,11 +350,13 @@ public class AdminController {
         course.setCode("C" + System.currentTimeMillis() % 10000);
         course.setStatus("进行中");
         course.setColor("blue");
+        course.setManagerName(currentUser.getRealName()); // 【新增】Admin 发布时，默认 Admin 为 Manager
 
         // 2. 插入课程
         courseMapper.insertCourse(course);
 
         // 3. 如果分配了教师，同步更新其执教班级 (合并模式)
+        // 注意：如果教师是课题组长，此方法会跳过对 teachingClasses 的更新
         if (course.getTeacher() != null && !course.getTeacher().isEmpty() && course.getClassId() != null) {
             List<String> teacherNames = Arrays.asList(course.getTeacher().split(","));
             List<Long> classIds = Collections.singletonList(course.getClassId());
@@ -342,7 +369,14 @@ public class AdminController {
 
     // 10. 批量分配课程给多个班级和教师 (实现课程复制功能)
     @PostMapping("/course/batch-assign")
+    @Transactional
     public ResponseEntity<?> batchAssignCourse(@RequestBody Map<String, Object> request) {
+
+        // 1. 获取当前 Admin 姓名作为默认 Leader
+        String currentUsername = SecurityContextHolder.getContext().getAuthentication().getName();
+        User currentUser = userMapper.findByUsername(currentUsername);
+        String managerName = currentUser.getRealName();
+
         String name = (String) request.get("name");
         String semester = (String) request.get("semester");
         List<String> teacherNames = (List<String>) request.get("teacherNames");
@@ -369,7 +403,7 @@ public class AdminController {
         for (Long classId : classIds) {
             checkAndInsertClass(classId); // 确保班级记录存在 (使用占位符 major)
 
-            Course newCourse = new Course(); // 【已修复】确保使用 new Course()
+            Course newCourse = new Course();
             newCourse.setName(name);
             newCourse.setSemester(semester != null ? semester : "2025-1");
             newCourse.setCode(baseCode + "-" + classId);
@@ -378,6 +412,7 @@ public class AdminController {
             newCourse.setColor("blue");
             newCourse.setIsTop(0);
             newCourse.setClassId(classId);
+            newCourse.setManagerName(managerName); // 【新增】默认 Admin 为 Manager
 
             coursesToInsert.add(newCourse);
         }
@@ -388,6 +423,7 @@ public class AdminController {
         }
 
         // 4. 更新教师的执教班级 (teachingClasses)
+        // 注意：如果教师是课题组长，此方法会跳过对 teachingClasses 的更新
         updateTeacherTeachingClasses(teacherNames, classIds);
 
         return ResponseEntity.ok("成功为 " + coursesToInsert.size() + " 个班级分配了课程，并更新了相关教师的执教班级。");
@@ -395,11 +431,13 @@ public class AdminController {
 
     // 11. 更新课程 (包含同步更新教师执教班级)
     @PostMapping("/course/update")
+    @Transactional
     public ResponseEntity<?> updateCourse(@RequestBody Course course) {
         // 1. 更新课程记录
         courseMapper.updateCourse(course);
 
         // 2. 如果提供了 teacher 和 classId，同步更新教师的执教班级列表
+        // 注意：如果教师是课题组长，此方法会跳过对 teachingClasses 的更新
         if (course.getTeacher() != null && course.getClassId() != null) {
             List<String> teacherNames = Arrays.asList(course.getTeacher().split(","));
             List<Long> classIds = Collections.singletonList(course.getClassId());
@@ -552,14 +590,20 @@ public class AdminController {
                     .orElse(null);
 
             if (cachedTeacher != null) {
+
+                // 修复 Bug 1：只有普通教师 (roleType="3") 才更新 teachingClasses
+                // 课题组长 (roleType="2") 负责的课程信息存储在 teacherRank，不更新 teachingClasses
+                if ("2".equals(cachedTeacher.getRoleType())) {
+                    continue; // 跳过课题组长
+                }
+
                 // 3. *** 关键修复：从数据库获取最新的完整记录，确保 teachingClasses 不是陈旧值 ***
-                User latestTeacher = userMapper.findByUsername(cachedTeacher.getUsername());
+                User latestUser = userMapper.findByUsername(cachedTeacher.getUsername());
 
-                if (latestTeacher == null) continue;
+                if (latestUser == null) continue;
 
-                String currentClasses = latestTeacher.getTeachingClasses();
+                String currentClasses = latestUser.getTeachingClasses();
 
-                // 4. 使用 Set 存储现有班级ID，并清理空格
                 Set<String> classSet = new HashSet<>();
                 if (currentClasses != null && !currentClasses.isEmpty()) {
                     Arrays.stream(currentClasses.split(","))
@@ -583,7 +627,7 @@ public class AdminController {
                     String updatedClasses = String.join(",", classSet);
 
                     User userUpdate = new User();
-                    userUpdate.setUserId(latestTeacher.getUserId()); // 使用最新的 ID
+                    userUpdate.setUserId(latestUser.getUserId()); // 使用最新的 ID
                     userUpdate.setTeachingClasses(updatedClasses); // 写入合并后的新字符串
 
                     userMapper.updateUser(userUpdate);

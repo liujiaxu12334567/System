@@ -15,5 +15,7 @@ public class Course {
     private String color;     // 颜色样式
     private Integer isTop;    // 是否置顶
 
-    private Long classId;     // 【新增】所属班级 ID (关键修改)
+    private String managerName; // 【新增】课题组长姓名 (关键字段)
+
+    private Long classId;     // 所属班级 ID
 }
