@@ -157,7 +157,7 @@
                   type="primary"
                   :loading="loading.upload"
                   @click="submitUpload"
-                  :disabled="!uploadForm.startUsername || !uploadForm.targetClassId"
+                  :disabled="!uploadForm.startUsername || !uploadForm.targetClassId || !uploadForm.major"
               >
                 提交导入
               </el-button>
@@ -288,7 +288,7 @@
             </el-select>
           </el-form-item>
 
-          <el-form-item label="所属班级">
+          <el-form-item label="所选班级">
             <el-select v-model="courseForm.classId" placeholder="请选择所属班级 (必填)" style="width: 100%">
               <el-option
                   v-for="c in classList"
@@ -400,6 +400,7 @@ const rangeForm = reactive({ startUsername: '', endUsername: '', targetClassId: 
 const uploadForm = reactive({ targetClassId: null, startUsername: '', major: null })
 const uploadActionUrl = '/api/admin/batch/upload'
 const uploadHeaders = { Authorization: `Bearer ${localStorage.getItem('token')}` }
+const uploadRef = ref(null) // 【核心】新增 ref 引用
 
 
 // --- 课程管理状态 ---
@@ -657,17 +658,34 @@ const beforeUploadCheck = (file) => {
   return isXlsx;
 };
 
-const submitRangeEnroll = async () => {
-  // 逻辑已移除，该函数不再使用
+// 【核心修改】实现手动上传
+const submitUpload = () => {
+  // 1. 触发字段校验
+  if (!uploadForm.targetClassId || !uploadForm.startUsername || !uploadForm.major) {
+    return ElMessage.warning('请确保班级ID、专业和起始学号都已填写！');
+  }
+
+  // 2. 检查是否有文件待上传
+  // 【修复点】使用可选链操作符安全地检查文件列表长度
+  if (!uploadRef.value || !uploadRef.value.uploadFiles || uploadRef.value.uploadFiles.length === 0) {
+    return ElMessage.warning('请先选择或拖拽文件！');
+  }
+
+  // 3. 手动触发上传
+  uploadRef.value.submit();
 };
 
 const handleUploadSuccess = (response, file) => {
   loading.upload = false;
+  // 清空文件列表，允许再次上传
+  uploadRef.value.clearFiles();
   ElMessage.success(response);
+  fetchUsers(); // 刷新用户列表
 };
 
 const handleUploadError = (error) => {
   loading.upload = false;
+  uploadRef.value.clearFiles();
   let message = '文件上传失败';
   if (error.response && error.response.data) {
     message = error.response.data;
@@ -679,29 +697,6 @@ const handleUploadProgress = (event, file, fileList) => {
   loading.upload = true;
 };
 
-// 【新增】手动提交文件导入
-const submitUpload = () => {
-  // 1. 触发 beforeUploadCheck 校验
-  if (!uploadForm.targetClassId || !uploadForm.startUsername || !uploadForm.major) {
-    return ElMessage.warning('请确保班级ID、专业和起始学号都已填写！');
-  }
-
-  // 2. 检查是否有文件待上传
-  if (document.querySelector('.el-upload-list__item') === null) {
-    return ElMessage.warning('请先选择或拖拽文件！');
-  }
-
-  // 3. 手动触发上传
-  // 注意：由于没有 ref，这里需要依赖一个 mock ref 或确保 Element Plus 版本支持
-  // 最佳实践是使用 ref，这里我们假设 $refs.uploadRef 存在
-  try {
-    document.querySelector('.el-upload').__vue__.ctx.submit(); // 这是一个不稳定的 hack，但在某些 Element Plus 版本中可能有效
-    // 推荐：如果使用 Element Plus 2+, 请在 template 中设置 ref="uploadRef"
-    // 并在 script 中 const uploadRef = ref(null); uploadRef.value.submit();
-  } catch (e) {
-    ElMessage.error('无法触发上传，请确保已选择文件并填写了所有字段。');
-  }
-};
 
 // --- 辅助函数 (保持不变) ---
 

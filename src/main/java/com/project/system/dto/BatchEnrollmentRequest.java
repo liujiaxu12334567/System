@@ -16,6 +16,9 @@ public class BatchEnrollmentRequest {
     // 目标班级ID (必须指定)
     private Long targetClassId;
 
+    // 【新增字段】所属专业
+    private String major;
+
     // 嵌套类，用于接收导入的学生信息
     @Data
     public static class StudentInfo {
