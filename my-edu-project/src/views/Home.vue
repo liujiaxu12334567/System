@@ -31,12 +31,10 @@
             </div>
             <template #dropdown>
               <el-dropdown-menu>
-
                 <el-dropdown-item @click="openPasswordDialog">
                   <el-icon><Setting /></el-icon>
                   修改密码
                 </el-dropdown-item>
-
                 <el-dropdown-item divided @click="logout">
                   <el-icon><SwitchButton /></el-icon>
                   退出登录
@@ -199,10 +197,18 @@
 import { ref, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { Bell, MagicStick, Platform, ArrowRight, Box, Document, Tickets, ArrowDown, Setting, SwitchButton } from '@element-plus/icons-vue'
-import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+
+// === 核心修复：引入 Day.js 及相关插件 ===
 import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import 'dayjs/locale/zh-cn' // 导入中文语言包
+
+// 必须先扩展插件，否则 .fromNow() 会报错
+dayjs.extend(relativeTime)
+dayjs.locale('zh-cn') // 设置全局语言为中文
+// ===================================
 
 const router = useRouter()
 const userInfo = ref({ realName: '' })
@@ -252,14 +258,16 @@ onMounted(() => {
 const fetchHomeData = async () => {
   try {
     const res = await request.get('/home/data')
-    const activitiesRes = await request.get('/student/recent-activities') // 【获取真实通知】
+    // 获取通知列表
+    const activitiesRes = await request.get('/student/recent-activities')
 
     if (res) {
       if (res.realName) {
         userInfo.value.realName = res.realName
       }
       courseList.value = res.courses || []
-      activityList.value = activitiesRes || [] // 【设置】新的活动列表
+      // 使用后端返回的真实通知数据
+      activityList.value = activitiesRes || []
     }
   } catch (error) {
     console.error(error)
@@ -268,7 +276,7 @@ const fetchHomeData = async () => {
   }
 }
 
-// 【新增】活动通知辅助函数
+// 活动通知辅助函数
 const getActivityTypeName = (type) => {
   const map = {
     GRADE_SUCCESS: '批改得分',
@@ -291,8 +299,10 @@ const getActivityTag = (type) => {
   return map[type] || 'info';
 };
 
+// 格式化时间显示 (使用 dayjs)
 const formatTime = (timeString) => {
-  return dayjs(timeString).fromNow();
+  if (!timeString) return ''
+  return dayjs(timeString).fromNow()
 }
 
 const openPasswordDialog = () => {
@@ -340,7 +350,7 @@ const logout = () => {
 </script>
 
 <style scoped lang="scss">
-/* 90% 宽度，配合你之前的全局样式 style.css */
+/* 90% 宽度，配合全局样式 */
 $content-width: 90%;
 
 .home-container {
@@ -480,7 +490,7 @@ $content-width: 90%;
 }
 
 .course-card {
-  /* 【修改点1】：设置默认深灰色背景，防止白底白字看不见 */
+  /* 设置默认深灰色背景，防止白底白字看不见 */
   background: #909399;
   border-radius: 8px;
   height: 160px;
@@ -502,8 +512,6 @@ $content-width: 90%;
   &.bg-blue { background: linear-gradient(135deg, #6B8DD6 0%, #8E9EFC 100%); }
   &.bg-purple { background: linear-gradient(135deg, #A18CD1 0%, #FBC2EB 100%); }
   &.bg-red { background: linear-gradient(135deg, #FF9A9E 0%, #FAD0C4 100%); }
-
-  /* 【修改点2】：补充缺失的颜色 */
   &.bg-orange { background: linear-gradient(135deg, #FFC371 0%, #FF5F6D 100%); }
   &.bg-green { background: linear-gradient(135deg, #42e695 0%, #3bb2b8 100%); }
   &.bg-cyan { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }

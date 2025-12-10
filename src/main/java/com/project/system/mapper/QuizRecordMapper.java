@@ -23,10 +23,10 @@ public interface QuizRecordMapper {
     @Update("UPDATE sys_quiz_record SET score = #{score}, ai_feedback = #{aiFeedback} WHERE id = #{id}")
     int updateScoreAndFeedback(QuizRecord record);
 
+    // 【🔥 核心修复 🔥】 确保表名是 sys_quiz_record，而不是 sys_course 或 sys_material
     @Delete("DELETE FROM sys_quiz_record WHERE id = #{id}")
     int deleteById(@Param("id") Long id);
 
-    // 【修复：添加 @Select 注解】
     @Select("SELECT * FROM sys_quiz_record WHERE id = #{id}")
     QuizRecord findById(@Param("id") Long id);
 }
