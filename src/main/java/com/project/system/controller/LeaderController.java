@@ -63,7 +63,7 @@ public class LeaderController {
         String title = (String) examData.get("title");
         String content = (String) examData.get("content");
         String startTime = (String) examData.get("startTime"); // 【新增】
-        String deadline = (String) examData.get("deadline");
+        String deadline = (String) examData.get("deadline"); // 【修改：原为 deadline，现在统一为 deadline】
         Integer duration = (Integer) examData.get("duration");
         String status = (String) examData.get("status"); // 【新增】接收前端判断的状态
 
@@ -79,9 +79,10 @@ public class LeaderController {
         exam.setTitle(title);
         exam.setContent(content);
         exam.setStartTime(startTime); // 【设置】
-        exam.setDeadline(deadline);
+        exam.setDeadline(deadline); // 【修改：使用 setDeadline】
         exam.setDuration(duration != null ? duration : 60);
         exam.setStatus(status != null ? status : "未开始"); // 【设置】使用前端判断的状态
+        // 注意：teacherId 字段在这里没有设置，可能需要在前端传入或从当前用户获取
 
         try {
             examMapper.insertExam(exam);

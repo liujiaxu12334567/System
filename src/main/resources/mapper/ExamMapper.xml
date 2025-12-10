@@ -9,8 +9,7 @@
         <result column="content" property="content"/>
         <result column="duration" property="duration"/>
         <result column="start_time" property="startTime"/>
-        <result column="end_time" property="endTime"/>
-        <result column="status" property="status"/>
+        <result column="deadline" property="deadline"/> <result column="status" property="status"/>
         <result column="teacher_id" property="teacherId"/>
         <result column="create_time" property="createTime"/>
     </resultMap>
@@ -26,9 +25,7 @@
     </resultMap>
 
     <insert id="insertExam" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO sys_exam (course_id, title, content, duration, start_time, end_time, status, teacher_id)
-        VALUES (#{courseId}, #{title}, #{content}, #{duration}, #{startTime}, #{endTime}, #{status}, #{teacherId})
-    </insert>
+        INSERT INTO sys_exam (course_id, title, content, duration, start_time, deadline, status, teacher_id) VALUES (#{courseId}, #{title}, #{content}, #{duration}, #{startTime}, #{deadline}, #{status}, #{teacherId}) </insert>
 
     <update id="updateExam">
         UPDATE sys_exam
@@ -37,8 +34,7 @@
             content = #{content},
             duration = #{duration},
             start_time = #{startTime},
-            end_time = #{endTime},
-            status = #{status}
+            deadline = #{deadline}, status = #{status}
         </set>
         WHERE id = #{id}
     </update>

@@ -12,7 +12,7 @@ public class Exam {
     private String content;     // 试题内容 (JSON 字符串，格式与测验的 questions 相同)
     private String status;      // 状态：未开始, 进行中, 已结束
     private String startTime;   // 【新增】考试开始时间
-    private String endTime;     // 【修改】考试结束/截止时间
+    private String deadline;    // 【修改】考试结束/截止时间 (原: endTime)
     private Integer duration;   // 考试时长（分钟）
     private Long teacherId;     // 【新增】发布教师ID
     private LocalDateTime createTime;

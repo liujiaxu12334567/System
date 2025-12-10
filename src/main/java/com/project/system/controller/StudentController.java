@@ -24,6 +24,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+// 【新增 import: 引入时间 API】
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
 
 @RestController
 @RequestMapping("/api/student")
@@ -164,6 +168,7 @@ public class StudentController {
         String reply = callDeepSeekChat(material, userAnswersJson, homeworkText, history);
 
         // 如果是第一轮，将 AI 的初始分析结果保存到 aiFeedback 字段
+        // 注意：这里需要判断 history.size() > 0 且最后一个消息角色是 user，以确保是第一次真正的提问
         if (history != null && history.size() == 1) {
             record.setAiFeedback(reply);
             quizRecordMapper.updateAiFeedback(record);
@@ -187,8 +192,8 @@ public class StudentController {
             } else {
                 systemPrompt.append("【学生提交的作业内容】：\n").append(homeworkText).append("\n");
             }
-            // 【关键】要求纯文本格式
-            systemPrompt.append("请用纯文本方式回复，不要使用Markdown格式（不要用 **粗体** 或 # 标题），保持语气亲切自然。");
+            // 【关键】修改：移除纯文本限制，鼓励使用 Markdown 格式提供更清晰的回复
+            systemPrompt.append("请保持语气亲切自然，可以适当使用Markdown格式（如列表、粗体），以提供更清晰的格式化回复。");
 
             // 组装请求体
             ObjectNode requestBody = mapper.createObjectNode();
@@ -247,11 +252,36 @@ public class StudentController {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         User user = userMapper.findByUsername(username);
 
+        // ★★★ 核心修改：动态计算考试状态 ★★★
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        LocalDateTime now = LocalDateTime.now();
+
         for (Exam exam : exams) {
+            // 1. 检查是否已交卷 (优先级最高)
             ExamRecord record = examMapper.findRecordByUserIdAndExamId(user.getUserId(), exam.getId());
             if (record != null) {
                 exam.setStatus("已交卷");
+                continue;
             }
+
+            // 2. 动态判断状态 (如果未交卷)
+            try {
+                // Exam 实体中的 startTime 和 deadline (原 endTime) 都是 String 类型，需要解析
+                LocalDateTime startTime = LocalDateTime.parse(exam.getStartTime(), formatter);
+                LocalDateTime deadlineTime = LocalDateTime.parse(exam.getDeadline(), formatter); // 使用 getDeadline()
+
+                if (now.isBefore(startTime)) {
+                    exam.setStatus("未开始");
+                } else if (now.isAfter(deadlineTime)) { // 使用 deadlineTime
+                    exam.setStatus("已结束");
+                } else {
+                    exam.setStatus("进行中");
+                }
+            } catch (Exception e) {
+                System.err.println("Error parsing exam time for exam ID " + exam.getId() + ": " + e.getMessage());
+                exam.setStatus("时间异常");
+            }
+            // ★★★ 核心修改结束 ★★★
         }
         return ResponseEntity.ok(exams);
     }
