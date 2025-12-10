@@ -25,7 +25,8 @@
     </resultMap>
 
     <insert id="insertExam" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO sys_exam (course_id, title, content, duration, start_time, deadline, status, teacher_id) VALUES (#{courseId}, #{title}, #{content}, #{duration}, #{startTime}, #{deadline}, #{status}, #{teacherId}) </insert>
+        INSERT INTO sys_exam (course_id, title, content, duration, start_time, deadline, status, teacher_id) VALUES (#{courseId}, #{title}, #{content}, #{duration}, #{startTime}, #{deadline}, #{status}, #{teacherId})
+    </insert>
 
     <update id="updateExam">
         UPDATE sys_exam

@@ -32,28 +32,63 @@
     </div>
 
     <div v-else class="exam-body">
+      <div v-if="screenLocked" class="anti-cheat-overlay">
+        <div class="overlay-content">
+          <el-icon color="#F56C6C" :size="48"><WarningFilled /></el-icon>
+          <h3>考试违规警告</h3>
+          <p>由于检测到违规行为，屏幕已暂时锁定，请点击警告框上的“确定”解除。</p>
+        </div>
+      </div>
+
       <div class="question-paper">
         <el-alert title="考试期间请勿切换浏览器标签页或离开当前窗口，否则将被记录作弊次数！切屏记录将发送给监考老师。" type="warning" show-icon :closable="false" style="margin-bottom: 20px;" />
 
         <div v-for="(q, index) in questions" :key="index" class="question-item">
-          <div class="q-title">
-            <span class="q-no">{{ index + 1 }}</span>
-            <span class="q-type">单选题</span>
-            <span class="q-text">{{ q.title }}</span>
+          <div class="q-header">
+            <div class="q-index-tag">
+              <span class="q-no">{{ index + 1 }}</span>
+              <span class="q-type">单选题</span>
+            </div>
+            <div class="q-text-content">
+              {{ q.title }}
+            </div>
           </div>
-          <el-radio-group v-model="userAnswers[index]">
-            <el-radio v-for="(opt, oIdx) in q.options" :key="oIdx" :label="oIdx" style="display: block; margin-bottom: 10px;">
-              {{ String.fromCharCode(65+oIdx) }}. {{ opt }}
+
+          <el-radio-group v-model="userAnswers[index]" :disabled="screenLocked" class="option-list">
+            <el-radio v-for="(opt, oIdx) in q.options" :key="oIdx" :label="oIdx" class="custom-radio-item">
+              <span class="option-label">{{ String.fromCharCode(65+oIdx) }}</span>
+              <span class="option-text">{{ opt }}</span>
             </el-radio>
           </el-radio-group>
         </div>
       </div>
 
       <div class="side-panel">
-        <el-card class="action-card">
-          <p>考试时长: {{ examInfo.duration }} 分钟</p>
-          <p>截止时间: {{ examInfo.deadline }}</p>
-          <el-button type="danger" size="large" @click="submitExam" style="width: 100%; margin-top: 20px;">
+        <el-card class="action-card" shadow="hover">
+          <div class="card-header-title">
+            <el-icon><Tickets /></el-icon> <span>答题信息</span>
+          </div>
+          <div class="side-info-row">
+            <span class="label">考试时长:</span>
+            <span class="value">{{ examInfo.duration }} 分钟</span>
+          </div>
+          <div class="side-info-row">
+            <span class="label">截止时间:</span>
+            <span class="value">{{ examInfo.deadline }}</span>
+          </div>
+        </el-card>
+
+        <el-card class="action-card score-card" shadow="hover">
+          <div class="card-header-title">
+            <el-icon><List /></el-icon> <span>答题卡</span>
+          </div>
+          <div class="card-grid">
+            <div v-for="(q, index) in questions" :key="index" class="grid-item" :class="{ answered: userAnswers[index] !== -1 }">
+              {{ index + 1 }}
+            </div>
+          </div>
+
+          <el-button type="danger" size="large" @click="submitExam" :disabled="screenLocked" style="width: 100%; margin-top: 20px;">
             提交试卷
           </el-button>
         </el-card>
@@ -67,7 +102,7 @@ import { ref, onMounted, onBeforeUnmount, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, WarningFilled, Tickets, List } from '@element-plus/icons-vue' // 引入 List 和 Tickets
 
 const route = useRoute()
 const router = useRouter()
@@ -76,8 +111,10 @@ const examId = route.params.examId
 const loading = ref(true)
 const hasSubmitted = ref(false)
 const submittedCheatCount = ref(0)
-const cheatCount = ref(0) // 学生当前的切屏次数
-let visibilityChangeTimer = null // 定时器用于检测切屏时间间隔
+const cheatCount = ref(0)
+const screenLocked = ref(false);
+let visibilityChangeTimer = null
+let lastVisibilityChangeTime = 0;
 
 const examInfo = reactive({
   title: '加载中...',
@@ -92,7 +129,6 @@ let timerInterval = null
 
 onMounted(() => {
   fetchExamData()
-  // 【核心】监听窗口焦点变化事件
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
@@ -102,13 +138,12 @@ onBeforeUnmount(() => {
   if (visibilityChangeTimer) clearTimeout(visibilityChangeTimer)
 })
 
-// === 数据加载与考试计时 ===
+// === 数据加载与考试计时 (逻辑不变) ===
 
 const fetchExamData = async () => {
   try {
     const examDetails = await request.get(`/student/exam/record/${examId}`)
 
-    // 如果返回的是记录，则说明已提交
     if (examDetails.userId) {
       hasSubmitted.value = true
       submittedCheatCount.value = examDetails.cheatCount
@@ -116,7 +151,6 @@ const fetchExamData = async () => {
       return
     }
 
-    // 如果返回的是考试信息（未提交状态）
     Object.assign(examInfo, examDetails)
 
     try {
@@ -126,7 +160,6 @@ const fetchExamData = async () => {
       questions.value = []
     }
 
-    // 开始计时
     timeLeft.value = examInfo.duration * 60
     startTimer()
 
@@ -153,45 +186,70 @@ const startTimer = () => {
   }, 1000)
 }
 
-// === 防作弊切屏检测 ===
+// === 防作弊切屏检测 - 增强提示版本 (逻辑不变) ===
 
 const handleVisibilityChange = () => {
+  if (hasSubmitted.value) return;
+
   if (document.hidden) {
-    // 离开页面
+    console.log(`[Exam Anti-Cheat] Window hidden. Starting 2000ms timer.`);
+    lastVisibilityChangeTime = Date.now();
+
     visibilityChangeTimer = setTimeout(() => {
-      // 离开超过 2 秒，记录切屏次数
-      cheatCount.value++
-      ElMessage.error(`警告：检测到切屏行为，已记录作弊次数 ${cheatCount.value} 次！`);
-    }, 2000) // 容忍 2 秒
+      const timeElapsed = Date.now() - lastVisibilityChangeTime;
+
+      if (document.hidden && timeElapsed >= 2000) {
+        cheatCount.value++;
+        console.error(`[Exam Anti-Cheat] CHEAT DETECTED. Count: ${cheatCount.value}. Time Elapsed: ${timeElapsed}ms`);
+
+        screenLocked.value = true;
+
+        ElMessageBox.alert(`警告：系统检测到您已切换浏览器标签页或离开考试窗口超过 2 秒，作弊次数已记录 ${cheatCount.value} 次！\n\n请立即返回作答！`, '违规操作警告', {
+          confirmButtonText: '确定 (解除屏幕锁定)',
+          type: 'error',
+          callback: () => {
+            screenLocked.value = false;
+          }
+        });
+      }
+    }, 2000)
   } else {
-    // 返回页面
     if (visibilityChangeTimer) {
       clearTimeout(visibilityChangeTimer)
       visibilityChangeTimer = null
+      console.log('[Exam Anti-Cheat] Window visible. Timer cleared.');
     }
   }
 }
 
-// === 提交逻辑 ===
+// === 提交逻辑 (逻辑不变) ===
 
 const submitExam = async () => {
   if (hasSubmitted.value) return
+  if (screenLocked.value) {
+    ElMessage.warning('请先解除屏幕锁定再提交试卷。');
+    return;
+  }
 
   const confirmMessage = cheatCount.value > 0
       ? `您确定提交试卷吗？本次考试切屏次数为 ${cheatCount.value} 次，记录将发送给老师。`
       : '您确定提交试卷吗？';
 
-  await ElMessageBox.confirm(confirmMessage, '确认提交', {
-    confirmButtonText: '立即提交',
-    cancelButtonText: '取消',
-    type: 'warning'
-  })
+  try {
+    await ElMessageBox.confirm(confirmMessage, '确认提交', {
+      confirmButtonText: '立即提交',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch (error) {
+    return
+  }
 
   loading.value = true
 
   const payload = {
     examId: examId,
-    score: 0, // 假设后端计算
+    score: 0,
     userAnswers: JSON.stringify(userAnswers.value),
     cheatCount: cheatCount.value
   }
@@ -209,7 +267,7 @@ const submitExam = async () => {
   }
 }
 
-// === 辅助函数 ===
+// === 辅助函数 (逻辑不变) ===
 
 const formatTime = (seconds) => {
   const minutes = Math.floor(seconds / 60)
@@ -219,39 +277,281 @@ const formatTime = (seconds) => {
 </script>
 
 <style scoped lang="scss">
-.exam-detail-container { min-height: 100vh; background-color: #f5f7fa; padding-bottom: 40px; }
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+
+$primary-color: #409EFF;
+$danger-color: #F56C6C;
+$warning-color: #E6A23C;
+$bg-light: #F7F8FA;
+$bg-white: #FFFFFF;
+$text-dark: #303133;
+$text-secondary: #909399;
+
+.exam-detail-container {
+  min-height: 100vh;
+  background-color: $bg-light;
+  padding-bottom: 40px;
+  font-family: 'Roboto', "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+// ================= 头部样式优化 =================
 .exam-header {
-  height: 60px; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.05); position: sticky; top: 0; z-index: 100;
-  .inner { width: 1200px; margin: 0 auto; height: 100%; display: flex; justify-content: space-between; align-items: center; }
-  .left { display: flex; align-items: center; gap: 15px; .title { margin: 0; font-size: 18px; color: #333; } .divider { color: #ddd; } .type-tag { font-weight: normal; } }
+  height: 60px;
+  background: $bg-white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  .inner {
+    width: 1200px;
+    margin: 0 auto;
+    height: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    .el-button { color: $text-secondary; font-weight: 500; }
+    .title {
+      margin: 0;
+      font-size: 20px;
+      color: $text-dark;
+      font-weight: 600;
+    }
+    .divider { color: #E4E7ED; }
+    .type-tag { font-weight: normal; }
+  }
   .right {
-    font-size: 16px;
-    .cheat-count { color: #F56C6C; font-size: 20px; font-weight: bold; }
-    .timer-value { color: #606266; font-weight: bold; font-size: 18px; }
-    .timer-value.warning { color: #E6A23C; }
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    .cheat-label, .timer-label { color: $text-dark; font-weight: 500; }
+    .cheat-count {
+      color: $danger-color;
+      font-size: 20px;
+      font-weight: 700;
+      // 突出作弊次数
+      background: #FEE;
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid $danger-color;
+    }
+    .timer-value {
+      color: #606266;
+      font-weight: 700;
+      font-size: 18px;
+      padding-left: 5px;
+    }
+    .timer-value.warning { color: $warning-color; }
   }
 }
 
-.exam-body { width: 1200px; margin: 20px auto; display: flex; gap: 20px; align-items: flex-start; }
-.question-paper { flex: 1; background: #fff; border-radius: 4px; padding: 40px; }
-.side-panel { width: 280px; position: sticky; top: 80px; }
-.action-card { padding: 10px; }
-
-/* 题目样式 */
-.question-item { margin-bottom: 30px; border-bottom: 1px dashed #eee; padding-bottom: 20px; }
-.q-title {
-  font-size: 16px; margin-bottom: 15px;
-  .q-no { font-size: 20px; color: #409EFF; margin-right: 10px; }
-  .q-type { background: #f0f2f5; font-size: 12px; padding: 2px 6px; margin-right: 10px; }
-  .q-text { font-weight: bold; }
+// ================= 主体布局优化 =================
+.exam-body {
+  width: 1200px;
+  margin: 20px auto;
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  position: relative;
+}
+.question-paper {
+  flex: 1;
+  background: $bg-white;
+  border-radius: 8px;
+  padding: 30px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+}
+.side-panel {
+  width: 300px; // 略微加宽侧边栏
+  position: sticky;
+  top: 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.action-card {
+  border: 1px solid #EBEEF5;
+  border-radius: 8px;
+  .card-header-title {
+    display: flex;
+    align-items: center;
+    font-weight: 600;
+    color: $primary-color;
+    font-size: 16px;
+    margin-bottom: 15px;
+    .el-icon { margin-right: 8px; font-size: 18px; }
+  }
+  .side-info-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    margin-bottom: 8px;
+    .label { color: $text-secondary; }
+    .value { color: $text-dark; font-weight: 500; }
+  }
+}
+.score-card {
+  padding-top: 10px;
 }
 
-.submitted-view {
-  width: 1200px;
-  margin: 40px auto;
-  background: #fff;
-  padding: 50px;
+// ================= 题目样式优化 =================
+.question-item {
+  margin-bottom: 30px;
+  padding: 20px;
+  border: 1px solid #E4E7ED;
   border-radius: 8px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+  transition: box-shadow 0.3s;
+  &:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  }
+}
+.q-header {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+.q-index-tag {
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: $primary-color;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  margin-right: 20px;
+  color: $bg-white;
+  box-shadow: 0 4px 10px rgba($primary-color, 0.3);
+  .q-no {
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .q-type {
+    font-size: 10px;
+    line-height: 1;
+    opacity: 0.8;
+  }
+}
+.q-text-content {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  color: $text-dark;
+  line-height: 1.6;
+  padding-top: 10px;
+}
+
+// 选项列表样式
+.option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  .custom-radio-item {
+    padding: 12px 15px;
+    border: 1px solid #F0F2F5;
+    border-radius: 6px;
+    width: 100%;
+    margin-left: 0; /* 移除默认左边距 */
+
+    // 覆盖 Element Plus 默认样式，使其更像一个卡片
+    :deep(.el-radio__label) {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      padding-left: 10px;
+    }
+
+    // 选中时的样式
+    &:hover {
+      border-color: #C6E2FF;
+      background-color: #F5F7FA;
+    }
+
+    .option-label {
+      font-weight: 700;
+      color: $primary-color;
+      min-width: 20px;
+      margin-right: 15px;
+    }
+    .option-text {
+      color: $text-dark;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+  }
+}
+
+// 答题卡网格
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin: 10px 0;
+}
+.grid-item {
+  height: 40px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border: 1px solid #E4E7ED;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 14px;
+  background-color: #F0F2F5;
+  color: $text-secondary;
+  transition: all 0.2s;
+  &.answered {
+    background: $primary-color;
+    color: $bg-white;
+    border-color: $primary-color;
+  }
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  }
+}
+
+// 【防作弊：遮罩层样式】
+.anti-cheat-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.95);
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: all;
+  border-radius: 8px;
+}
+.overlay-content {
+  background: #fff;
+  padding: 40px 50px;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+  text-align: center;
+  color: $text-dark;
+  border-top: 5px solid $danger-color;
+  h3 {
+    color: $danger-color;
+    margin: 15px 0 10px;
+    font-size: 24px;
+    font-weight: 700;
+  }
+  p {
+    margin: 0;
+    color: $text-secondary;
+    font-size: 15px;
+  }
 }
 </style>

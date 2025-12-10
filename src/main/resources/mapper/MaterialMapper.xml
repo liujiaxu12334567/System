@@ -15,4 +15,8 @@
         SELECT * FROM sys_material WHERE id = #{id}
     </select>
 
+    <update id="updateContent">
+        UPDATE sys_material SET content = #{content} WHERE id = #{id}
+    </update>
+
 </mapper>

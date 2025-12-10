@@ -5,11 +5,19 @@ import com.project.system.entity.Course;
 import com.project.system.entity.Class;
 import com.project.system.entity.Material;
 import com.project.system.entity.Exam;
+import com.project.system.entity.Application; // Added Application import
+
 import com.project.system.mapper.UserMapper;
 import com.project.system.mapper.CourseMapper;
 import com.project.system.mapper.ClassMapper;
 import com.project.system.mapper.MaterialMapper;
 import com.project.system.mapper.ExamMapper;
+import com.project.system.mapper.ApplicationMapper; // Added ApplicationMapper import
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,6 +59,9 @@ public class LeaderController {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private ApplicationMapper applicationMapper;
+
     @Value("${file.upload-dir:./uploads}")
     private String uploadDir;
 
@@ -62,10 +73,10 @@ public class LeaderController {
     {
         String title = (String) examData.get("title");
         String content = (String) examData.get("content");
-        String startTime = (String) examData.get("startTime"); // 【新增】
-        String deadline = (String) examData.get("deadline"); // 【修改：原为 deadline，现在统一为 deadline】
+        String startTime = (String) examData.get("startTime");
+        String deadline = (String) examData.get("deadline");
         Integer duration = (Integer) examData.get("duration");
-        String status = (String) examData.get("status"); // 【新增】接收前端判断的状态
+        String status = (String) examData.get("status");
 
         if (title == null || content == null) {
             return ResponseEntity.badRequest().body("考试标题和试题内容不能为空");
@@ -78,11 +89,10 @@ public class LeaderController {
         exam.setCourseId(courseId);
         exam.setTitle(title);
         exam.setContent(content);
-        exam.setStartTime(startTime); // 【设置】
-        exam.setDeadline(deadline); // 【修改：使用 setDeadline】
+        exam.setStartTime(startTime);
+        exam.setDeadline(deadline);
         exam.setDuration(duration != null ? duration : 60);
-        exam.setStatus(status != null ? status : "未开始"); // 【设置】使用前端判断的状态
-        // 注意：teacherId 字段在这里没有设置，可能需要在前端传入或从当前用户获取
+        exam.setStatus(status != null ? status : "未开始");
 
         try {
             examMapper.insertExam(exam);
@@ -199,7 +209,7 @@ public class LeaderController {
         return ResponseEntity.ok(new ArrayList<>(teamMap.values()));
     }
 
-    // 3. 获取该组长负责的课程列表 (同样应用双重匹配)
+    // 3. 获取该组长负责的课程列表
     @GetMapping("/course/list")
     public ResponseEntity<?> listMyCourses() {
         String currentUsername = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -284,7 +294,7 @@ public class LeaderController {
             if (title != null && !title.isEmpty()) finalFileName = title;
         }
 
-        // --- B. 处理内容 (如果是作业/测验，将截止时间合并到 content) ---
+        // --- B. 处理内容 (如果是作业/测验/项目，将截止时间合并到 content) ---
         String finalContent = content;
         if (deadline != null && !deadline.isEmpty()) {
             finalContent = String.format("{\"text\": \"%s\", \"deadline\": \"%s\"}",
@@ -333,7 +343,7 @@ public class LeaderController {
         return ResponseEntity.ok("消息通知已成功下发");
     }
 
-    // 6. 更新课程 (包含组长排除逻辑)
+    // 6. 更新课程
     @PostMapping("/course/update")
     @Transactional
     public ResponseEntity<?> updateCourse(@RequestBody Course course) {
@@ -353,7 +363,7 @@ public class LeaderController {
         return ResponseEntity.ok("删除成功");
     }
 
-    // 8. 批量分配 (包含组长排除逻辑)
+    // 8. 批量分配
     @PostMapping("/course/batch-assign")
     @Transactional
     public ResponseEntity<?> batchAssignCourse(@RequestBody Map<String, Object> request) {
@@ -391,6 +401,141 @@ public class LeaderController {
         updateTeacherTeachingClasses(teacherNames, classIds);
 
         return ResponseEntity.ok("批量分配成功");
+    }
+
+    // 9. 课题组长直接延长/修改资料截止时间
+    @PostMapping("/material/update-deadline")
+    @Transactional
+    public ResponseEntity<?> updateMaterialDeadline(@RequestBody Map<String, Object> data) {
+        Long materialId = Long.valueOf(data.get("materialId").toString());
+        String newDeadline = (String) data.get("newDeadline");
+
+        if (materialId == null || newDeadline == null) {
+            return ResponseEntity.badRequest().body("资料ID和新截止时间不能为空");
+        }
+
+        Material material = materialMapper.findById(materialId);
+        if (material == null) {
+            return ResponseEntity.status(404).body("找不到该资料记录");
+        }
+
+        String oldContent = material.getContent();
+        String newContent = oldContent;
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(oldContent);
+
+            if (root.isObject() && root.has("text")) {
+                ((ObjectNode)root).put("deadline", newDeadline);
+                newContent = mapper.writeValueAsString(root);
+            } else {
+                return ResponseEntity.badRequest().body("该资料内容格式特殊，无法自动更新截止时间。");
+            }
+        } catch (IOException e) {
+            return ResponseEntity.badRequest().body("资料内容格式错误，无法更新截止时间。");
+        }
+
+        int rows = materialMapper.updateContent(materialId, newContent);
+
+        if (rows > 0) {
+            return ResponseEntity.ok("资料截止时间已更新为: " + newDeadline);
+        } else {
+            return ResponseEntity.status(500).body("数据库更新失败");
+        }
+    }
+
+    // 10. 【新增】获取待审核的延期申请 (课题组长只看延期申请)
+    @GetMapping("/applications/pending")
+    public ResponseEntity<?> listPendingApplications() {
+        // 课题组长只审核 DEADLINE_EXTENSION 申请
+        List<Application> allPending = applicationMapper.findByStatus("PENDING");
+
+        List<Application> deadlineApplications = allPending.stream()
+                .filter(app -> "DEADLINE_EXTENSION".equals(app.getType()))
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(deadlineApplications);
+    }
+
+    // 11. 【新增】处理审核操作 (课题组长只能处理延期申请)
+    @PostMapping("/applications/review")
+    @Transactional
+    public ResponseEntity<?> reviewApplication(@RequestBody Map<String, Object> request) {
+        Long appId = Long.valueOf(request.get("id").toString());
+        String status = (String) request.get("status"); // APPROVED 或 REJECTED
+
+        if (appId == null || status == null) {
+            return ResponseEntity.badRequest().body("审核参数不完整");
+        }
+
+        Application app = applicationMapper.findById(appId);
+        if (app == null) {
+            return ResponseEntity.badRequest().body("找不到对应的申请记录");
+        }
+
+        // 课题组长只处理 DEADLINE_EXTENSION 类型的申请
+        if (!"DEADLINE_EXTENSION".equals(app.getType())) {
+            return ResponseEntity.status(403).body("无权处理非延期申请类型");
+        }
+
+        // 1. 如果是驳回，直接更新状态
+        if ("REJECTED".equals(status)) {
+            applicationMapper.updateStatus(appId, status);
+            return ResponseEntity.ok("资料延期申请已驳回");
+        }
+
+        // 2. 如果是批准，执行延期操作
+        if ("APPROVED".equals(status)) {
+            try {
+                // 解析 content: "请求将资料 [xxx] 的截止时间延长至: YYYY-MM-DD HH:mm:ss"
+                Long materialId = app.getTargetId();
+
+                if (materialId == null || materialId == 0) {
+                    return ResponseEntity.badRequest().body("申请记录缺少资料ID，无法执行延期");
+                }
+
+                Material material = materialMapper.findById(materialId);
+                if (material == null) {
+                    return ResponseEntity.status(404).body("找不到要延期的资料");
+                }
+
+                // 从 content 中提取时间
+                String content = app.getContent();
+                String deadlinePattern = "延长至:\\s*(\\d{4}-\\d{2}-\\d{2}\\s\\d{2}:\\d{2}:\\d{2})";
+                java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(deadlinePattern);
+                java.util.regex.Matcher matcher = pattern.matcher(content);
+
+                String newDeadline = null;
+                if (matcher.find()) {
+                    newDeadline = matcher.group(1);
+                } else {
+                    return ResponseEntity.badRequest().body("申请内容格式不正确，无法解析新的截止时间");
+                }
+
+                // 执行更新 Material deadline 的逻辑
+                String oldContent = material.getContent();
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(oldContent);
+
+                if (root.isObject() && root.has("text")) {
+                    ((ObjectNode)root).put("deadline", newDeadline);
+                    String newMaterialContent = mapper.writeValueAsString(root);
+                    materialMapper.updateContent(materialId, newMaterialContent);
+
+                    applicationMapper.updateStatus(appId, status);
+                    return ResponseEntity.ok("资料截止时间已成功延长至: " + newDeadline);
+                } else {
+                    return ResponseEntity.badRequest().body("资料内容格式特殊，无法自动更新截止时间。");
+                }
+
+            } catch (Exception e) {
+                System.err.println("Error processing deadline extension: " + e.getMessage());
+                return ResponseEntity.status(500).body("处理请求时发生系统错误：" + e.getMessage());
+            }
+        }
+
+        return ResponseEntity.badRequest().body("未知的状态操作");
     }
 
     // 辅助方法：检查并插入新班级

@@ -23,11 +23,10 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
-// 【新增 import: 引入时间 API】
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-
+import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/student")
@@ -44,6 +43,10 @@ public class StudentController {
     private QuizRecordMapper quizRecordMapper;
     @Autowired
     private UserMapper userMapper;
+    @Autowired
+    private ApplicationMapper applicationMapper;
+    @Autowired
+    private NotificationMapper notificationMapper; // 【新增注入】
 
     // 【配置注入】
     @Value("${file.upload-dir:./uploads}")
@@ -57,6 +60,9 @@ public class StudentController {
 
     @Value("${deepseek.model:deepseek-chat}")
     private String deepSeekModel;
+
+    // Utility for date formatting
+    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     // 1. 获取课程详情
     @GetMapping("/course/{courseId}/info")
@@ -139,13 +145,11 @@ public class StudentController {
     @PostMapping("/quiz/chat")
     public ResponseEntity<?> chatWithAiTutor(@RequestBody Map<String, Object> payload) {
         Long materialId = Long.valueOf(payload.get("materialId").toString());
-        // 获取前端传来的聊天历史
         List<Map<String, String>> history = (List<Map<String, String>>) payload.get("history");
 
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         User user = userMapper.findByUsername(username);
 
-        // 查找记录和题目，用于构建上下文
         QuizRecord record = quizRecordMapper.findByUserIdAndMaterialId(user.getUserId(), materialId);
         Material material = materialMapper.findById(materialId);
 
@@ -153,7 +157,6 @@ public class StudentController {
             return ResponseEntity.badRequest().body("数据异常，无法建立 AI 上下文");
         }
 
-        // 准备上下文数据
         String userAnswersJson = record.getUserAnswers();
         String homeworkText = "";
         if ("作业".equals(material.getType())) {
@@ -164,11 +167,8 @@ public class StudentController {
             } catch (Exception e) {}
         }
 
-        // 调用 AI
         String reply = callDeepSeekChat(material, userAnswersJson, homeworkText, history);
 
-        // 如果是第一轮，将 AI 的初始分析结果保存到 aiFeedback 字段
-        // 注意：这里需要判断 history.size() > 0 且最后一个消息角色是 user，以确保是第一次真正的提问
         if (history != null && history.size() == 1) {
             record.setAiFeedback(reply);
             quizRecordMapper.updateAiFeedback(record);
@@ -182,7 +182,6 @@ public class StudentController {
         try {
             ObjectMapper mapper = new ObjectMapper();
 
-            // 构建 System Prompt (背景知识)
             StringBuilder systemPrompt = new StringBuilder();
             systemPrompt.append("你是一位专业的大学助教。以下是当前学生的作业/测验背景信息，请基于此回答学生的问题。\n");
             systemPrompt.append("【题目内容】：\n").append(material.getContent()).append("\n");
@@ -192,26 +191,21 @@ public class StudentController {
             } else {
                 systemPrompt.append("【学生提交的作业内容】：\n").append(homeworkText).append("\n");
             }
-            // 【关键】修改：移除纯文本限制，鼓励使用 Markdown 格式提供更清晰的回复
             systemPrompt.append("请保持语气亲切自然，可以适当使用Markdown格式（如列表、粗体），以提供更清晰的格式化回复。");
 
-            // 组装请求体
             ObjectNode requestBody = mapper.createObjectNode();
             requestBody.put("model", deepSeekModel);
             requestBody.put("stream", false);
 
             ArrayNode messages = requestBody.putArray("messages");
-            // 1. 先放 System Prompt
             messages.addObject().put("role", "system").put("content", systemPrompt.toString());
 
-            // 2. 再放历史对话 (包含用户最新的提问)
             if (history != null) {
                 for (Map<String, String> msg : history) {
                     messages.addObject().put("role", msg.get("role")).put("content", msg.get("content"));
                 }
             }
 
-            // 发送请求
             String jsonBody = mapper.writeValueAsString(requestBody);
             HttpClient client = HttpClient.newHttpClient();
             HttpRequest request = HttpRequest.newBuilder()
@@ -252,27 +246,23 @@ public class StudentController {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         User user = userMapper.findByUsername(username);
 
-        // ★★★ 核心修改：动态计算考试状态 ★★★
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         LocalDateTime now = LocalDateTime.now();
 
         for (Exam exam : exams) {
-            // 1. 检查是否已交卷 (优先级最高)
             ExamRecord record = examMapper.findRecordByUserIdAndExamId(user.getUserId(), exam.getId());
             if (record != null) {
                 exam.setStatus("已交卷");
                 continue;
             }
 
-            // 2. 动态判断状态 (如果未交卷)
             try {
-                // Exam 实体中的 startTime 和 deadline (原 endTime) 都是 String 类型，需要解析
                 LocalDateTime startTime = LocalDateTime.parse(exam.getStartTime(), formatter);
-                LocalDateTime deadlineTime = LocalDateTime.parse(exam.getDeadline(), formatter); // 使用 getDeadline()
+                LocalDateTime deadlineTime = LocalDateTime.parse(exam.getDeadline(), formatter);
 
                 if (now.isBefore(startTime)) {
                     exam.setStatus("未开始");
-                } else if (now.isAfter(deadlineTime)) { // 使用 deadlineTime
+                } else if (now.isAfter(deadlineTime)) {
                     exam.setStatus("已结束");
                 } else {
                     exam.setStatus("进行中");
@@ -281,7 +271,6 @@ public class StudentController {
                 System.err.println("Error parsing exam time for exam ID " + exam.getId() + ": " + e.getMessage());
                 exam.setStatus("时间异常");
             }
-            // ★★★ 核心修改结束 ★★★
         }
         return ResponseEntity.ok(exams);
     }
@@ -322,10 +311,39 @@ public class StudentController {
 
         ExamRecord record = examMapper.findRecordByUserIdAndExamId(user.getUserId(), examId);
         if (record == null) {
-            // 如果记录不存在，但学生要看试卷内容，返回考试内容
             Exam exam = examMapper.findExamById(examId);
             return exam == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(exam);
         }
         return ResponseEntity.ok(record);
+    }
+
+    // 10. 【新增】获取学生最近的活动/通知 (查询真实数据库)
+    @GetMapping("/recent-activities")
+    public ResponseEntity<?> getRecentActivities() {
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        User user = userMapper.findByUsername(username);
+
+        if (user == null) {
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+
+        // 查询 sys_notification 表
+        List<Notification> notifications = notificationMapper.selectByUserId(user.getUserId());
+
+        List<Map<String, Object>> activities = notifications.stream()
+                .map(n -> {
+                    Map<String, Object> activity = new HashMap<>();
+                    activity.put("type", n.getType());
+                    activity.put("title", n.getTitle());
+                    activity.put("message", n.getMessage());
+                    // 直接使用数据库存储的时间字符串
+                    activity.put("time", n.getCreateTime().format(FORMATTER));
+                    activity.put("relatedId", n.getRelatedId());
+                    activity.put("displayTime", n.getCreateTime().format(FORMATTER));
+                    return activity;
+                })
+                .collect(Collectors.toList());
+
+        return ResponseEntity.ok(activities);
     }
 }

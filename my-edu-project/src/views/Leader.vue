@@ -12,8 +12,7 @@
       >
         <el-menu-item index="1"><el-icon><DataLine /></el-icon>我的课程管理</el-menu-item>
         <el-menu-item index="2"><el-icon><UserFilled /></el-icon>课题组成员与通知</el-menu-item>
-
-        <el-divider style="margin: 10px 0; border-color: #444761;" />
+        <el-menu-item index="3"><el-icon><DocumentChecked /></el-icon>申请审核</el-menu-item> <el-divider style="margin: 10px 0; border-color: #444761;" />
         <div class="switch-to-teacher">
           <el-button type="warning" plain @click="goToTeacherPage">
             <el-icon style="margin-right: 5px;"><Switch /></el-icon> 切换到教师工作台
@@ -25,7 +24,7 @@
     <el-main class="main-content">
       <div class="header-bar">
         <div class="breadcrumb">
-          首页 / {{ activeMenu === '1' ? '课程资料下发' : '成员与通知管理' }}
+          首页 / {{ activeMenu === '1' ? '课程资料下发' : (activeMenu === '2' ? '成员与通知管理' : '申请审核') }}
         </div>
         <div class="user-profile">
           <span>欢迎您，{{ userInfo.realName || '组长' }}</span>
@@ -37,7 +36,6 @@
         <div class="panel-header">
           <h3>我的课程列表与内容下发</h3>
         </div>
-
         <el-alert title="说明：您可以管理负责的课程，向对应班级下发教学资料、创建知识图谱或编辑课程目录。" type="info" show-icon style="margin-bottom: 20px;" />
 
         <el-table :data="courseList" border stripe style="width: 100%">
@@ -102,6 +100,30 @@
         </el-table>
       </div>
 
+      <div v-if="activeMenu === '3'" class="content-panel">
+        <h2>待审核的资料延期申请</h2>
+        <el-alert v-if="applicationList.length === 0" title="当前没有待审核的资料延期申请记录" type="success" show-icon style="margin-bottom: 20px;" />
+
+        <el-table :data="applicationList" border stripe style="width: 100%">
+          <el-table-column prop="id" label="ID" width="60" />
+          <el-table-column prop="teacherName" label="申请人" width="100" />
+          <el-table-column prop="type" label="类型" width="100">
+            <template #default="scope">
+              <el-tag :type="getTypeTag(scope.row.type)">{{ formatType(scope.row.type) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="content" label="申请内容" min-width="250" show-overflow-tooltip/>
+          <el-table-column prop="reason" label="申请理由" min-width="150" show-overflow-tooltip/>
+          <el-table-column prop="createTime" label="提交时间" width="160" />
+          <el-table-column label="操作" width="160" fixed="right">
+            <template #default="scope">
+              <el-button size="small" type="success" @click="handleReview(scope.row.id, 'APPROVED')">批准</el-button>
+              <el-button size="small" type="danger" @click="handleReview(scope.row.id, 'REJECTED')">驳回</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
       <el-dialog v-model="contentDialogVisible"
                  :title="'下发内容 - ' + currentRow.name + ' (' + currentRow.classId + ')'"
                  :width="['知识图谱', '目录'].includes(selectedContentType) ? '900px' : '750px'"
@@ -122,7 +144,6 @@
 
         <div v-if="selectedContentType === '测验'" class="quiz-editor">
           <el-alert title="请添加单选题。勾选单选框代表该选项为正确答案。" type="success" :closable="false" style="margin-bottom: 15px;" />
-
           <el-form label-width="80px">
             <el-row :gutter="20">
               <el-col :span="12"><el-form-item label="测验标题"><el-input v-model="contentTitle" placeholder="如: 第一章阶段测试" /></el-form-item></el-col>
@@ -150,7 +171,6 @@
                 分值：<el-input-number v-model="q.score" :min="1" :max="100" size="small" style="width:100px"/> 分
               </div>
             </div>
-
             <el-button type="primary" plain style="width:100%; margin-top:10px" @click="addQuestion">+ 添加单选题</el-button>
           </div>
         </div>
@@ -338,6 +358,7 @@
           <el-button type="primary" @click="submitNotification">发送</el-button>
         </template>
       </el-dialog>
+
     </el-main>
   </div>
 </template>
@@ -347,15 +368,16 @@ import { ref, reactive, onMounted, nextTick, onBeforeUnmount, computed } from 'v
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DataLine, UserFilled, Switch, Bell, Close } from '@element-plus/icons-vue'
+import { DataLine, UserFilled, Switch, Bell, Close, DocumentChecked } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
-import dayjs from 'dayjs' // 引入 dayjs 用于时间比较和格式化
+import dayjs from 'dayjs'
 
 const router = useRouter()
 const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
 const activeMenu = ref('1')
 const courseList = ref([])
 const teacherList = ref([])
+const applicationList = ref([])
 
 // 弹窗状态
 const contentDialogVisible = ref(false)
@@ -364,9 +386,8 @@ const notificationDialogVisible = ref(false)
 const currentRow = ref({})
 const selectedTeacher = ref('')
 
-// 【新增】考试发布状态
+// 考试发布状态
 const examDialogVisible = ref(false)
-// 增加 startTime 字段
 const examForm = reactive({ title: '', startTime: '', deadline: '', duration: 60, questions: [] })
 const addExamQuestion = () => examForm.questions.push({ title: '', options: ['','','',''], answer: 0, score: 20 })
 const removeExamQuestion = (idx) => examForm.questions.splice(idx, 1)
@@ -393,13 +414,12 @@ const chartRef = ref(null); let myChart = null;
 const newNodeName = ref(''); const newNodeCategory = ref(1);
 const newLinkSource = ref(''); const newLinkTarget = ref('');
 
-// 提示语计算
 const titlePlaceholder = computed(() => {
   if (selectedContentType.value === '作业') return '请输入作业标题 (如: 第一次大作业)'
   return '请输入标题'
 })
 
-onMounted(() => { fetchData(); window.addEventListener('resize', resizeChart) })
+onMounted(() => { fetchData(); fetchPendingApplications(); window.addEventListener('resize', resizeChart) })
 onBeforeUnmount(() => { window.removeEventListener('resize', resizeChart); if(myChart) myChart.dispose() })
 
 const fetchData = async () => {
@@ -409,7 +429,44 @@ const fetchData = async () => {
   } catch(e){}
 }
 
-const handleMenuSelect = (idx) => activeMenu.value = idx
+// 【新增】获取待审核的延期申请列表
+const fetchPendingApplications = async () => {
+  try {
+    const res = await request.get('/leader/applications/pending');
+    applicationList.value = res || [];
+  } catch (e) {
+    ElMessage.error('加载待审核申请失败');
+  }
+}
+
+// 【新增】处理审核操作
+const handleReview = async (id, status) => {
+  const action = status === 'APPROVED' ? '批准' : '驳回';
+  const type = applicationList.value.find(a => a.id === id)?.type || 'DEADLINE_EXTENSION';
+
+  try {
+    await ElMessageBox.confirm(`确定${action}该${formatType(type)}申请吗？`, '确认操作', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: status === 'APPROVED' ? 'success' : 'danger'
+    });
+
+    await request.post('/leader/applications/review', { id, status });
+    ElMessage.success(`操作成功：申请已${action}`);
+    fetchPendingApplications(); // 刷新列表
+  } catch (e) {
+    if (e === 'cancel') return;
+    ElMessage.error(`${action}失败：` + (e.response?.data || '服务器错误'));
+  }
+}
+
+
+const handleMenuSelect = (idx) => {
+  activeMenu.value = idx
+  if (idx === '1') fetchData()
+  else if (idx === '2') fetchData()
+  else if (idx === '3') fetchPendingApplications() // 切换到审核菜单
+}
 const goToTeacherPage = () => router.push('/teacher')
 const logout = () => { localStorage.clear(); router.push('/login') }
 
@@ -423,7 +480,6 @@ const handleTypeChange = (type) => {
 // 【新增】打开考试发布对话框
 const openExamDialog = () => {
   examForm.title = ''
-  // 默认开始时间设为 5 分钟后，状态默认为 "未开始"
   examForm.startTime = dayjs().add(5, 'minute').format('YYYY-MM-DD HH:mm:ss');
   examForm.deadline = dayjs().add(7, 'day').format('YYYY-MM-DD HH:mm:ss');
   examForm.duration = 60
@@ -444,24 +500,20 @@ const submitExam = async () => {
   }
 
   const contentPayload = { questions: examForm.questions }
-
-  // 确定考试的初始状态:
-  // 如果开始时间在未来，状态就是 "未开始"。
-  // 如果开始时间在过去或现在，状态就是 "进行中"。
   const status = dayjs(examForm.startTime).isAfter(dayjs()) ? "未开始" : "进行中";
 
   try {
     await request.post(`/leader/course/${currentRow.value.id}/publish-exam`, {
       title: examForm.title,
       content: JSON.stringify(contentPayload),
-      startTime: examForm.startTime, // 传递开始时间
+      startTime: examForm.startTime,
       deadline: examForm.deadline,
       duration: examForm.duration,
       status: status
     });
     ElMessage.success('考试发布成功，初始状态为: ' + status);
     examDialogVisible.value = false;
-    fetchData(); // 刷新课程列表
+    fetchData();
   } catch (e) {
     ElMessage.error(e.response?.data || '发布失败');
   }
@@ -507,12 +559,10 @@ const submitCourseMaterial = async () => {
     const formData = new FormData()
     formData.append('type', selectedContentType.value)
 
-    // 标题处理
     let title = contentTitle.value
     if (selectedContentType.value === '教材') title = textbookForm.name
     if (title) formData.append('title', title)
 
-    // 内容构造
     if (selectedContentType.value === '测验') {
       if(quizData.questions.length === 0) throw new Error('请至少添加一道题目')
       const payload = { deadline: contentDeadline.value, questions: quizData.questions }
@@ -533,13 +583,11 @@ const submitCourseMaterial = async () => {
       formData.append('fileName', '课程目录.json')
 
     } else if (['作业','项目'].includes(selectedContentType.value)) {
-      // 作业：内容作为题目要求，Deadline作为截止时间
       const payload = { text: contentPayload.value, deadline: contentDeadline.value }
-      formData.append('content', JSON.stringify(payload)) // 统一存为 JSON
+      formData.append('content', JSON.stringify(payload))
       if(!contentTitle.value) throw new Error('请填写作业标题')
 
     } else {
-      // 其他普通资料
       formData.append('content', contentPayload.value)
     }
 
@@ -554,6 +602,16 @@ const submitAssign = async () => { await request.post('/leader/course/update',{i
 const openNotificationDialog = (t) => { notificationTarget.value=t; notificationForm.title=''; notificationForm.content=''; notificationDialogVisible.value=true }
 const submitNotification = async () => { await request.post('/leader/notification/send',{title:notificationForm.title,content:notificationForm.content,targets:notificationTarget.value?[notificationTarget.value.username]:null}); notificationDialogVisible.value=false }
 const handleDelete = async (id) => { await request.post(`/leader/course/delete/${id}`); fetchData() }
+
+// --- 辅助函数 ---
+const formatType = (type) => {
+  const map = { DEADLINE_EXTENSION: '延期申请', ADD: '新增学生', DELETE: '删除学生', RESET_PWD: '重置密码' }
+  return map[type] || type
+}
+const getTypeTag = (type) => {
+  const map = { DEADLINE_EXTENSION: 'warning', ADD: 'success', DELETE: 'danger', RESET_PWD: 'info' }
+  return map[type] || 'info'
+}
 </script>
 
 <style scoped>
@@ -566,7 +624,7 @@ const handleDelete = async (id) => { await request.post(`/leader/course/delete/$
 .main-content { flex: 1; padding: 0; display:flex; flex-direction:column; width: 100%; }
 .header-bar { height: 60px; background: #fff; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; border-bottom: 1px solid #eee; }
 .content-panel { margin: 20px; padding: 20px; background: #fff; flex:1; overflow-y:auto; border-radius: 4px; }
-.panel-header { border-left: 4px solid #409EFF; padding-left: 10px; margin-bottom: 20px; font-weight: bold; font-size: 16px; }
+.panel-header { border-left: 4px solid #409EFF; padding-left: 10px; margin-bottom: 20px; font-weight: bold; font-size: 16px; display: flex; justify-content: space-between; align-items: center;}
 .text-gray { color: #999; font-style: italic; }
 
 /* 编辑器容器通用样式 */

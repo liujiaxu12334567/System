@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.project.system.mapper.NotificationMapper">
+
+    <resultMap id="NotificationResultMap" type="com.project.system.entity.Notification">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="relatedId" column="related_id"/>
+        <result property="type" column="type"/>
+        <result property="title" column="title"/>
+        <result property="message" column="message"/>
+        <result property="isRead" column="is_read"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.project.system.entity.Notification" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_notification (user_id, related_id, type, title, message, is_read, create_time)
+        VALUES (#{userId}, #{relatedId}, #{type}, #{title}, #{message}, FALSE, NOW())
+    </insert>
+
+    <select id="selectByUserId" resultMap="NotificationResultMap">
+        SELECT * FROM sys_notification
+        WHERE user_id = #{userId}
+        ORDER BY create_time DESC
+            LIMIT 50
+    </select>
+</mapper>

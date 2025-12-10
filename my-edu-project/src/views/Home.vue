@@ -121,32 +121,34 @@
         <section class="content-block half-block">
           <div class="block-header">
             <div class="header-left">
-              <h3 class="title">我的学习任务</h3>
+              <h3 class="title">最近活动与通知</h3>
               <div class="tabs">
-                <span class="tab active">未作答</span>
-                <span class="tab">作答中</span>
+                <span class="tab active">最新</span>
+                <span class="tab">未读</span>
               </div>
             </div>
           </div>
 
-          <div class="task-list" v-if="taskList.length > 0">
-            <div class="task-item" v-for="task in taskList" :key="task.id">
+          <div class="task-list" v-if="activityList.length > 0">
+            <div class="task-item" v-for="(activity, index) in activityList" :key="index">
               <div class="item-left">
-                <el-tag type="warning" effect="plain" size="small" class="type-tag">测验</el-tag>
+                <el-tag :type="getActivityTag(activity.type)" effect="plain" size="small" class="type-tag">
+                  {{ getActivityTypeName(activity.type) }}
+                </el-tag>
                 <div class="item-content">
-                  <div class="task-title">{{ task.name }}</div>
-                  <div class="task-desc">截止时间：{{ task.deadline }} <span class="sep">| {{ task.courseName }}</span></div>
+                  <div class="task-title">{{ activity.title }}</div>
+                  <div class="task-desc">{{ activity.message }} <span class="sep">| {{ formatTime(activity.displayTime) }}</span></div>
                 </div>
               </div>
-              <el-button type="primary" plain round size="small" class="action-btn">
-                {{ task.status === '未作答' ? '去作答' : task.status }}
+              <el-button v-if="activity.targetUrl" type="primary" link round size="small" class="action-btn">
+                查看详情
               </el-button>
             </div>
           </div>
           <div class="empty-area small" v-else>
             <div class="custom-empty">
               <el-icon :size="50" color="#e0e0e0"><Document /></el-icon>
-              <p>暂无任务</p>
+              <p>暂无最新活动</p>
             </div>
           </div>
         </section>
@@ -199,14 +201,15 @@ import { useRouter } from 'vue-router'
 import { Bell, MagicStick, Platform, ArrowRight, Box, Document, Tickets, ArrowDown, Setting, SwitchButton } from '@element-plus/icons-vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import request from '@/utils/request' // 使用自定义 request 实例
+import request from '@/utils/request'
+import dayjs from 'dayjs'
 
 const router = useRouter()
 const userInfo = ref({ realName: '' })
 const currentSemester = ref('2025-1')
 const loading = ref(true)
 const courseList = ref([])
-const taskList = ref([])
+const activityList = ref([])
 
 // 弹窗和表单
 const settingsDialogVisible = ref(false)
@@ -249,13 +252,14 @@ onMounted(() => {
 const fetchHomeData = async () => {
   try {
     const res = await request.get('/home/data')
+    const activitiesRes = await request.get('/student/recent-activities') // 【获取真实通知】
 
     if (res) {
       if (res.realName) {
         userInfo.value.realName = res.realName
       }
       courseList.value = res.courses || []
-      taskList.value = res.tasks || []
+      activityList.value = activitiesRes || [] // 【设置】新的活动列表
     }
   } catch (error) {
     console.error(error)
@@ -264,27 +268,48 @@ const fetchHomeData = async () => {
   }
 }
 
-// 1. 点击头像菜单中的“修改密码”
+// 【新增】活动通知辅助函数
+const getActivityTypeName = (type) => {
+  const map = {
+    GRADE_SUCCESS: '批改得分',
+    REJECT_SUBMISSION: '打回重做',
+    PUBLISH_NEW: '新资料',
+    GENERAL_NOTICE: '教师通知',
+    DEADLINE_EXTENDED: '截止延期',
+  };
+  return map[type] || '通知';
+};
+
+const getActivityTag = (type) => {
+  const map = {
+    GRADE_SUCCESS: 'success',
+    REJECT_SUBMISSION: 'danger',
+    PUBLISH_NEW: 'primary',
+    GENERAL_NOTICE: 'info',
+    DEADLINE_EXTENDED: 'warning',
+  };
+  return map[type] || 'info';
+};
+
+const formatTime = (timeString) => {
+  return dayjs(timeString).fromNow();
+}
+
 const openPasswordDialog = () => {
-  // 重置表单状态
   passwordForm.oldPassword = ''
   passwordForm.newPassword = ''
   passwordForm.confirmNewPassword = ''
 
-  // 清除校验结果
   if (passwordFormRef.value) {
     passwordFormRef.value.resetFields()
   }
   settingsDialogVisible.value = true
 }
 
-// 2. 提交密码修改请求
 const submitPasswordChange = () => {
-  // 触发表单校验
   passwordFormRef.value.validate(async (valid) => {
     if (valid) {
       try {
-        // 调用后端的修改密码接口
         await request.post('/auth/update-password', {
           oldPassword: passwordForm.oldPassword,
           newPassword: passwordForm.newPassword
@@ -292,7 +317,7 @@ const submitPasswordChange = () => {
 
         ElMessage.success('密码修改成功，请重新登录')
         settingsDialogVisible.value = false
-        logout() // 修改密码后强制用户重新登录
+        logout()
 
       } catch (error) {
         console.error('密码修改失败', error)
@@ -304,12 +329,10 @@ const submitPasswordChange = () => {
   })
 }
 
-// 【新增功能】跳转到课程学习详情页
 const goToCourse = (courseId) => {
   router.push(`/course-study/${courseId}`)
 }
 
-// 退出登录
 const logout = () => {
   localStorage.clear()
   router.push('/login')
