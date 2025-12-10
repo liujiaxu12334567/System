@@ -40,7 +40,8 @@
     </select>
 
     <select id="findByUsername" resultMap="UserResultMap">
-        SELECT * FROM sys_user WHERE username = #{username}
+        SELECT * FROM sys_user
+        WHERE username = #{username} OR real_name = #{username}
     </select>
 
     <select id="selectAllUsers" resultMap="UserResultMap">

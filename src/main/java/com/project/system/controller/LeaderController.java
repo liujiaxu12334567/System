@@ -3,11 +3,14 @@ package com.project.system.controller;
 import com.project.system.entity.User;
 import com.project.system.entity.Course;
 import com.project.system.entity.Class;
-import com.project.system.entity.Material; // 确保已创建此实体类
+import com.project.system.entity.Material;
+import com.project.system.entity.Exam;
 import com.project.system.mapper.UserMapper;
 import com.project.system.mapper.CourseMapper;
 import com.project.system.mapper.ClassMapper;
-import com.project.system.mapper.MaterialMapper; // 确保已创建此Mapper接口
+import com.project.system.mapper.MaterialMapper;
+import com.project.system.mapper.ExamMapper;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -40,18 +43,59 @@ public class LeaderController {
     private ClassMapper classMapper;
 
     @Autowired
-    private MaterialMapper materialMapper; // 注入资料Mapper
+    private MaterialMapper materialMapper;
+
+    @Autowired
+    private ExamMapper examMapper;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    // 读取配置文件中的存储路径，默认为项目根目录下的 uploads 文件夹
     @Value("${file.upload-dir:./uploads}")
     private String uploadDir;
 
+    // 1. 发布考试
+    @PostMapping("/course/{courseId}/publish-exam")
+    public ResponseEntity<?> publishCourseExam(
+            @PathVariable Long courseId,
+            @RequestBody Map<String, Object> examData)
+    {
+        String title = (String) examData.get("title");
+        String content = (String) examData.get("content");
+        String startTime = (String) examData.get("startTime"); // 【新增】
+        String deadline = (String) examData.get("deadline");
+        Integer duration = (Integer) examData.get("duration");
+        String status = (String) examData.get("status"); // 【新增】接收前端判断的状态
+
+        if (title == null || content == null) {
+            return ResponseEntity.badRequest().body("考试标题和试题内容不能为空");
+        }
+        if (startTime == null || deadline == null) {
+            return ResponseEntity.badRequest().body("考试开始时间和截止时间不能为空");
+        }
+
+        Exam exam = new Exam();
+        exam.setCourseId(courseId);
+        exam.setTitle(title);
+        exam.setContent(content);
+        exam.setStartTime(startTime); // 【设置】
+        exam.setDeadline(deadline);
+        exam.setDuration(duration != null ? duration : 60);
+        exam.setStatus(status != null ? status : "未开始"); // 【设置】使用前端判断的状态
+
+        try {
+            examMapper.insertExam(exam);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("考试发布失败: " + e.getMessage());
+        }
+
+        return ResponseEntity.ok("考试发布成功！");
+    }
+
+
     /**
-     * 1. 【核心修复】获取团队成员
-     * 逻辑：双重匹配课程（按负责人名或TeacherRank），然后混合匹配教师（按姓名或班级ID）。
+     * 2. 获取团队成员
      */
     @GetMapping("/teacher/list")
     public ResponseEntity<?> listMyTeamMembers() {
@@ -154,7 +198,7 @@ public class LeaderController {
         return ResponseEntity.ok(new ArrayList<>(teamMap.values()));
     }
 
-    // 2. 获取该组长负责的课程列表 (同样应用双重匹配)
+    // 3. 获取该组长负责的课程列表 (同样应用双重匹配)
     @GetMapping("/course/list")
     public ResponseEntity<?> listMyCourses() {
         String currentUsername = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -179,14 +223,14 @@ public class LeaderController {
         return ResponseEntity.ok(myCourses);
     }
 
-    // 3. 【核心功能升级】内容下发：支持文件上传并存入数据库 (唯一方法，支持title和deadline)
+    // 4. 内容下发：发布资料 (Material)
     @PostMapping(value = "/course/{courseId}/upload-material", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> uploadCourseMaterial(
             @PathVariable Long courseId,
             @RequestParam("type") String materialType,
-            @RequestParam(value = "title", required = false) String title, // 新增标题参数
+            @RequestParam(value = "title", required = false) String title,
             @RequestParam(value = "content", required = false) String content,
-            @RequestParam(value = "deadline", required = false) String deadline, // 新增截止时间参数
+            @RequestParam(value = "deadline", required = false) String deadline,
             @RequestParam(value = "file", required = false) MultipartFile file
     ) {
         // 1. 知识图谱和目录的特殊处理 (它们的内容是 JSON 字符串，不需要额外包装)
@@ -197,7 +241,6 @@ public class LeaderController {
             material.setCourseId(courseId);
             material.setType(materialType);
             material.setContent(content);
-            // 图谱/目录的 fileName 固定或由前端传入
             material.setFileName(title != null ? title : (materialType + ".json"));
             material.setFilePath("");
             materialMapper.insert(material);
@@ -215,13 +258,10 @@ public class LeaderController {
         // --- A. 处理文件保存逻辑 (保存到磁盘) ---
         if (file != null && !file.isEmpty()) {
             try {
-                // 1. 确保目录存在
                 File directory = new File(uploadDir);
                 if (!directory.exists()) {
                     directory.mkdirs();
                 }
-
-                // 2. 生成唯一文件名 (防止重名覆盖)
                 String originalFilename = file.getOriginalFilename();
                 String extension = "";
                 if (originalFilename != null && originalFilename.contains(".")) {
@@ -229,12 +269,10 @@ public class LeaderController {
                 }
                 String uniqueName = UUID.randomUUID().toString() + extension;
 
-                // 3. 保存文件到磁盘
                 Path path = Paths.get(uploadDir + File.separator + uniqueName);
                 Files.write(path, file.getBytes());
 
                 filePath = path.toString();
-                // 如果用户没填标题，默认用文件名
                 finalFileName = (title != null && !title.isEmpty()) ? title : originalFilename;
 
             } catch (IOException e) {
@@ -242,16 +280,12 @@ public class LeaderController {
                 return ResponseEntity.status(500).body("文件上传失败: " + e.getMessage());
             }
         } else {
-            // 没有文件时，使用用户填写的标题
             if (title != null && !title.isEmpty()) finalFileName = title;
         }
 
         // --- B. 处理内容 (如果是作业/测验，将截止时间合并到 content) ---
         String finalContent = content;
         if (deadline != null && !deadline.isEmpty()) {
-            // 简单构造一个 JSON 格式字符串存储在 content 字段中，方便前端解析
-            // 格式: { "text": "原始内容", "deadline": "2025-12-31" }
-            // 注意：这里手动拼接 JSON，实际项目中建议用 Jackson/Gson
             finalContent = String.format("{\"text\": \"%s\", \"deadline\": \"%s\"}",
                     content != null ? content.replace("\"", "\\\"") : "",
                     deadline
@@ -279,7 +313,7 @@ public class LeaderController {
         return ResponseEntity.ok("资料 [" + materialType + "] 发布成功！");
     }
 
-    // 4. 下发通知
+    // 5. 下发通知
     @PostMapping("/notification/send")
     public ResponseEntity<?> sendNotification(@RequestBody Map<String, Object> data) {
         String title = (String) data.get("title");
@@ -298,7 +332,7 @@ public class LeaderController {
         return ResponseEntity.ok("消息通知已成功下发");
     }
 
-    // 5. 更新课程 (包含组长排除逻辑)
+    // 6. 更新课程 (包含组长排除逻辑)
     @PostMapping("/course/update")
     @Transactional
     public ResponseEntity<?> updateCourse(@RequestBody Course course) {
@@ -311,14 +345,14 @@ public class LeaderController {
         return ResponseEntity.ok("更新成功");
     }
 
-    // 6. 删除课程
+    // 7. 删除课程
     @PostMapping("/course/delete/{id}")
     public ResponseEntity<?> deleteCourse(@PathVariable Long id) {
         courseMapper.deleteCourseById(id);
         return ResponseEntity.ok("删除成功");
     }
 
-    // 7. 批量分配 (包含组长排除逻辑)
+    // 8. 批量分配 (包含组长排除逻辑)
     @PostMapping("/course/batch-assign")
     @Transactional
     public ResponseEntity<?> batchAssignCourse(@RequestBody Map<String, Object> request) {

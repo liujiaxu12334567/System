@@ -8,7 +8,7 @@
         <el-menu-item index="1"><el-icon><Reading /></el-icon>我的课程与资料</el-menu-item>
         <el-menu-item index="2"><el-icon><User /></el-icon>学生管理(需审核)</el-menu-item>
         <el-menu-item index="3"><el-icon><Document /></el-icon>我的申请记录</el-menu-item>
-      </el-menu>
+        <el-menu-item index="4"><el-icon><Tickets /></el-icon>学生考试记录</el-menu-item> </el-menu>
     </el-aside>
 
     <el-main class="main-content">

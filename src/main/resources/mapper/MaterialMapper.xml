@@ -11,4 +11,8 @@
         SELECT * FROM sys_material WHERE course_id = #{courseId} ORDER BY create_time DESC
     </select>
 
+    <select id="findById" resultType="com.project.system.entity.Material">
+        SELECT * FROM sys_material WHERE id = #{id}
+    </select>
+
 </mapper>

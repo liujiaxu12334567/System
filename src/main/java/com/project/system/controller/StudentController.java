@@ -1,14 +1,11 @@
 package com.project.system.controller;
 
-import com.project.system.entity.Material;
-import com.project.system.entity.Course;
-import com.project.system.entity.QuizRecord;
-import com.project.system.entity.User;
-import com.project.system.mapper.MaterialMapper;
-import com.project.system.mapper.CourseMapper;
-import com.project.system.mapper.QuizRecordMapper;
-import com.project.system.mapper.UserMapper;
-import com.fasterxml.jackson.databind.ObjectMapper; // 【新增】引入Jackson库
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.project.system.entity.*;
+import com.project.system.mapper.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -19,6 +16,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -28,111 +29,94 @@ import java.util.*;
 @RequestMapping("/api/student")
 public class StudentController {
 
+    // 【依赖注入】
+    @Autowired
+    private ExamMapper examMapper;
     @Autowired
     private MaterialMapper materialMapper;
-
     @Autowired
     private CourseMapper courseMapper;
-
     @Autowired
     private QuizRecordMapper quizRecordMapper;
-
     @Autowired
     private UserMapper userMapper;
 
-    // 读取配置文件中的上传路径
+    // 【配置注入】
     @Value("${file.upload-dir:./uploads}")
     private String uploadDir;
+
+    @Value("${deepseek.api.key:}")
+    private String deepSeekApiKey;
+
+    @Value("${deepseek.api.url:https://api.deepseek.com/chat/completions}")
+    private String deepSeekApiUrl;
+
+    @Value("${deepseek.model:deepseek-chat}")
+    private String deepSeekModel;
 
     // 1. 获取课程详情
     @GetMapping("/course/{courseId}/info")
     public ResponseEntity<?> getCourseInfo(@PathVariable Long courseId) {
         List<Course> all = courseMapper.selectAllCourses();
-        Course target = all.stream()
-                .filter(c -> c.getId().equals(courseId))
-                .findFirst()
-                .orElse(null);
-
+        Course target = all.stream().filter(c -> c.getId().equals(courseId)).findFirst().orElse(null);
         if (target == null) return ResponseEntity.notFound().build();
         return ResponseEntity.ok(target);
     }
 
-    // 2. 获取该课程下的所有资料
+    // 2. 获取课程资料列表 (作业/测验/资料)
     @GetMapping("/course/{courseId}/materials")
     public ResponseEntity<?> getCourseMaterials(@PathVariable Long courseId) {
         List<Material> materials = materialMapper.selectByCourseId(courseId);
         return ResponseEntity.ok(materials);
     }
 
-    // 3. 提交测验/作业 (核心修改：使用 Jackson 自动生成 JSON)
+    // 3. 提交测验/作业 (只负责保存，不触发 AI)
     @PostMapping(value = "/quiz/submit", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> submitQuiz(
             @RequestParam("materialId") Long materialId,
             @RequestParam(value = "score", required = false, defaultValue = "0") Integer score,
-            @RequestParam(value = "userAnswers", required = false) String userAnswers, // 测验的选项索引(JSON字符串)
-            @RequestParam(value = "textAnswer", required = false) String textAnswer,   // 作业的文字内容
-            @RequestParam(value = "files", required = false) List<MultipartFile> files // 作业的附件文件
+            @RequestParam(value = "userAnswers", required = false) String userAnswers,
+            @RequestParam(value = "textAnswer", required = false) String textAnswer,
+            @RequestParam(value = "files", required = false) List<MultipartFile> files
     ) {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         User user = userMapper.findByUsername(username);
 
-        // 最终存入数据库的 JSON 字符串
         String finalContentJson = userAnswers;
+        List<String> uploadedPaths = new ArrayList<>();
 
-        // --- 如果是作业提交 (有文字或文件) ---
         if (textAnswer != null || (files != null && !files.isEmpty())) {
-            List<String> uploadedPaths = new ArrayList<>();
-
-            // 1. 处理文件保存
+            // 文件上传逻辑
             if (files != null) {
                 for (MultipartFile file : files) {
                     try {
-                        // 确保目录存在
                         File directory = new File(uploadDir);
                         if (!directory.exists()) directory.mkdirs();
-
-                        // 生成唯一文件名
                         String originalFilename = file.getOriginalFilename();
-                        String extension = "";
-                        if (originalFilename != null && originalFilename.contains(".")) {
-                            extension = originalFilename.substring(originalFilename.lastIndexOf("."));
-                        }
+                        String extension = originalFilename != null && originalFilename.contains(".") ? originalFilename.substring(originalFilename.lastIndexOf(".")) : "";
                         String uniqueName = UUID.randomUUID().toString() + extension;
-
-                        // 保存到磁盘
                         Path path = Paths.get(uploadDir + File.separator + uniqueName);
                         Files.write(path, file.getBytes());
-
-                        // 记录相对路径或文件名，方便前端下载
                         uploadedPaths.add(uniqueName);
                     } catch (IOException e) {
-                        e.printStackTrace();
                         return ResponseEntity.status(500).body("文件上传失败");
                     }
                 }
             }
-
-            // 2. 【核心修复】使用 Jackson 自动生成 JSON (安全可靠)
+            // JSON 构造 (使用 Jackson)
             try {
                 Map<String, Object> answerMap = new HashMap<>();
-                // 放入文本内容 (Jackson 会自动处理引号、换行等特殊字符)
                 answerMap.put("text", textAnswer != null ? textAnswer : "");
-                // 放入文件列表
                 answerMap.put("files", uploadedPaths);
-
                 ObjectMapper mapper = new ObjectMapper();
                 finalContentJson = mapper.writeValueAsString(answerMap);
-
             } catch (Exception e) {
-                e.printStackTrace();
-                return ResponseEntity.status(500).body("系统错误：数据格式转换失败");
+                return ResponseEntity.status(500).body("数据格式转换失败");
             }
         }
 
-        // 检查是否已提交过
         QuizRecord exist = quizRecordMapper.findByUserIdAndMaterialId(user.getUserId(), materialId);
         if (exist != null) {
-            // 这里我们允许覆盖提交，或者你可以返回错误
             return ResponseEntity.badRequest().body("您已提交过，如需重交请联系老师重置。");
         }
 
@@ -140,21 +124,177 @@ public class StudentController {
         record.setUserId(user.getUserId());
         record.setMaterialId(materialId);
         record.setScore(score);
-        record.setUserAnswers(finalContentJson); // 存入 JSON
+        record.setUserAnswers(finalContentJson);
+        record.setAiFeedback(null); // 提交时设置为 NULL，等待手动分析
 
         quizRecordMapper.insert(record);
-        return ResponseEntity.ok("提交成功");
+        return ResponseEntity.ok("提交成功！");
     }
 
-    // 4. 获取测验记录
+    // 4. 【核心升级】AI 对话接口 (支持历史记录)
+    @PostMapping("/quiz/chat")
+    public ResponseEntity<?> chatWithAiTutor(@RequestBody Map<String, Object> payload) {
+        Long materialId = Long.valueOf(payload.get("materialId").toString());
+        // 获取前端传来的聊天历史
+        List<Map<String, String>> history = (List<Map<String, String>>) payload.get("history");
+
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        User user = userMapper.findByUsername(username);
+
+        // 查找记录和题目，用于构建上下文
+        QuizRecord record = quizRecordMapper.findByUserIdAndMaterialId(user.getUserId(), materialId);
+        Material material = materialMapper.findById(materialId);
+
+        if (record == null || material == null) {
+            return ResponseEntity.badRequest().body("数据异常，无法建立 AI 上下文");
+        }
+
+        // 准备上下文数据
+        String userAnswersJson = record.getUserAnswers();
+        String homeworkText = "";
+        if ("作业".equals(material.getType())) {
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode node = mapper.readTree(userAnswersJson);
+                if (node.has("text")) homeworkText = node.get("text").asText();
+            } catch (Exception e) {}
+        }
+
+        // 调用 AI
+        String reply = callDeepSeekChat(material, userAnswersJson, homeworkText, history);
+
+        // 如果是第一轮，将 AI 的初始分析结果保存到 aiFeedback 字段
+        if (history != null && history.size() == 1) {
+            record.setAiFeedback(reply);
+            quizRecordMapper.updateAiFeedback(record);
+        }
+
+        return ResponseEntity.ok(reply);
+    }
+
+    // 5. 调用 DeepSeek API 的私有方法 (Prompt Logic)
+    private String callDeepSeekChat(Material material, String quizAnswers, String homeworkText, List<Map<String, String>> history) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+
+            // 构建 System Prompt (背景知识)
+            StringBuilder systemPrompt = new StringBuilder();
+            systemPrompt.append("你是一位专业的大学助教。以下是当前学生的作业/测验背景信息，请基于此回答学生的问题。\n");
+            systemPrompt.append("【题目内容】：\n").append(material.getContent()).append("\n");
+
+            if ("测验".equals(material.getType())) {
+                systemPrompt.append("【学生提交的答案索引】：\n").append(quizAnswers).append("\n");
+            } else {
+                systemPrompt.append("【学生提交的作业内容】：\n").append(homeworkText).append("\n");
+            }
+            // 【关键】要求纯文本格式
+            systemPrompt.append("请用纯文本方式回复，不要使用Markdown格式（不要用 **粗体** 或 # 标题），保持语气亲切自然。");
+
+            // 组装请求体
+            ObjectNode requestBody = mapper.createObjectNode();
+            requestBody.put("model", deepSeekModel);
+            requestBody.put("stream", false);
+
+            ArrayNode messages = requestBody.putArray("messages");
+            // 1. 先放 System Prompt
+            messages.addObject().put("role", "system").put("content", systemPrompt.toString());
+
+            // 2. 再放历史对话 (包含用户最新的提问)
+            if (history != null) {
+                for (Map<String, String> msg : history) {
+                    messages.addObject().put("role", msg.get("role")).put("content", msg.get("content"));
+                }
+            }
+
+            // 发送请求
+            String jsonBody = mapper.writeValueAsString(requestBody);
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(deepSeekApiUrl))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + deepSeekApiKey)
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() == 200) {
+                JsonNode rootNode = mapper.readTree(response.body());
+                return rootNode.path("choices").get(0).path("message").path("content").asText();
+            } else {
+                return "AI 思考超时，请稍后再试。";
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "AI 服务连接失败。";
+        }
+    }
+
+    // 6. 获取测验记录
     @GetMapping("/quiz/record/{materialId}")
     public ResponseEntity<?> getQuizRecord(@PathVariable Long materialId) {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         User user = userMapper.findByUsername(username);
-
         QuizRecord record = quizRecordMapper.findByUserIdAndMaterialId(user.getUserId(), materialId);
+        return record == null ? ResponseEntity.ok(Collections.emptyMap()) : ResponseEntity.ok(record);
+    }
+
+    // 7. 【考试模块】获取该课程下的所有考试
+    @GetMapping("/course/{courseId}/exams")
+    public ResponseEntity<?> getCourseExams(@PathVariable Long courseId) {
+        List<Exam> exams = examMapper.selectExamsByCourseId(courseId);
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        User user = userMapper.findByUsername(username);
+
+        for (Exam exam : exams) {
+            ExamRecord record = examMapper.findRecordByUserIdAndExamId(user.getUserId(), exam.getId());
+            if (record != null) {
+                exam.setStatus("已交卷");
+            }
+        }
+        return ResponseEntity.ok(exams);
+    }
+
+    // 8. 【考试模块】提交考试记录 (包含切屏次数)
+    @PostMapping("/exam/submit")
+    public ResponseEntity<?> submitExam(
+            @RequestBody Map<String, Object> submission)
+    {
+        Long examId = Long.valueOf(submission.get("examId").toString());
+        Integer score = (Integer) submission.getOrDefault("score", 0);
+        String userAnswers = (String) submission.get("userAnswers");
+        Integer cheatCount = (Integer) submission.getOrDefault("cheatCount", 0);
+
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        User user = userMapper.findByUsername(username);
+
+        ExamRecord record = new ExamRecord();
+        record.setUserId(user.getUserId());
+        record.setExamId(examId);
+        record.setScore(score);
+        record.setUserAnswers(userAnswers);
+        record.setCheatCount(cheatCount);
+
+        try {
+            examMapper.insertExamRecord(record);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("考试提交失败，可能已提交或数据错误。");
+        }
+        return ResponseEntity.ok("考试提交成功！切屏次数: " + cheatCount);
+    }
+
+    // 9. 【考试模块】获取考试记录详情 (用于检查是否已提交)
+    @GetMapping("/exam/record/{examId}")
+    public ResponseEntity<?> getExamRecord(@PathVariable Long examId) {
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        User user = userMapper.findByUsername(username);
+
+        ExamRecord record = examMapper.findRecordByUserIdAndExamId(user.getUserId(), examId);
         if (record == null) {
-            return ResponseEntity.ok(Collections.emptyMap());
+            // 如果记录不存在，但学生要看试卷内容，返回考试内容
+            Exam exam = examMapper.findExamById(examId);
+            return exam == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(exam);
         }
         return ResponseEntity.ok(record);
     }

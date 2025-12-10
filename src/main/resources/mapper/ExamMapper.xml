@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.project.system.mapper.ExamMapper">
+
+    <resultMap id="ExamResultMap" type="com.project.system.entity.Exam">
+        <id column="id" property="id"/>
+        <result column="course_id" property="courseId"/>
+        <result column="title" property="title"/>
+        <result column="content" property="content"/>
+        <result column="duration" property="duration"/>
+        <result column="start_time" property="startTime"/>
+        <result column="end_time" property="endTime"/>
+        <result column="status" property="status"/>
+        <result column="teacher_id" property="teacherId"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <resultMap id="ExamRecordResultMap" type="com.project.system.entity.ExamRecord">
+        <id column="id" property="id"/>
+        <result column="exam_id" property="examId"/>
+        <result column="user_id" property="userId"/>
+        <result column="score" property="score"/>
+        <result column="user_answers" property="userAnswers"/>
+        <result column="cheat_count" property="cheatCount"/>
+        <result column="submit_time" property="submitTime"/>
+    </resultMap>
+
+    <insert id="insertExam" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_exam (course_id, title, content, duration, start_time, end_time, status, teacher_id)
+        VALUES (#{courseId}, #{title}, #{content}, #{duration}, #{startTime}, #{endTime}, #{status}, #{teacherId})
+    </insert>
+
+    <update id="updateExam">
+        UPDATE sys_exam
+        <set>
+            title = #{title},
+            content = #{content},
+            duration = #{duration},
+            start_time = #{startTime},
+            end_time = #{endTime},
+            status = #{status}
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteExamById">
+        DELETE FROM sys_exam WHERE id = #{id}
+    </delete>
+
+    <select id="selectExamsByCourseId" resultMap="ExamResultMap">
+        SELECT * FROM sys_exam WHERE course_id = #{courseId} ORDER BY start_time DESC
+    </select>
+
+    <select id="findExamById" resultMap="ExamResultMap">
+        SELECT * FROM sys_exam WHERE id = #{id}
+    </select>
+
+    <insert id="insertExamRecord" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_exam_record (exam_id, user_id, score, user_answers, cheat_count)
+        VALUES (#{examId}, #{userId}, #{score}, #{userAnswers}, #{cheatCount})
+    </insert>
+
+    <select id="findRecordByUserIdAndExamId" resultMap="ExamRecordResultMap">
+        SELECT * FROM sys_exam_record WHERE user_id = #{userId} AND exam_id = #{examId}
+    </select>
+
+    <select id="selectExamRecordsByExamId" resultMap="ExamRecordResultMap">
+        SELECT * FROM sys_exam_record WHERE exam_id = #{examId} ORDER BY score DESC, submit_time ASC
+    </select>
+</mapper>

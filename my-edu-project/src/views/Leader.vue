@@ -50,13 +50,15 @@
               <span v-else class="text-gray">待分配</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="280">
+
+          <el-table-column label="操作" width="350" fixed="right">
             <template #default="scope">
-              <el-button size="small" type="success" plain @click="openContentDialog(scope.row)">下发资料/目录</el-button>
+              <el-button size="small" type="success" plain @click="openContentDialog(scope.row)">下发资料/测验</el-button>
+              <el-button size="small" type="danger" @click="currentRow=scope.row; openExamDialog()">发布考试</el-button>
               <el-button size="small" type="warning" @click="openAssignDialog(scope.row)">调整教师</el-button>
               <el-popconfirm title="确定删除该课程吗？" @confirm="handleDelete(scope.row.id)">
                 <template #reference>
-                  <el-button size="small" type="danger">删除</el-button>
+                  <el-button size="small" type="danger" link>删除</el-button>
                 </template>
               </el-popconfirm>
             </template>
@@ -262,6 +264,59 @@
         </template>
       </el-dialog>
 
+      <el-dialog v-model="examDialogVisible" :title="'发布考试 - ' + currentRow.name + ' (' + currentRow.classId + ')'" width="800px" top="5vh">
+        <el-form label-width="100px">
+          <el-row :gutter="20">
+            <el-col :span="12"><el-form-item label="考试标题"><el-input v-model="examForm.title" placeholder="如: 期中考试" /></el-form-item></el-col>
+            <el-col :span="12"><el-form-item label="考试时长"><el-input-number v-model="examForm.duration" :min="10" :max="180" style="width: 100%;" /> 分钟</el-form-item></el-col>
+          </el-row>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="开始时间">
+                <el-date-picker v-model="examForm.startTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" placeholder="选择考试开始时间" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="截止时间">
+                <el-date-picker v-model="examForm.deadline" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" placeholder="选择考试截止时间" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </el-form>
+
+        <el-divider>试题列表</el-divider>
+
+        <div class="question-list-box">
+          <div v-for="(q, index) in examForm.questions" :key="index" class="question-edit-item">
+            <div class="q-header">
+              <span class="q-idx">第 {{ index + 1 }} 题</span>
+              <el-button type="danger" link size="small" @click="removeExamQuestion(index)">删除</el-button>
+            </div>
+
+            <el-input v-model="q.title" type="textarea" :rows="2" placeholder="请输入题干内容..." style="margin-bottom: 10px"/>
+
+            <div v-for="(opt, oIdx) in q.options" :key="oIdx" class="option-row">
+              <el-radio v-model="q.answer" :label="oIdx" class="correct-radio">
+                {{ String.fromCharCode(65+oIdx) }}
+              </el-radio>
+              <el-input v-model="q.options[oIdx]" size="small" placeholder="请输入选项内容" />
+            </div>
+
+            <div class="score-set">
+              分值：<el-input-number v-model="q.score" :min="1" :max="100" size="small" style="width:100px"/> 分
+            </div>
+          </div>
+
+          <el-button type="primary" plain style="width:100%; margin-top:10px" @click="addExamQuestion">+ 添加单选题</el-button>
+        </div>
+
+        <template #footer>
+          <el-button @click="examDialogVisible = false">取消</el-button>
+          <el-button type="danger" @click="submitExam">确认发布正式考试</el-button>
+        </template>
+      </el-dialog>
+
+
       <el-dialog v-model="assignDialogVisible" title="调整任课教师" width="400px">
         <p style="margin-bottom: 5px">当前课程：{{ currentRow.name }}</p>
         <el-select v-model="selectedTeacher" placeholder="请选择教师" style="width: 100%">
@@ -294,6 +349,7 @@ import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { DataLine, UserFilled, Switch, Bell, Close } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
+import dayjs from 'dayjs' // 引入 dayjs 用于时间比较和格式化
 
 const router = useRouter()
 const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
@@ -307,6 +363,13 @@ const assignDialogVisible = ref(false)
 const notificationDialogVisible = ref(false)
 const currentRow = ref({})
 const selectedTeacher = ref('')
+
+// 【新增】考试发布状态
+const examDialogVisible = ref(false)
+// 增加 startTime 字段
+const examForm = reactive({ title: '', startTime: '', deadline: '', duration: 60, questions: [] })
+const addExamQuestion = () => examForm.questions.push({ title: '', options: ['','','',''], answer: 0, score: 20 })
+const removeExamQuestion = (idx) => examForm.questions.splice(idx, 1)
 
 // 内容下发数据
 const contentTypes = ref(['导学', '教材', '测验', '作业', '知识图谱', '目录', 'FAQ', '学习资料', '项目'])
@@ -357,7 +420,55 @@ const handleTypeChange = (type) => {
   if (type === '知识图谱') nextTick(()=>{ initChart() })
 }
 
-// === 测验逻辑 ===
+// 【新增】打开考试发布对话框
+const openExamDialog = () => {
+  examForm.title = ''
+  // 默认开始时间设为 5 分钟后，状态默认为 "未开始"
+  examForm.startTime = dayjs().add(5, 'minute').format('YYYY-MM-DD HH:mm:ss');
+  examForm.deadline = dayjs().add(7, 'day').format('YYYY-MM-DD HH:mm:ss');
+  examForm.duration = 60
+  examForm.questions = [{ title: '', options: ['','','',''], answer: 0, score: 20 }]
+  examDialogVisible.value = true
+}
+
+// 【新增】提交考试
+const submitExam = async () => {
+  if (examForm.questions.length === 0) return ElMessage.warning('请至少添加一道题目');
+  if (!examForm.title) return ElMessage.warning('请填写考试标题');
+  if (!examForm.startTime) return ElMessage.warning('请设置考试开始时间');
+  if (!examForm.deadline) return ElMessage.warning('请设置考试截止时间');
+
+  // 验证时间逻辑
+  if (dayjs(examForm.startTime).isAfter(dayjs(examForm.deadline))) {
+    return ElMessage.warning('开始时间不能晚于截止时间');
+  }
+
+  const contentPayload = { questions: examForm.questions }
+
+  // 确定考试的初始状态:
+  // 如果开始时间在未来，状态就是 "未开始"。
+  // 如果开始时间在过去或现在，状态就是 "进行中"。
+  const status = dayjs(examForm.startTime).isAfter(dayjs()) ? "未开始" : "进行中";
+
+  try {
+    await request.post(`/leader/course/${currentRow.value.id}/publish-exam`, {
+      title: examForm.title,
+      content: JSON.stringify(contentPayload),
+      startTime: examForm.startTime, // 传递开始时间
+      deadline: examForm.deadline,
+      duration: examForm.duration,
+      status: status
+    });
+    ElMessage.success('考试发布成功，初始状态为: ' + status);
+    examDialogVisible.value = false;
+    fetchData(); // 刷新课程列表
+  } catch (e) {
+    ElMessage.error(e.response?.data || '发布失败');
+  }
+}
+
+
+// === 资料和测验逻辑 ===
 const addQuestion = () => quizData.questions.push({ title: '', options: ['','','',''], answer: 0, score: 10 })
 const removeQuestion = (idx) => quizData.questions.splice(idx, 1)
 
@@ -379,7 +490,7 @@ const removeLink = (i) => { graphData.links.splice(i,1); updateChartOption() }
 const getNodeName = (id) => { const n=graphData.nodes.find(x=>x.id===id); return n?n.name:'?' }
 const clearGraph = () => { graphData.nodes=[]; graphData.links=[]; updateChartOption() }
 
-// === 提交逻辑 (核心) ===
+// === 提交资料逻辑 ===
 const getSubmitButtonText = () => ['知识图谱','目录','测验'].includes(selectedContentType.value) ? '保存并发布' : '提交并下发'
 
 const openContentDialog = (row) => {

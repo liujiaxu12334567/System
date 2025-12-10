@@ -229,6 +229,44 @@
         <el-empty v-else description="暂无教学目标" :image-size="120" />
       </div>
 
+      <div v-else-if="currentTab === '考试'" class="task-view-container" v-loading="loading">
+        <div v-if="examList.length > 0" class="task-list">
+          <div v-for="(item, index) in examList" :key="item.id" class="task-item">
+            <div class="task-left">
+              <div class="task-tag">
+                <el-tag type="danger" effect="dark" size="small">
+                  正式考试 {{ index + 1 }}
+                </el-tag>
+              </div>
+              <div class="task-detail">
+                <div class="task-title">
+                  {{ item.title }}
+                </div>
+                <div class="task-meta">
+                  <span class="publish-info">截止时间：{{ item.deadline || '无限制' }}</span>
+                  <span class="divider">|</span>
+                  <span class="desc">
+                     考试时长：{{ item.duration }} 分钟
+                   </span>
+                </div>
+              </div>
+            </div>
+            <div class="task-right">
+              <el-button v-if="item.status === '已交卷'" type="success" plain round size="small">
+                已交卷
+              </el-button>
+              <el-button v-else-if="item.status === '未开始'" type="info" round size="small" disabled>
+                未开始
+              </el-button>
+              <el-button v-else type="danger" round size="small" @click="goToExam(item.id)">
+                开始考试
+              </el-button>
+            </div>
+          </div>
+        </div>
+        <el-empty v-else description="暂无正式考试安排" :image-size="100" />
+      </div>
+
       <div v-else-if="['作业', '测验', '项目'].includes(currentTab)" class="task-view-container" v-loading="loading">
         <div v-if="filteredMaterials.length > 0" class="task-list">
           <div v-for="(item, index) in filteredMaterials" :key="item.id" class="task-item">
@@ -393,8 +431,9 @@ const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
 const loading = ref(false)
 const courseInfo = ref({})
 const allMaterials = ref([])
+const examList = ref([])
 const currentTab = ref('导学')
-const tabs = ['导学', '教材', '教学目标', '知识图谱', '目录', 'FAQ', '学习资料', '测验', '作业', '项目']
+const tabs = ['导学', '教材', '教学目标', '知识图谱', '目录', 'FAQ', '学习资料', '测验', '作业', '项目', '考试'] // 【修改】新增考试Tab
 const searchKeyword = ref('')
 const onlyPublished = ref(true)
 
@@ -430,9 +469,13 @@ const fetchCourseInfo = async () => {
 const fetchMaterials = async () => {
   loading.value = true;
   try {
+    // 1. 获取普通资料
     allMaterials.value = await request.get(`/student/course/${courseId}/materials`) || []
 
-    // 获取测验和作业的提交状态
+    // 2. 获取考试列表
+    examList.value = await request.get(`/student/course/${courseId}/exams`) || []
+
+    // 3. 获取测验和作业的提交状态
     for (const m of allMaterials.value) {
       if (['测验','作业','项目'].includes(m.type)) {
         try {
@@ -477,6 +520,15 @@ const goToQuiz = (item, mode) => {
   })
 }
 
+// 【新增】跳转到考试页
+const goToExam = (examId) => {
+  router.push({
+    name: 'ExamDetail',
+    params: { examId: examId },
+  })
+}
+
+
 // 列表过滤
 const filteredMaterials = computed(() => {
   let list = allMaterials.value.filter(item => item.type === currentTab.value)
@@ -489,7 +541,7 @@ const filteredMaterials = computed(() => {
   return list
 })
 
-// === 图谱渲染逻辑 ===
+// === 图谱渲染逻辑 (保持不变) ===
 const convertGraphToTree = (nodes, links) => {
   if (!nodes || nodes.length === 0) return []
   let rootNode = nodes.find(n => n.category === 0)
@@ -579,7 +631,7 @@ const renderCatalog = () => {
   } else hasCatalogData.value=false
 }
 
-// === 文件操作 ===
+// === 文件操作 (保持不变) ===
 const isDoc = (n) => /\.(doc|docx|txt)$/i.test(n)
 const isPpt = (n) => /\.(ppt|pptx)$/i.test(n)
 const isPdf = (n) => /\.(pdf)$/i.test(n)
@@ -693,7 +745,7 @@ const formatTime = (t) => t ? t.replace('T',' ').substring(0,16) : ''
   .obj-action { margin-left: auto; }
 }
 
-/* 6. 任务列表样式 (作业、测验) */
+/* 6. 任务列表样式 (作业、测验, 考试) */
 .task-view-container { padding: 20px 30px; }
 .task-filter { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; .search-input { width: 300px; } }
 .task-list {

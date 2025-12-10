@@ -8,7 +8,8 @@ import java.util.List;
 @Mapper
 public interface MaterialMapper {
     int insert(Material material);
-
-    // 查询某门课程的所有资料
     List<Material> selectByCourseId(@Param("courseId") Long courseId);
+
+    // 【新增】根据ID查询单个资料（为了获取题目内容给AI）
+    Material findById(@Param("id") Long id);
 }

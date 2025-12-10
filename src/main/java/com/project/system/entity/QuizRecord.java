@@ -8,6 +8,10 @@ public class QuizRecord {
     private Long userId;
     private Long materialId;
     private Integer score;
-    private String userAnswers; // 存储 JSON 字符串
+    private String userAnswers;
+
+    // 【新增】存储AI的分析结果
+    private String aiFeedback;
+
     private LocalDateTime submitTime;
 }

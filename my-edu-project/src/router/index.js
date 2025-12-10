@@ -1,13 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-// 1. 引入 Admin 组件 (这一行你之前漏了或者没用上)
 const Login = () => import('../views/Login.vue')
 const Home = () => import('../views/Home.vue')
-const Admin = () => import('../views/Admin.vue') // <--- 【新增】
+const Admin = () => import('../views/Admin.vue')
 const Teacher = () => import('../views/Teacher.vue')
 const Leader = () => import('../views/Leader.vue')
 const CourseStudy = () => import('../views/CourseStudy.vue')
 const QuizDetail = () => import('../views/QuizDetail.vue')
+const AllCourses = () => import('../views/AllCourses.vue') // 【新增引入】
+const ExamDetail = () => import('../views/ExamDetail.vue')
 const routes = [
 
     {
@@ -24,10 +25,17 @@ const routes = [
         name: 'Home',
         component: Home
     },
+    // 【新增路由】
+    {
+        path: '/all-courses',
+        name: 'AllCourses',
+        component: AllCourses,
+        meta: { title: '我的课程学习' }
+    },
     {
         path: '/admin',
         name: 'Admin',
-        component: Admin, // <--- 【必须改这里】之前你写的是 Home，现在改成 Admin
+        component: Admin,
         meta: { title: '管理员首页' }
     },
     {
@@ -50,9 +58,14 @@ const routes = [
     },
     {
         path: '/quiz/:courseId/:materialId',
-        name: 'QuizDetail', // 这个名字必须和 CourseStudy.vue 里的 router.push({ name: 'QuizDetail' }) 一致
+        name: 'QuizDetail',
         component: QuizDetail,
         meta: { title: '在线测验' }
+    },{
+        path: '/exam/:examId', // 只需要 examId
+        name: 'ExamDetail',
+        component: ExamDetail,
+        meta: { title: '在线考试' }
     }
 ]
 

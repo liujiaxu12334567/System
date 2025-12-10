@@ -5,8 +5,8 @@
         <div class="left-section">
           <h1 class="logo">Neuedu</h1>
           <nav class="nav-links">
-            <a href="#" class="active">首页</a>
-            <a href="#">课程学习</a>
+            <a @click="$router.push('/home')" class="active">首页</a>
+            <a @click="$router.push('/all-courses')">课程学习</a>
             <a href="#">个性学习</a>
             <a href="#">考试</a>
             <a href="#">素质活动</a>
@@ -457,7 +457,8 @@ $content-width: 90%;
 }
 
 .course-card {
-  background: #fff;
+  /* 【修改点1】：设置默认深灰色背景，防止白底白字看不见 */
+  background: #909399;
   border-radius: 8px;
   height: 160px;
   padding: 18px 22px;
@@ -473,11 +474,20 @@ $content-width: 90%;
 
   &:hover { transform: translateY(-3px); }
 
-  /* 颜色 */
+  /* 颜色样式定义 - 覆盖默认背景 */
   &.bg-pink { background: linear-gradient(135deg, #FF758C 0%, #FF7EB3 100%); }
   &.bg-blue { background: linear-gradient(135deg, #6B8DD6 0%, #8E9EFC 100%); }
   &.bg-purple { background: linear-gradient(135deg, #A18CD1 0%, #FBC2EB 100%); }
   &.bg-red { background: linear-gradient(135deg, #FF9A9E 0%, #FAD0C4 100%); }
+
+  /* 【修改点2】：补充缺失的颜色 */
+  &.bg-orange { background: linear-gradient(135deg, #FFC371 0%, #FF5F6D 100%); }
+  &.bg-green { background: linear-gradient(135deg, #42e695 0%, #3bb2b8 100%); }
+  &.bg-cyan { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+  &.bg-grey { background: linear-gradient(135deg, #868f96 0%, #596164 100%); }
+  &.bg-teal { background: linear-gradient(135deg, #1D976C 0%, #93F9B9 100%); }
+  &.bg-indigo { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+  &.bg-black { background: linear-gradient(135deg, #434343 0%, #000000 100%); }
 
   .status-row { text-align: right; margin-bottom: 0; }
   .status-tag {
