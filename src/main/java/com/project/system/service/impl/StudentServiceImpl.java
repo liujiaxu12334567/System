@@ -1,58 +1,296 @@
 package com.project.system.service.impl;
 
-import com.project.system.entity.Course;
-import com.project.system.entity.Notification;
-import com.project.system.entity.User;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.project.system.entity.*;
 import com.project.system.mapper.*;
 import com.project.system.service.StudentService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable; // Redis 缓存注解
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 public class StudentServiceImpl implements StudentService {
 
+    @Autowired private ExamMapper examMapper;
+    @Autowired private MaterialMapper materialMapper;
     @Autowired private CourseMapper courseMapper;
+    @Autowired private QuizRecordMapper quizRecordMapper;
     @Autowired private UserMapper userMapper;
     @Autowired private NotificationMapper notificationMapper;
 
+    @Value("${file.upload-dir:./uploads}")
+    private String uploadDir;
+
+    @Value("${deepseek.api.key:}")
+    private String deepSeekApiKey;
+
+    @Value("${deepseek.api.url:https://api.deepseek.com/chat/completions}")
+    private String deepSeekApiUrl;
+
+    @Value("${deepseek.model:deepseek-chat}")
+    private String deepSeekModel;
+
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    // ★★★ Redis 缓存：缓存课程详情，key 为 courseId ★★★
+    // 辅助方法：获取当前登录用户
+    private User getCurrentUser() {
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        return userMapper.findByUsername(username);
+    }
+
+    /**
+     * 获取课程详情
+     * 使用 Redis 缓存，key 为 "course_info::ID"
+     */
     @Override
     @Cacheable(value = "course_info", key = "#courseId")
-    public Object getCourseInfo(Long courseId) {
-        System.out.println("【Redis】未命中缓存，正在查询数据库 courseId: " + courseId);
+    public Course getCourseInfo(Long courseId) {
+        // 当 Redis 中没有数据时，会执行此方法查询数据库，并将结果存入 Redis
         List<Course> all = courseMapper.selectAllCourses();
         return all.stream().filter(c -> c.getId().equals(courseId)).findFirst().orElse(null);
     }
 
     @Override
-    public Object getRecentActivities() {
-        String username = SecurityContextHolder.getContext().getAuthentication().getName();
-        User user = userMapper.findByUsername(username);
-        if (user == null) return new ArrayList<>();
+    public List<Material> getCourseMaterials(Long courseId) {
+        return materialMapper.selectByCourseId(courseId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void submitQuiz(Long materialId, Integer score, String userAnswers, String textAnswer, List<MultipartFile> files) {
+        User user = getCurrentUser();
+        String finalContentJson = userAnswers;
+        List<String> uploadedPaths = new ArrayList<>();
+
+        // 处理文件上传和文本答案
+        if (textAnswer != null || (files != null && !files.isEmpty())) {
+            if (files != null) {
+                for (MultipartFile file : files) {
+                    try {
+                        File directory = new File(uploadDir);
+                        if (!directory.exists()) directory.mkdirs();
+                        String originalFilename = file.getOriginalFilename();
+                        String extension = originalFilename != null && originalFilename.contains(".") ? originalFilename.substring(originalFilename.lastIndexOf(".")) : "";
+                        String uniqueName = UUID.randomUUID().toString() + extension;
+                        Path path = Paths.get(uploadDir + File.separator + uniqueName);
+                        Files.write(path, file.getBytes());
+                        uploadedPaths.add(uniqueName);
+                    } catch (IOException e) {
+                        throw new RuntimeException("文件上传失败: " + e.getMessage());
+                    }
+                }
+            }
+            // JSON 构造
+            try {
+                Map<String, Object> answerMap = new HashMap<>();
+                answerMap.put("text", textAnswer != null ? textAnswer : "");
+                answerMap.put("files", uploadedPaths);
+                ObjectMapper mapper = new ObjectMapper();
+                finalContentJson = mapper.writeValueAsString(answerMap);
+            } catch (Exception e) {
+                throw new RuntimeException("数据格式转换失败");
+            }
+        }
+
+        // 检查是否已提交
+        QuizRecord exist = quizRecordMapper.findByUserIdAndMaterialId(user.getUserId(), materialId);
+        if (exist != null) {
+            throw new RuntimeException("您已提交过，如需重交请联系老师重置。");
+        }
+
+        QuizRecord record = new QuizRecord();
+        record.setUserId(user.getUserId());
+        record.setMaterialId(materialId);
+        record.setScore(score);
+        record.setUserAnswers(finalContentJson);
+        record.setAiFeedback(null);
+
+        quizRecordMapper.insert(record);
+    }
+
+    @Override
+    public String chatWithAiTutor(Long materialId, List<Map<String, String>> history) {
+        User user = getCurrentUser();
+        QuizRecord record = quizRecordMapper.findByUserIdAndMaterialId(user.getUserId(), materialId);
+        Material material = materialMapper.findById(materialId);
+
+        if (record == null || material == null) {
+            throw new RuntimeException("数据异常，无法建立 AI 上下文");
+        }
+
+        String userAnswersJson = record.getUserAnswers();
+        String homeworkText = "";
+        if ("作业".equals(material.getType())) {
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode node = mapper.readTree(userAnswersJson);
+                if (node.has("text")) homeworkText = node.get("text").asText();
+            } catch (Exception e) {}
+        }
+
+        String reply = callDeepSeekChat(material, userAnswersJson, homeworkText, history);
+
+        // 如果是第一轮对话，保存 AI 的初始反馈
+        if (history != null && history.size() == 1) {
+            record.setAiFeedback(reply);
+            quizRecordMapper.updateAiFeedback(record);
+        }
+
+        return reply;
+    }
+
+    // 私有方法：调用 AI
+    private String callDeepSeekChat(Material material, String quizAnswers, String homeworkText, List<Map<String, String>> history) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            StringBuilder systemPrompt = new StringBuilder();
+            systemPrompt.append("你是一位专业的大学助教。以下是当前学生的作业/测验背景信息，请基于此回答学生的问题。\n");
+            systemPrompt.append("【题目内容】：\n").append(material.getContent()).append("\n");
+
+            if ("测验".equals(material.getType())) {
+                systemPrompt.append("【学生提交的答案索引】：\n").append(quizAnswers).append("\n");
+            } else {
+                systemPrompt.append("【学生提交的作业内容】：\n").append(homeworkText).append("\n");
+            }
+            systemPrompt.append("请保持语气亲切自然，可以适当使用Markdown格式（如列表、粗体），以提供更清晰的格式化回复。");
+
+            ObjectNode requestBody = mapper.createObjectNode();
+            requestBody.put("model", deepSeekModel);
+            requestBody.put("stream", false);
+
+            ArrayNode messages = requestBody.putArray("messages");
+            messages.addObject().put("role", "system").put("content", systemPrompt.toString());
+
+            if (history != null) {
+                for (Map<String, String> msg : history) {
+                    messages.addObject().put("role", msg.get("role")).put("content", msg.get("content"));
+                }
+            }
+
+            String jsonBody = mapper.writeValueAsString(requestBody);
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(deepSeekApiUrl))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + deepSeekApiKey)
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() == 200) {
+                JsonNode rootNode = mapper.readTree(response.body());
+                return rootNode.path("choices").get(0).path("message").path("content").asText();
+            } else {
+                return "AI 思考超时，请稍后再试。";
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "AI 服务连接失败。";
+        }
+    }
+
+    @Override
+    public QuizRecord getQuizRecord(Long materialId) {
+        User user = getCurrentUser();
+        return quizRecordMapper.findByUserIdAndMaterialId(user.getUserId(), materialId);
+    }
+
+    @Override
+    public List<Exam> getCourseExams(Long courseId) {
+        List<Exam> exams = examMapper.selectExamsByCourseId(courseId);
+        User user = getCurrentUser();
+        LocalDateTime now = LocalDateTime.now();
+
+        for (Exam exam : exams) {
+            // 1. 检查是否已交卷
+            ExamRecord record = examMapper.findRecordByUserIdAndExamId(user.getUserId(), exam.getId());
+            if (record != null) {
+                exam.setStatus("已交卷");
+                continue;
+            }
+
+            // 2. 动态判断状态
+            try {
+                LocalDateTime startTime = LocalDateTime.parse(exam.getStartTime(), FORMATTER);
+                LocalDateTime deadlineTime = LocalDateTime.parse(exam.getDeadline(), FORMATTER);
+
+                if (now.isBefore(startTime)) {
+                    exam.setStatus("未开始");
+                } else if (now.isAfter(deadlineTime)) {
+                    exam.setStatus("已结束");
+                } else {
+                    exam.setStatus("进行中");
+                }
+            } catch (Exception e) {
+                System.err.println("Error parsing exam time: " + e.getMessage());
+                exam.setStatus("时间异常");
+            }
+        }
+        return exams;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void submitExam(Long examId, Integer score, String userAnswers, Integer cheatCount) {
+        User user = getCurrentUser();
+        ExamRecord record = new ExamRecord();
+        record.setUserId(user.getUserId());
+        record.setExamId(examId);
+        record.setScore(score);
+        record.setUserAnswers(userAnswers);
+        record.setCheatCount(cheatCount);
+
+        examMapper.insertExamRecord(record);
+    }
+
+    @Override
+    public Object getExamRecord(Long examId) {
+        User user = getCurrentUser();
+        ExamRecord record = examMapper.findRecordByUserIdAndExamId(user.getUserId(), examId);
+        if (record == null) {
+            return examMapper.findExamById(examId); // 返回考试信息供查看
+        }
+        return record; // 返回提交记录
+    }
+
+    @Override
+    public List<Map<String, Object>> getRecentActivities() {
+        User user = getCurrentUser();
+        if (user == null) return Collections.emptyList();
 
         List<Notification> notifications = notificationMapper.selectByUserId(user.getUserId());
 
         return notifications.stream().map(n -> {
-            Map<String, Object> map = new HashMap<>();
-            map.put("type", n.getType());
-            map.put("title", n.getTitle());
-            map.put("message", n.getMessage());
-            map.put("time", n.getCreateTime().format(FORMATTER));
-            map.put("displayTime", n.getCreateTime().format(FORMATTER));
-            return map;
+            Map<String, Object> activity = new HashMap<>();
+            activity.put("type", n.getType());
+            activity.put("title", n.getTitle());
+            activity.put("message", n.getMessage());
+            activity.put("time", n.getCreateTime().format(FORMATTER));
+            activity.put("relatedId", n.getRelatedId());
+            activity.put("displayTime", n.getCreateTime().format(FORMATTER));
+            return activity;
         }).collect(Collectors.toList());
     }
-
-    // ... 其他方法的实现 ...
 }
