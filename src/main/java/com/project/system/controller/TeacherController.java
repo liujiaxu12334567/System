@@ -9,7 +9,7 @@ import com.project.system.entity.Course;
 import com.project.system.entity.Material;
 import com.project.system.entity.QuizRecord;
 import com.project.system.entity.User;
-import com.project.system.entity.Notification;
+import com.project.system.entity.Notification; // 引入 Notification
 
 import com.project.system.mapper.ApplicationMapper;
 import com.project.system.mapper.ExamMapper;
@@ -17,7 +17,7 @@ import com.project.system.mapper.CourseMapper;
 import com.project.system.mapper.MaterialMapper;
 import com.project.system.mapper.QuizRecordMapper;
 import com.project.system.mapper.UserMapper;
-import com.project.system.mapper.NotificationMapper;
+import com.project.system.mapper.NotificationMapper; // 引入 NotificationMapper
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -65,8 +65,8 @@ public class TeacherController {
     // 1. 获取该老师执教班级的学生列表 (支持分页和筛选)
     @GetMapping("/students")
     public ResponseEntity<?> listStudents(
-            @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String classId,
+            @RequestParam(required = false) String keyword, // 模糊查询关键字
+            @RequestParam(required = false) String classId, // 班级ID筛选
             @RequestParam(required = false, defaultValue = "1") int pageNum,
             @RequestParam(required = false, defaultValue = "10") int pageSize) {
 
