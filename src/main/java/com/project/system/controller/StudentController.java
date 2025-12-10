@@ -8,6 +8,7 @@ import com.project.system.mapper.MaterialMapper;
 import com.project.system.mapper.CourseMapper;
 import com.project.system.mapper.QuizRecordMapper;
 import com.project.system.mapper.UserMapper;
+import com.fasterxml.jackson.databind.ObjectMapper; // 【新增】引入Jackson库
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -63,7 +64,7 @@ public class StudentController {
         return ResponseEntity.ok(materials);
     }
 
-    // 3. 提交测验/作业 (核心修改：支持 FormData 接收文字和文件)
+    // 3. 提交测验/作业 (核心修改：使用 Jackson 自动生成 JSON)
     @PostMapping(value = "/quiz/submit", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> submitQuiz(
             @RequestParam("materialId") Long materialId,
@@ -111,31 +112,27 @@ public class StudentController {
                 }
             }
 
-            // 2. 拼接 JSON: { "text": "...", "files": ["a.docx", "b.zip"] }
-            // 手动拼接 JSON 字符串 (也可以用 Jackson)
-            StringBuilder sb = new StringBuilder();
-            sb.append("{");
-            // 处理文字中的特殊字符
-            String safeText = textAnswer != null ? textAnswer.replace("\"", "\\\"").replace("\n", "\\n") : "";
-            sb.append("\"text\": \"").append(safeText).append("\",");
+            // 2. 【核心修复】使用 Jackson 自动生成 JSON (安全可靠)
+            try {
+                Map<String, Object> answerMap = new HashMap<>();
+                // 放入文本内容 (Jackson 会自动处理引号、换行等特殊字符)
+                answerMap.put("text", textAnswer != null ? textAnswer : "");
+                // 放入文件列表
+                answerMap.put("files", uploadedPaths);
 
-            sb.append("\"files\": [");
-            for (int i = 0; i < uploadedPaths.size(); i++) {
-                sb.append("\"").append(uploadedPaths.get(i)).append("\"");
-                if (i < uploadedPaths.size() - 1) sb.append(",");
+                ObjectMapper mapper = new ObjectMapper();
+                finalContentJson = mapper.writeValueAsString(answerMap);
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                return ResponseEntity.status(500).body("系统错误：数据格式转换失败");
             }
-            sb.append("]");
-            sb.append("}");
-
-            finalContentJson = sb.toString();
         }
 
         // 检查是否已提交过
         QuizRecord exist = quizRecordMapper.findByUserIdAndMaterialId(user.getUserId(), materialId);
         if (exist != null) {
             // 这里我们允许覆盖提交，或者你可以返回错误
-            // 为了简单，我们先删除旧记录再插入新记录，或者直接更新
-            // 这里演示：返回提示
             return ResponseEntity.badRequest().body("您已提交过，如需重交请联系老师重置。");
         }
 
