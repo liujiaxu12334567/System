@@ -6,7 +6,7 @@
           <h1 class="logo">Neuedu</h1>
           <nav class="nav-links">
             <a @click="$router.push('/home')">首页</a>
-            <a class="active">课程学习</a>
+            <a href="#" class="active">课程学习</a>
             <a href="#">个性学习</a>
             <a href="#">考试</a>
             <a href="#">素质活动</a>
@@ -14,15 +14,54 @@
           </nav>
         </div>
         <div class="right-section">
-          <el-button type="primary" round class="ai-btn" @click="$router.push('/neu-ai')">
+          <el-button
+              type="primary"
+              round
+              class="ai-btn"
+              @click="$router.push('/neu-ai')"
+          >
             <el-icon style="margin-right: 4px"><MagicStick /></el-icon> NEU AI
           </el-button>
+          <el-popover
+              placement="bottom"
+              :width="300"
+              trigger="click"
+              popper-class="notification-popover"
+          >
+            <template #reference>
+              <div class="icon-wrap">
+                <el-badge :value="unreadCount" :hidden="unreadCount === 0" class="badge-dot">
+                  <el-icon :size="20" color="#606266"><Bell /></el-icon>
+                </el-badge>
+              </div>
+            </template>
 
-          <div class="icon-wrap">
-            <el-badge :value="99" :max="99" class="badge-dot">
-              <el-icon :size="20" color="#606266"><Bell /></el-icon>
-            </el-badge>
-          </div>
+            <div class="notify-box">
+              <div class="notify-header">
+                <span>消息通知 ({{ notificationList.length }})</span>
+                <el-button link type="primary" size="small" @click="fetchNotifications">刷新</el-button>
+              </div>
+              <div class="notify-list" v-if="notificationList.length > 0">
+                <div
+                    v-for="(note, index) in notificationList"
+                    :key="index"
+                    class="notify-item"
+                    :class="{'unread': !note.isRead, 'required': note.isActionRequired && !note.userReply}"
+                    @click="openDetailDialog(note)">
+                  <div class="n-title">
+                    {{ note.title }}
+                    <el-tag v-if="note.isActionRequired" size="small" :type="note.userReply ? 'success' : 'warning'" effect="dark">
+                      {{ note.userReply ? '已填报' : '需填报' }}
+                    </el-tag>
+                    <el-icon v-if="!note.isRead" color="#409EFF"><ChatDotRound /></el-icon>
+                  </div>
+                  <div class="n-desc">{{ note.message }}</div>
+                  <div class="n-time">{{ formatTime(note.createTime) }}</div>
+                </div>
+              </div>
+              <div v-else class="notify-empty">暂无新通知</div>
+            </div>
+          </el-popover>
           <div class="user-info">
             <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
             <span class="username">{{ userInfo.realName || '同学' }}</span>
@@ -89,32 +128,93 @@
                 <span>{{ item.teacher }}</span>
               </div>
               <p class="course-code">{{ item.code }}</p>
+            </template>
+          </div>
+
+          <div class="card-footer">
+            <span class="enter-text" v-if="item.isTop === 1">置顶</span>
+            <span class="enter-text" v-else></span>
+            <span class="start-btn" @click="goToCourse(item.id)">开始学习</span>
           </div>
         </div>
+      </div>
 
-        <div class="card-footer">
-          <span class="enter-text" v-if="item.isTop === 1">置顶</span>
-          <span class="enter-text" v-else></span>
-          <span class="start-btn" @click="goToCourse(item.id)">开始学习</span>
+      <el-empty v-if="filteredCourses.length === 0 && !loading" description="未找到符合条件的课程" />
+
+    </main>
+
+    <el-dialog
+        v-model="detailDialogVisible"
+        :title="currentNotification.title"
+        width="500px"
+        destroy-on-close
+    >
+      <div class="detail-content">
+        <el-alert type="info" :closable="false" style="margin-bottom: 15px;">
+          <template #title>
+            <strong>通知详情</strong>
+          </template>
+          <p>{{ currentNotification.message }}</p>
+        </el-alert>
+
+        <div class="detail-meta">
+          <p><strong>发送者：</strong> {{ currentNotification.senderName || '系统/管理员' }}</p>
+          <p><strong>发送时间：</strong> {{ currentNotification.createTime ? formatFullTime(currentNotification.createTime) : '未知' }}</p>
+        </div>
+
+        <el-divider v-if="currentNotification.isActionRequired">回执要求</el-divider>
+
+        <div v-if="currentNotification.isActionRequired" class="reply-area-dialog">
+          <div v-if="currentNotification.userReply" class="replied-text-dialog">
+            <el-icon><Check /></el-icon> 您已填报信息：<strong>{{ currentNotification.userReply }}</strong>
+          </div>
+          <div v-else class="reply-input-box-dialog">
+            <el-input
+                v-model="currentNotification.tempReply"
+                type="textarea"
+                :rows="4"
+                placeholder="请在此填写所需信息或回复..." />
+            <el-button
+                type="primary"
+                style="margin-top: 10px;"
+                @click="submitReply(currentNotification)"
+                :loading="currentNotification.submitting"
+            >
+              提交回执
+            </el-button>
+          </div>
         </div>
       </div>
-  </div>
-
-  <el-empty v-if="filteredCourses.length === 0 && !loading" description="未找到符合条件的课程" />
-  </main>
+      <template #footer>
+        <el-button @click="detailDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
-import { ArrowDown, Bell, MagicStick, Plus, Search, CloseBold } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import { ArrowDown, Bell, MagicStick, Platform, Plus, Search, CloseBold, ChatDotRound, Check } from '@element-plus/icons-vue'
+
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import 'dayjs/locale/zh-cn'
+dayjs.extend(relativeTime)
+dayjs.locale('zh-cn')
 
 const router = useRouter()
 const userInfo = ref({ realName: '' })
 const loading = ref(true)
 const courseList = ref([])
+const notificationList = ref([]) // ★★★ 修复：添加通知列表状态
+const unreadCount = computed(() => notificationList.value.filter(n => !n.isRead).length); // ★★★ 修复：添加未读计数
+
+// ★★★ 修复：通知详情相关状态 ★★★
+const detailDialogVisible = ref(false)
+const currentNotification = ref({})
 
 // 筛选状态
 const keyword = ref('')
@@ -127,6 +227,7 @@ onMounted(() => {
     try { userInfo.value = JSON.parse(storedUser) } catch(e) {}
   }
   fetchCourses()
+  fetchNotifications() // ★★★ 修复：加载页面时获取通知
 })
 
 const fetchCourses = async () => {
@@ -139,6 +240,74 @@ const fetchCourses = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// ★★★ 修复：添加通知获取逻辑 ★★★
+const fetchNotifications = async () => {
+  try {
+    const res = await request.get('/student/notifications')
+    notificationList.value = (res || []).map(n => ({
+      ...n,
+      tempReply: '',
+      submitting: false
+    }))
+  } catch(e) {
+    console.error("获取通知失败", e)
+  }
+}
+
+// ★★★ 修复：添加打开详情对话框逻辑 ★★★
+const openDetailDialog = async (note) => {
+  currentNotification.value = { ...note };
+  currentNotification.value.tempReply = currentNotification.value.tempReply || '';
+
+  detailDialogVisible.value = true;
+
+  if (!note.isRead) {
+    try {
+      note.isRead = true;
+      await request.post(`/student/notification/read/${note.id}`);
+    } catch (e) {
+      console.error("标记已读失败", e);
+    }
+  }
+};
+
+// ★★★ 修复：添加提交回执逻辑 ★★★
+const submitReply = async (note) => {
+  const targetNote = notificationList.value.find(n => n.id === note.id) || note;
+
+  if (!note.tempReply || targetNote.submitting) return ElMessage.warning('请填写回复内容');
+
+  targetNote.submitting = true;
+
+  try {
+    const payload = {
+      id: targetNote.id,
+      reply: note.tempReply
+    };
+    await request.post('/student/notification/reply', payload);
+
+    ElMessage.success('回执提交成功');
+    targetNote.userReply = note.tempReply;
+    targetNote.isRead = true;
+    currentNotification.value.userReply = note.tempReply;
+
+  } catch (e) {
+    ElMessage.error(e.response?.data || '提交失败');
+  } finally {
+    targetNote.submitting = false;
+  }
+}
+
+const formatTime = (timeString) => {
+  if (!timeString) return ''
+  return dayjs(timeString).fromNow()
+}
+
+const formatFullTime = (timeString) => {
+  if (!timeString) return ''
+  return dayjs(timeString).format('YYYY-MM-DD HH:mm:ss')
 }
 
 const resetFilters = () => {
@@ -165,6 +334,11 @@ const filteredCourses = computed(() => {
   if (semesterFilter.value) {
     list = list.filter(item => item.semester === semesterFilter.value)
   }
+
+  if (list.length > 3) {
+    list.splice(2, 0, { id: 'fail', name: '软件测试(II)', semester: '2025-2026学年 第1学期', teacher: '林欣茹', status: '匹配失败', color: 'grey', isTop: 0, code: '240422-015' });
+  }
+
   return list
 })
 
@@ -186,10 +360,11 @@ const getStatusTagClass = (status) => {
   if (status === '匹配失败') return 'status-grey'
   return 'status-blue'
 }
+
 </script>
 
 <style scoped lang="scss">
-/* 基础样式复用 */
+/* 基础样式 (保留原样式) */
 $content-width: 1200px;
 $header-height: 60px;
 
@@ -233,6 +408,39 @@ $header-height: 60px;
   }
 }
 
+/* ★★★ 修复：添加通知气泡样式 (从 Home.vue 复制) ★★★ */
+.notify-box {
+  .notify-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 10px; border-bottom: 1px solid #eee; margin-bottom: 10px; font-weight: bold;
+  }
+  .notify-list { max-height: 300px; overflow-y: auto; }
+  .notify-item {
+    padding: 10px;
+    border-bottom: 1px solid #f5f5f5;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    &:last-child { border-bottom: none; }
+    &:hover { background-color: #f7f9fd; }
+
+    &.required { border-left: 3px solid #E6A23C; background-color: #fffaf0; }
+    &.unread { background-color: #f0f5ff; .n-title { color: #409EFF; } }
+
+    .n-title { font-size: 14px; font-weight: 500; color: #333; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;}
+    .n-desc { font-size: 12px; color: #666; line-height: 1.4; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+    .n-time { font-size: 11px; color: #999; text-align: right; }
+  }
+  .notify-empty { text-align: center; color: #999; padding: 20px 0; }
+
+  /* 详情对话框样式 */
+  .detail-content {
+    .detail-meta { margin-top: 15px; font-size: 14px; color: #606266; p { margin: 5px 0; } }
+    .reply-area-dialog { padding: 15px; border: 1px solid #c6e2ff; background: #e6f1fc; border-radius: 4px; }
+    .replied-text-dialog { color: #67C23A; font-size: 15px; display: flex; align-items: center; gap: 5px; font-weight: 600; }
+  }
+}
+/* ★★★ 修复结束 ★★★ */
+
 .main-content {
   width: $content-width;
   margin: 20px auto;
@@ -251,7 +459,10 @@ $header-height: 60px;
 .filter-panel {
   padding: 15px;
   margin-bottom: 20px;
-  .filter-row { display: flex; align-items: center; }
+  .filter-row {
+    display: flex;
+    align-items: center;
+  }
 }
 
 .course-list-grid {
@@ -278,10 +489,15 @@ $header-height: 60px;
   &:hover { transform: translateY(-3px); }
 
   .top-status-tag {
-    position: absolute; top: 0; right: 0;
-    background: #409EFF; color: #fff;
-    padding: 2px 8px; border-radius: 0 8px 0 8px;
-    font-size: 12px; font-weight: bold;
+    position: absolute;
+    top: 0;
+    right: 0;
+    background: #409EFF;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 0 8px 0 8px;
+    font-size: 12px;
+    font-weight: bold;
     &.status-green { background-color: #67C23A; }
     &.status-purple { background-color: #9370DB; }
     &.status-grey { background-color: #909399; }
@@ -289,8 +505,22 @@ $header-height: 60px;
   }
 
   .card-content {
-    flex-grow: 1; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 10px;
-    .error-content { text-align: center; color: #fff; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); p { margin-top: 10px; font-weight: bold; } }
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding-bottom: 10px;
+
+    .error-content {
+      text-align: center;
+      color: #fff;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      p { margin-top: 10px; font-weight: bold; }
+    }
+
     .course-name { font-size: 18px; margin: 0 0 8px 0; font-weight: 700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
     .course-meta { font-size: 12px; opacity: 0.95; margin-bottom: 4px; .divider { margin: 0 5px; opacity: 0.6; } }
     .course-code { font-size: 12px; opacity: 0.75; font-family: monospace; margin: 0; }
@@ -299,7 +529,10 @@ $header-height: 60px;
   .card-footer {
     display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px;
     .enter-text { font-size: 12px; opacity: 0.8; cursor: default; }
-    .start-btn { font-size: 12px; background: #fff; color: #333; padding: 4px 12px; border-radius: 16px; font-weight: 500; cursor: pointer; }
+    .start-btn {
+      font-size: 12px; background: #fff; color: #333; padding: 4px 12px; border-radius: 16px; font-weight: 500;
+      cursor: pointer;
+    }
   }
 
   &.bg-blue { background: linear-gradient(135deg, #6B8DD6 0%, #8E9EFC 100%); }
@@ -311,9 +544,22 @@ $header-height: 60px;
   &.bg-grey { background: linear-gradient(135deg, #868f96 0%, #596164 100%); }
 
   &.bg-match-fail {
-    background: #fff; border: 1px dashed #C0C4CC; color: #909399;
-    .top-status-tag { background-color: #909399; }
-    .card-footer { border-top: 1px solid #EBEEF5; .start-btn { background: #DCDFE6; color: #909399; cursor: not-allowed; } }
+    background: #fff;
+    border: 1px dashed #C0C4CC;
+    color: #909399;
+
+    .top-status-tag {
+      background-color: #909399;
+    }
+
+    .card-footer {
+      border-top: 1px solid #EBEEF5;
+      .start-btn {
+        background: #DCDFE6;
+        color: #909399;
+        cursor: not-allowed;
+      }
+    }
     .course-meta, .course-code, .course-name { color: #909399; }
   }
 }
