@@ -35,9 +35,14 @@
       <div v-if="activeMenu === '1'" class="content-panel">
         <div class="panel-header">
           <h3>我的课程列表与内容下发</h3>
-          <el-button type="primary" @click="openBatchMaterialDialog" style="margin-left: 10px;">
-            批量下发资料/任务
-          </el-button>
+          <div>
+            <el-button type="danger" @click="openBatchExamDialog" style="margin-left: 10px;">
+              批量发布考试
+            </el-button>
+            <el-button type="primary" @click="openBatchMaterialDialog" style="margin-left: 10px;">
+              批量下发资料/任务
+            </el-button>
+          </div>
         </div>
         <el-alert title="说明：您可以管理负责的课程，向对应班级下发教学资料、创建知识图谱或编辑课程目录。" type="info" show-icon style="margin-bottom: 20px;" />
 
@@ -145,30 +150,149 @@
           </el-button>
         </div>
 
-        <ContentEditor
-            :content-type="selectedContentType"
-            :is-batch="false"
-            v-model:content-title="contentTitle"
-            v-model:content-payload="contentPayload"
-            v-model:content-deadline="contentDeadline"
-            :quiz-data="quizData"
-            :textbook-form="textbookForm"
-            :graph-data="graphData"
-            :catalog-data="catalogData"
-            :file-list="fileList"
-            @add-question="addQuestion"
-            @remove-question="removeQuestion"
-            @add-chapter="addChapter"
-            @add-section="addSection"
-            @edit-node="editCatalogNode"
-            @remove-node="removeCatalogNode"
-            @add-graph-node="addNode"
-            @remove-graph-node="removeNode"
-            @add-graph-link="addLink"
-            @remove-graph-link="removeLink"
-            @set-file-list="fileList = $event"
-            :chart-ref="chartRef"
-        />
+        <div v-if="selectedContentType === '测验'" class="quiz-editor">
+          <el-alert title="请添加单选题。勾选单选框代表该选项为正确答案。" type="success" :closable="false" style="margin-bottom: 15px;" />
+          <el-form label-width="80px">
+            <el-row :gutter="20">
+              <el-col :span="12"><el-form-item label="测验标题"><el-input v-model="contentTitle" placeholder="如: 第一章阶段测试" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="截止时间"><el-date-picker v-model="contentDeadline" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" placeholder="选填" /></el-form-item></el-col>
+            </el-row>
+          </el-form>
+
+          <div class="question-list-box">
+            <div v-for="(q, index) in quizData.questions" :key="index" class="question-edit-item">
+              <div class="q-header">
+                <span class="q-idx">第 {{ index + 1 }} 题</span>
+                <el-button type="danger" link size="small" @click="removeQuestion(index)">删除</el-button>
+              </div>
+
+              <el-input v-model="q.title" type="textarea" :rows="2" placeholder="请输入题干内容..." style="margin-bottom: 10px"/>
+
+              <div v-for="(opt, oIdx) in q.options" :key="oIdx" class="option-row">
+                <el-radio v-model="q.answer" :label="oIdx" class="correct-radio">
+                  {{ String.fromCharCode(65+oIdx) }}
+                </el-radio>
+                <el-input v-model="q.options[oIdx]" size="small" placeholder="请输入选项内容" />
+              </div>
+
+              <div class="score-set">
+                分值：<el-input-number v-model="q.score" :min="1" :max="100" size="small" style="width:100px"/> 分
+              </div>
+            </div>
+            <el-button type="primary" plain style="width:100%; margin-top:10px" @click="addQuestion">+ 添加单选题</el-button>
+          </div>
+        </div>
+
+        <div v-else-if="selectedContentType === '知识图谱'" class="graph-editor-container">
+          <el-form label-width="80px">
+            <el-form-item label="图谱名称">
+              <el-input v-model="contentTitle" placeholder="请输入图谱名称" />
+            </el-form-item>
+          </el-form>
+          <div class="editor-layout">
+            <div class="editor-panel">
+              <div class="panel-section">
+                <h4>1. 添加节点</h4>
+                <div class="form-row">
+                  <el-input v-model="newNodeName" placeholder="名称" size="small" style="width: 140px; margin-right:5px"/>
+                  <el-select v-model="newNodeCategory" placeholder="类型" size="small" style="width: 80px; margin-right:5px">
+                    <el-option label="根" :value="0" /><el-option label="一级" :value="1" /><el-option label="二级" :value="2" />
+                  </el-select>
+                  <el-button type="primary" size="small" @click="addNode">添加</el-button>
+                </div>
+                <div class="node-list">
+                  <el-tag v-for="(n,i) in graphData.nodes" :key="i" closable @close="removeNode(i)" style="margin:2px">{{n.name}}</el-tag>
+                </div>
+              </div>
+              <div class="panel-section">
+                <h4>2. 建立连线</h4>
+                <div class="form-row">
+                  <el-select v-model="newLinkSource" size="small" placeholder="起点" style="width:100px"><el-option v-for="n in graphData.nodes" :key="n.id" :label="n.name" :value="n.id"/></el-select>
+                  <span style="margin:0 5px">-></span>
+                  <el-select v-model="newLinkTarget" size="small" placeholder="终点" style="width:100px"><el-option v-for="n in graphData.nodes" :key="n.id" :label="n.name" :value="n.id"/></el-select>
+                  <el-button size="small" style="margin-left:5px" @click="addLink">连线</el-button>
+                </div>
+                <div class="link-list"><div v-for="(l,i) in graphData.links" :key="i" class="link-item">{{getNodeName(l.source)}}->{{getNodeName(l.target)}} <el-icon class="del-icon" @click="removeLink(i)"><Close /></el-icon></div></div>
+              </div>
+            </div>
+            <div class="preview-panel"><div ref="chartRef" class="echarts-box"></div></div>
+          </div>
+        </div>
+
+        <div v-else-if="selectedContentType === '目录'" class="catalog-editor-container">
+          <el-form label-width="80px">
+            <el-form-item label="目录名称">
+              <el-input v-model="contentTitle" placeholder="请输入目录名称" />
+            </el-form-item>
+          </el-form>
+          <div class="catalog-actions">
+            <el-button type="primary" plain @click="addChapter">+ 添加章节</el-button>
+            <el-button type="danger" plain @click="clearCatalog">清空目录</el-button>
+          </div>
+          <div class="catalog-tree-box">
+            <el-tree :data="catalogData" node-key="id" default-expand-all :expand-on-click-node="false">
+              <template #default="{ node, data }">
+                <div class="custom-tree-node">
+                  <span class="node-label">
+                    <el-tag v-if="data.level===1" size="small" effect="dark">第 {{ data.index }} 章</el-tag>
+                    <el-tag v-else size="small" type="info" effect="plain">小节</el-tag>
+                    {{ data.label }}
+                  </span>
+                  <div class="tree-actions">
+                    <el-button v-if="data.level === 1" link type="primary" size="small" @click="addSection(data)">添加小节</el-button>
+                    <el-button link type="warning" size="small" @click="editCatalogNode(data)">重命名</el-button>
+                    <el-button link type="danger" size="small" @click="removeCatalogNode(node, data)">删除</el-button>
+                  </div>
+                </div>
+              </template>
+            </el-tree>
+            <el-empty v-if="catalogData.length === 0" description="暂无目录，请添加章节" :image-size="80" />
+          </div>
+        </div>
+
+        <el-form v-else-if="selectedContentType === '教材'" label-width="100px" style="margin-top: 20px;">
+          <el-form-item label="教材名称"><el-input v-model="textbookForm.name" /></el-form-item>
+          <el-row :gutter="20">
+            <el-col :span="12"><el-form-item label="ISBN"><el-input v-model="textbookForm.isbn" /></el-form-item></el-col>
+            <el-col :span="12"><el-form-item label="作者"><el-input v-model="textbookForm.author" /></el-form-item></el-col>
+          </el-row>
+          <el-row :gutter="20">
+            <el-col :span="12"><el-form-item label="出版社"><el-input v-model="textbookForm.publisher" /></el-form-item></el-col>
+            <el-col :span="12"><el-form-item label="版次"><el-input v-model="textbookForm.edition" /></el-form-item></el-col>
+          </el-row>
+          <el-form-item label="简介"><el-input v-model="textbookForm.intro" type="textarea" :rows="3" /></el-form-item>
+          <el-form-item label="链接"><el-input v-model="textbookForm.url" placeholder="http://" /></el-form-item>
+        </el-form>
+
+        <el-form v-else label-width="100px" style="margin-top: 20px;">
+          <el-form-item label="标题" v-if="selectedContentType !== '教材'">
+            <el-input v-model="contentTitle" :placeholder="titlePlaceholder" />
+          </el-form-item>
+
+          <el-form-item :label="selectedContentType === '作业' ? '作业要求' : '描述'" v-if="selectedContentType !== '教材'">
+            <el-input
+                v-model="contentPayload"
+                type="textarea"
+                :rows="6"
+                :placeholder="selectedContentType === '作业' ? '请输入详细的作业要求，支持文字描述...' : '请输入内容描述...'"
+            />
+          </el-form-item>
+
+          <el-form-item label="截止时间" v-if="['作业','测验','项目'].includes(selectedContentType)">
+            <el-date-picker v-model="contentDeadline" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="选择截止时间" style="width: 100%" />
+          </el-form-item>
+
+          <el-form-item label="上传附件">
+            <el-upload ref="uploadRef" action="#" :auto-upload="false" :on-change="(f,l)=>fileList=l" :limit="1">
+              <template #trigger><el-button type="primary">选取文件</el-button></template>
+              <template #tip>
+                <div class="el-upload__tip" v-if="selectedContentType === '作业'">
+                  可上传作业模板、参考资料等 (Word/PDF/ZIP)
+                </div>
+              </template>
+            </el-upload>
+          </el-form-item>
+        </el-form>
 
         <template #footer>
           <el-button @click="contentDialogVisible = false">取消</el-button>
@@ -233,7 +357,8 @@
 
       <el-dialog v-model="assignDialogVisible" title="调整任课教师" width="400px">
         <p style="margin-bottom: 5px">当前课程：{{ currentRow.name }}</p>
-        <el-select v-model="selectedTeacher" placeholder="请选择教师" style="width: 100%">
+        <p style="margin-bottom: 15px; font-weight: bold;">原任课教师: {{ currentRow.teacher || '未分配' }}</p>
+        <el-select v-model="selectedTeacher" placeholder="请选择新的任课教师" style="width: 100%">
           <el-option v-for="t in teacherList" :key="t.userId" :label="t.realName" :value="t.realName" />
         </el-select>
         <template #footer>
@@ -250,6 +375,75 @@
         <template #footer>
           <el-button @click="notificationDialogVisible = false">取消</el-button>
           <el-button type="primary" @click="submitNotification">发送</el-button>
+        </template>
+      </el-dialog>
+
+      <el-dialog v-model="batchExamDialogVisible" title="批量发布考试" width="800px" top="5vh">
+        <el-form label-width="100px">
+          <el-form-item label="目标课程">
+            <el-select
+                v-model="batchExamForm.courseNames"
+                multiple
+                filterable
+                placeholder="请选择要发布考试的课程名称"
+                style="width: 100%"
+            >
+              <el-option
+                  v-for="c in distinctCourseNames"
+                  :key="c"
+                  :label="c"
+                  :value="c"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-row :gutter="20">
+            <el-col :span="12"><el-form-item label="考试标题"><el-input v-model="batchExamForm.title" placeholder="如: 期中考试" /></el-form-item></el-col>
+            <el-col :span="12"><el-form-item label="考试时长"><el-input-number v-model="batchExamForm.duration" :min="10" :max="180" style="width: 100%;" /> 分钟</el-form-item></el-col>
+          </el-row>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="开始时间">
+                <el-date-picker v-model="batchExamForm.startTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" placeholder="选择考试开始时间" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="截止时间">
+                <el-date-picker v-model="batchExamForm.deadline" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" placeholder="选择考试截止时间" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </el-form>
+
+        <el-divider>试题列表</el-divider>
+
+        <div class="question-list-box">
+          <div v-for="(q, index) in batchExamForm.questions" :key="index" class="question-edit-item">
+            <div class="q-header">
+              <span class="q-idx">第 {{ index + 1 }} 题</span>
+              <el-button type="danger" link size="small" @click="batchExamForm.questions.splice(index, 1)">删除</el-button>
+            </div>
+
+            <el-input v-model="q.title" type="textarea" :rows="2" placeholder="请输入题干内容..." style="margin-bottom: 10px"/>
+
+            <div v-for="(opt, oIdx) in q.options" :key="oIdx" class="option-row">
+              <el-radio v-model="q.answer" :label="oIdx" class="correct-radio">
+                {{ String.fromCharCode(65+oIdx) }}
+              </el-radio>
+              <el-input v-model="q.options[oIdx]" size="small" placeholder="请输入选项内容" />
+            </div>
+
+            <div class="score-set">
+              分值：<el-input-number v-model="q.score" :min="1" :max="100" size="small" style="width:100px"/> 分
+            </div>
+          </div>
+
+          <el-button type="primary" plain style="width:100%; margin-top:10px" @click="batchExamForm.questions.push({ title: '', options: ['','','',''], answer: 0, score: 20 })">+ 添加单选题</el-button>
+        </div>
+
+        <template #footer>
+          <el-button @click="batchExamDialogVisible = false">取消</el-button>
+          <el-button type="danger" @click="submitBatchExam">确认批量发布</el-button>
         </template>
       </el-dialog>
 
@@ -281,7 +475,7 @@
           <el-form-item label="资料类型">
             <el-radio-group v-model="batchMaterialForm.type" @change="resetBatchContent">
               <el-radio
-                  v-for="item in contentTypes.filter(t => ['测验', '作业', '项目', '导学', 'FAQ', '学习资料'].includes(t))"
+                  v-for="item in contentTypes"
                   :key="item"
                   :label="item"
               >
@@ -290,31 +484,145 @@
             </el-radio-group>
           </el-form-item>
 
-          <ContentEditor
-              :content-type="batchMaterialForm.type"
-              :is-batch="true"
-              v-model:content-title="batchMaterialForm.title"
-              v-model:content-payload="batchMaterialForm.content"
-              v-model:content-deadline="batchMaterialForm.deadline"
-              :quiz-data="quizData"
-              :textbook-form="textbookForm"
-              :graph-data="graphData"
-              :catalog-data="catalogData"
-              :file-list="batchMaterialForm.fileList"
-              @add-question="addQuestion"
-              @remove-question="removeQuestion"
-              @add-chapter="addChapter"
-              @add-section="addSection"
-              @edit-node="editCatalogNode"
-              @remove-node="removeCatalogNode"
-              @add-graph-node="addNode"
-              @remove-graph-node="removeNode"
-              @add-graph-link="addLink"
-              @remove-graph-link="removeLink"
-              @set-file-list="batchMaterialForm.fileList = $event"
-              :chart-ref="chartRef"
-          />
+          <div v-if="batchMaterialForm.type === '测验'" class="quiz-editor">
+            <el-alert title="请添加单选题。勾选单选框代表该选项为正确答案。" type="success" :closable="false" style="margin-bottom: 15px;" />
+            <el-form label-width="80px">
+              <el-row :gutter="20">
+                <el-col :span="12"><el-form-item label="测验标题"><el-input v-model="batchMaterialForm.title" placeholder="如: 第一章阶段测试" /></el-form-item></el-col>
+                <el-col :span="12"><el-form-item label="截止时间"><el-date-picker v-model="batchMaterialForm.deadline" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" placeholder="必填" /></el-form-item></el-col>
+              </el-row>
+            </el-form>
+            <div class="question-list-box">
+              <div v-for="(q, index) in quizData.questions" :key="index" class="question-edit-item">
+                <div class="q-header">
+                  <span class="q-idx">第 {{ index + 1 }} 题</span>
+                  <el-button type="danger" link size="small" @click="removeQuestion(index)">删除</el-button>
+                </div>
+                <el-input v-model="q.title" type="textarea" :rows="2" placeholder="请输入题干内容..." style="margin-bottom: 10px"/>
+                <div v-for="(opt, oIdx) in q.options" :key="oIdx" class="option-row">
+                  <el-radio v-model="q.answer" :label="oIdx" class="correct-radio">
+                    {{ String.fromCharCode(65+oIdx) }}
+                  </el-radio>
+                  <el-input v-model="q.options[oIdx]" size="small" placeholder="请输入选项内容" />
+                </div>
+                <div class="score-set">
+                  分值：<el-input-number v-model="q.score" :min="1" :max="100" size="small" style="width:100px"/> 分
+                </div>
+              </div>
+              <el-button type="primary" plain style="width:100%; margin-top:10px" @click="addQuestion">+ 添加单选题</el-button>
+            </div>
+          </div>
 
+          <div v-else-if="batchMaterialForm.type === '知识图谱'" class="graph-editor-container">
+            <el-form label-width="80px">
+              <el-form-item label="图谱名称">
+                <el-input v-model="batchMaterialForm.title" placeholder="请输入图谱名称" />
+              </el-form-item>
+            </el-form>
+            <div class="editor-layout">
+              <div class="editor-panel">
+                <div class="panel-section">
+                  <h4>1. 添加节点</h4>
+                  <div class="form-row">
+                    <el-input v-model="newNodeName" placeholder="名称" size="small" style="width: 140px; margin-right:5px"/>
+                    <el-select v-model="newNodeCategory" placeholder="类型" size="small" style="width: 80px; margin-right:5px">
+                      <el-option label="根" :value="0" /><el-option label="一级" :value="1" /><el-option label="二级" :value="2" />
+                    </el-select>
+                    <el-button type="primary" size="small" @click="addNode">添加</el-button>
+                  </div>
+                  <div class="node-list">
+                    <el-tag v-for="(n,i) in graphData.nodes" :key="i" closable @close="removeNode(i)" style="margin:2px">{{n.name}}</el-tag>
+                  </div>
+                </div>
+                <div class="panel-section">
+                  <h4>2. 建立连线</h4>
+                  <div class="form-row">
+                    <el-select v-model="newLinkSource" size="small" placeholder="起点" style="width:100px"><el-option v-for="n in graphData.nodes" :key="n.id" :label="n.name" :value="n.id"/></el-select>
+                    <span style="margin:0 5px">-></span>
+                    <el-select v-model="newLinkTarget" size="small" placeholder="终点" style="width:100px"><el-option v-for="n in graphData.nodes" :key="n.id" :label="n.name" :value="n.id"/></el-select>
+                    <el-button size="small" style="margin-left:5px" @click="addLink">连线</el-button>
+                  </div>
+                  <div class="link-list"><div v-for="(l,i) in graphData.links" :key="i" class="link-item">{{getNodeName(l.source)}}->{{getNodeName(l.target)}} <el-icon class="del-icon" @click="removeLink(i)"><Close /></el-icon></div></div>
+                </div>
+              </div>
+              <div class="preview-panel"><div ref="chartRef" class="echarts-box"></div></div>
+            </div>
+          </div>
+
+          <div v-else-if="batchMaterialForm.type === '目录'" class="catalog-editor-container">
+            <el-form label-width="80px">
+              <el-form-item label="目录名称">
+                <el-input v-model="batchMaterialForm.title" placeholder="请输入目录名称" />
+              </el-form-item>
+            </el-form>
+            <div class="catalog-actions">
+              <el-button type="primary" plain @click="addChapter">+ 添加章节</el-button>
+              <el-button type="danger" plain @click="clearCatalog">清空目录</el-button>
+            </div>
+            <div class="catalog-tree-box">
+              <el-tree :data="catalogData" node-key="id" default-expand-all :expand-on-click-node="false">
+                <template #default="{ node, data }">
+                  <div class="custom-tree-node">
+                    <span class="node-label">
+                      <el-tag v-if="data.level===1" size="small" effect="dark">第 {{ data.index }} 章</el-tag>
+                      <el-tag v-else size="small" type="info" effect="plain">小节</el-tag>
+                      {{ data.label }}
+                    </span>
+                    <div class="tree-actions">
+                      <el-button v-if="data.level === 1" link type="primary" size="small" @click="addSection(data)">添加小节</el-button>
+                      <el-button link type="warning" size="small" @click="editCatalogNode(data)">重命名</el-button>
+                      <el-button link type="danger" size="small" @click="removeCatalogNode(node, data)">删除</el-button>
+                    </div>
+                  </div>
+                </template>
+              </el-tree>
+              <el-empty v-if="catalogData.length === 0" description="暂无目录，请添加章节" :image-size="80" />
+            </div>
+          </div>
+
+          <el-form v-else-if="batchMaterialForm.type === '教材'" label-width="100px" style="margin-top: 20px;">
+            <el-form-item label="教材名称"><el-input v-model="textbookForm.name" /></el-form-item>
+            <el-row :gutter="20">
+              <el-col :span="12"><el-form-item label="ISBN"><el-input v-model="textbookForm.isbn" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="作者"><el-input v-model="textbookForm.author" /></el-form-item></el-col>
+            </el-row>
+            <el-row :gutter="20">
+              <el-col :span="12"><el-form-item label="出版社"><el-input v-model="textbookForm.publisher" /></el-form-item></el-col>
+              <el-col :span="12"><el-form-item label="版次"><el-input v-model="textbookForm.edition" /></el-form-item></el-col>
+            </el-row>
+            <el-form-item label="简介"><el-input v-model="textbookForm.intro" type="textarea" :rows="3" /></el-form-item>
+            <el-form-item label="链接"><el-input v-model="textbookForm.url" placeholder="http://" /></el-form-item>
+          </el-form>
+
+          <el-form v-else label-width="100px" style="margin-top: 20px;">
+            <el-form-item label="标题">
+              <el-input v-model="batchMaterialForm.title" :placeholder="batchMaterialForm.type === '作业' ? '请输入作业标题 (如: 第一次大作业)' : '请输入标题'" />
+            </el-form-item>
+
+            <el-form-item :label="batchMaterialForm.type === '作业' ? '作业要求' : '描述'">
+              <el-input
+                  v-model="batchMaterialForm.content"
+                  type="textarea"
+                  :rows="6"
+                  :placeholder="batchMaterialForm.type === '作业' ? '请输入详细的作业要求，支持文字描述...' : '请输入内容描述...'"
+              />
+            </el-form-item>
+
+            <el-form-item label="截止时间" v-if="['作业','测验','项目'].includes(batchMaterialForm.type)">
+              <el-date-picker v-model="batchMaterialForm.deadline" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" placeholder="选择截止时间" style="width: 100%" />
+            </el-form-item>
+
+            <el-form-item label="上传附件">
+              <el-upload ref="batchUploadRef" action="#" :auto-upload="false" :on-change="(f,l)=>batchMaterialForm.fileList=l" :limit="1">
+                <template #trigger><el-button type="primary">选取文件</el-button></template>
+                <template #tip>
+                  <div class="el-upload__tip">
+                    可上传附件 (Word/PDF/ZIP等)
+                  </div>
+                </template>
+              </el-upload>
+            </el-form-item>
+          </el-form>
         </el-form>
 
         <template #footer>
@@ -329,11 +637,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, nextTick, onBeforeUnmount, computed, defineComponent } from 'vue'
+import { ref, reactive, onMounted, nextTick, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DataLine, UserFilled, Switch, Bell, Close, DocumentChecked, Upload, Minus, Plus } from '@element-plus/icons-vue'
+import { DataLine, UserFilled, Switch, Bell, Close, DocumentChecked, ChatLineRound, Operation, Monitor } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import dayjs from 'dayjs'
 
@@ -350,13 +658,29 @@ const assignDialogVisible = ref(false)
 const notificationDialogVisible = ref(false)
 const examDialogVisible = ref(false)
 const batchMaterialDialogVisible = ref(false)
+const batchExamDialogVisible = ref(false)
 const currentRow = ref({})
 const selectedTeacher = ref('')
+// 图谱编辑器辅助状态 (最小化声明)
+const newNodeName = ref('')
+const newNodeCategory = ref(0)
+const newLinkSource = ref(null)
+const newLinkTarget = ref(null)
 
-// 考试发布状态
-const examForm = reactive({ title: '', startTime: '', deadline: '', duration: 60, questions: [] })
+// 考试发布状态 (单个)
+const examForm = reactive({ title: '', startTime: '', deadline: '', duration: 60, questions: [{ title: '', options: ['','','',''], answer: 0, score: 20 }] })
 const addExamQuestion = () => examForm.questions.push({ title: '', options: ['','','',''], answer: 0, score: 20 })
 const removeExamQuestion = (idx) => examForm.questions.splice(idx, 1)
+
+// 批量考试发布状态
+const batchExamForm = reactive({
+  courseNames: [],
+  title: '',
+  startTime: '',
+  deadline: '',
+  duration: 60,
+  questions: [{ title: '', options: ['','','',''], answer: 0, score: 20 }]
+})
 
 // 内容下发数据
 const contentTypes = ref(['导学', '教材', '测验', '作业', '知识图谱', '目录', 'FAQ', '学习资料', '项目'])
@@ -368,14 +692,14 @@ const fileList = ref([])
 const uploading = ref(false)
 
 // 复杂类型数据结构
-const quizData = reactive({ questions: [] })
+const quizData = reactive({ questions: [{ title: '', options: ['','','',''], answer: 0, score: 10 }] })
 const textbookForm = reactive({ name:'', isbn:'', author:'', publisher:'', edition:'', intro:'', url:'' })
 const graphData = reactive({ nodes: [], links: [], categories: [{name:'根节点'},{name:'一级知识点'},{name:'二级知识点'}] })
 const catalogData = ref([])
 const notificationForm = reactive({ title: '', content: '' })
 const notificationTarget = ref(null)
 
-// 【新增】批量下发表单
+// 批量下发表单
 const batchMaterialForm = reactive({
   courseNames: [],
   type: '作业',
@@ -396,20 +720,17 @@ const titlePlaceholder = computed(() => {
   return '请输入标题'
 })
 
-// 图表引用和辅助函数 (为了避免污染 ContentEditor 的 JSX，这里只保留声明)
-const chartRef = ref(null);
-let myChart = null;
-const initChart = () => { /* Logic to initialize echarts */ }
+// 图表引用和辅助函数 (最小化实现)
+const chartRef = ref(null); let myChart = null;
+const initChart = () => { /* ... */ }
 const resizeChart = () => myChart && myChart.resize()
-const updateChartOption = () => { /* Logic to update echarts option */ }
-const addNode = () => { /* Logic for graph editor */ }
-const removeNode = (i) => { /* Logic for graph editor */ }
-const addLink = () => { /* Logic for graph editor */ }
-const removeLink = (i) => { /* Logic for graph editor */ }
-const getNodeName = (id) => { /* Logic for graph editor */ }
-const clearGraph = () => { graphData.nodes=[]; graphData.links=[]; /* updateChartOption() */ }
-
-// === 目录逻辑 (保持完整) ===
+const addNode = () => { /* ... */ }
+const removeNode = (i) => { /* ... */ }
+const addLink = () => { /* ... */ }
+const removeLink = (i) => { /* ... */ }
+const getNodeName = (id) => { /* ... */ }
+const clearGraph = () => { catalogData.value = []; graphData.nodes=[]; graphData.links=[]; /* updateChartOption() */ }
+// 目录逻辑 (保持不变)
 const addChapter = () => ElMessageBox.prompt('章节名称').then(({value})=> value && catalogData.value.push({id:Date.now(),label:value,level:1,children:[],index:catalogData.value.length+1})).catch(()=>{})
 const addSection = (d) => ElMessageBox.prompt('小节名称').then(({value})=> value && (d.children || (d.children=[])).push({id:Date.now(),label:value,level:2})).catch(()=>{})
 const editCatalogNode = (d) => ElMessageBox.prompt('重命名',{inputValue:d.label}).then(({value})=> value && (d.label=value)).catch(()=>{})
@@ -475,18 +796,33 @@ const handleTypeChange = (type) => {
 
 // 批量下发类型切换时重置内容
 const resetBatchContent = () => {
-  // 仅重置内容，不重置目标课程
   batchMaterialForm.title = '';
   batchMaterialForm.content = '';
   batchMaterialForm.deadline = '';
   batchMaterialForm.fileList = [];
-  if (batchUploadRef.value) batchUploadRef.value.clearFiles();
-  // 确保 quizData 也被重置，否则测验编辑器会保留上次的数据
   quizData.questions = [{ title: '', options: ['','','',''], answer: 0, score: 20 }];
+  catalogData.value = [];
+  graphData.nodes = [];
+  graphData.links = [];
+  Object.keys(textbookForm).forEach(k => textbookForm[k] = '')
+
+  if (batchUploadRef.value) batchUploadRef.value.clearFiles();
+  if (batchMaterialForm.type === '知识图谱') nextTick(()=>{ initChart() })
 }
 
 
-// 提交考试
+// 打开单个考试对话框
+const openExamDialog = () => {
+  // 重新设置考试表单，确保至少有一道题
+  examForm.title = '';
+  examForm.startTime = '';
+  examForm.deadline = '';
+  examForm.duration = 60;
+  examForm.questions = [{ title: '', options: ['','','',''], answer: 0, score: 20 }];
+  examDialogVisible.value = true;
+}
+
+// 提交考试 (单个课程，逻辑不变)
 const submitExam = async () => {
   if (examForm.questions.length === 0) return ElMessage.warning('请至少添加一道题目');
   if (!examForm.title) return ElMessage.warning('请填写考试标题');
@@ -527,7 +863,8 @@ const getSubmitButtonText = () => ['知识图谱','目录','测验'].includes(se
 const openContentDialog = (row) => {
   currentRow.value = row; selectedContentType.value = '导学';
   contentTitle.value=''; contentPayload.value=''; contentDeadline.value=''; fileList.value=[];
-  quizData.questions=[]; catalogData.value=[]; graphData.nodes=[]; graphData.links=[];
+  quizData.questions=[{ title: '', options: ['','','',''], answer: 0, score: 10 }];
+  catalogData.value=[]; graphData.nodes=[]; graphData.links=[];
   Object.keys(textbookForm).forEach(k => textbookForm[k] = '')
   contentDialogVisible.value = true
 }
@@ -577,10 +914,33 @@ const submitCourseMaterial = async () => {
   } catch (e) { ElMessage.error(e.message || '失败') } finally { uploading.value = false }
 }
 
+// 【关键：调整教师功能】
+const openAssignDialog = (row) => {
+  currentRow.value = row;
+  // 预设当前教师姓名
+  selectedTeacher.value = row.teacher || '';
+  assignDialogVisible.value = true;
+}
+
 const submitAssign = async () => {
-  await request.post('/leader/course/update',{id:currentRow.value.id,teacher:selectedTeacher.value,classId:currentRow.value.classId});
-  assignDialogVisible.value=false;
-  fetchData()
+  if (!selectedTeacher.value) return ElMessage.warning('请选择任课教师');
+
+  try {
+    // 构造请求体，包含课程ID、新的教师姓名和班级ID (班级ID用于后端更新教师执教范围)
+    const payload = {
+      id: currentRow.value.id,
+      teacher: selectedTeacher.value,
+      classId: currentRow.value.classId
+    };
+
+    await request.post('/leader/course/update', payload);
+
+    ElMessage.success('任课教师调整成功！');
+    assignDialogVisible.value=false;
+    fetchData(); // 刷新列表
+  } catch (e) {
+    ElMessage.error(e.response?.data || '调整失败');
+  }
 }
 
 const openNotificationDialog = (t) => {
@@ -600,60 +960,113 @@ const handleDelete = async (id) => {
   fetchData()
 }
 
-// 【新增】打开批量下发对话框
+// 【新增】打开批量下发资料对话框
 const openBatchMaterialDialog = () => {
   batchMaterialForm.courseNames = [];
   batchMaterialForm.type = '作业';
-  batchMaterialForm.title = '';
-  batchMaterialForm.content = '';
-  batchMaterialForm.deadline = '';
-  batchMaterialForm.fileList = [];
-  quizData.questions = [{ title: '', options: ['','','',''], answer: 0, score: 20 }]; // 初始化测验数据
+  resetBatchContent();
   batchMaterialDialogVisible.value = true;
 }
 
-// 【新增】提交批量下发
+// 【新增】打开批量发布考试对话框
+const openBatchExamDialog = () => {
+  batchExamForm.courseNames = [];
+  batchExamForm.title = '';
+  batchExamForm.startTime = '';
+  batchExamForm.deadline = '';
+  batchExamForm.duration = 60;
+  // 确保批量考试问题列表被重置并初始化
+  batchExamForm.questions = [{ title: '', options: ['','','',''], answer: 0, score: 20 }];
+
+  batchExamDialogVisible.value = true;
+}
+
+// 【新增】提交批量发布考试
+const submitBatchExam = async () => {
+  if (batchExamForm.courseNames.length === 0) return ElMessage.warning('请选择至少一个目标课程');
+  if (batchExamForm.questions.length === 0) return ElMessage.warning('请至少添加一道题目');
+  if (!batchExamForm.title) return ElMessage.warning('请填写考试标题');
+  if (!batchExamForm.startTime) return ElMessage.warning('请设置考试开始时间');
+  if (!batchExamForm.deadline) return ElMessage.warning('请设置考试截止时间');
+
+  if (dayjs(batchExamForm.startTime).isAfter(dayjs(batchExamForm.deadline))) {
+    return ElMessage.warning('开始时间不能晚于截止时间');
+  }
+
+  const contentPayload = { questions: batchExamForm.questions }
+  const status = dayjs(batchExamForm.startTime).isAfter(dayjs()) ? "未开始" : "进行中";
+
+  try {
+    await request.post(`/leader/course/batch-publish-exam`, {
+      courseNames: batchExamForm.courseNames,
+      title: batchExamForm.title,
+      content: JSON.stringify(contentPayload),
+      startTime: batchExamForm.startTime,
+      deadline: batchExamForm.deadline,
+      duration: batchExamForm.duration,
+      status: status
+    });
+    ElMessage.success('批量考试发布成功，初始状态为: ' + status);
+    batchExamDialogVisible.value = false;
+    fetchData();
+  } catch (e) {
+    ElMessage.error(e.response?.data || '批量发布失败');
+  }
+}
+
+// 【新增】提交批量下发 (资料)
 const submitBatchMaterial = async () => {
   if (batchMaterialForm.courseNames.length === 0) return ElMessage.warning('请选择至少一个目标课程');
-  if (!batchMaterialForm.title) return ElMessage.warning('请填写资料标题');
 
-  // 检查任务类内容完整性
-  if (['作业', '项目'].includes(batchMaterialForm.type)) {
-    if (!batchMaterialForm.content) return ElMessage.warning('请填写任务要求');
-    if (!batchMaterialForm.deadline) return ElMessage.warning('请设置截止时间');
-  }
-  if (batchMaterialForm.type === '测验') {
+  let finalContent = batchMaterialForm.content;
+  let finalTitle = batchMaterialForm.title;
+  const type = batchMaterialForm.type;
+  const deadline = batchMaterialForm.deadline;
+
+  // --- 1. 数据校验与内容构造 ---
+  if (type === '测验') {
     if (quizData.questions.length === 0) return ElMessage.warning('请至少添加一道题目');
-    if (!batchMaterialForm.deadline) return ElMessage.warning('请设置截止时间');
+    if (!deadline) return ElMessage.warning('请设置截止时间');
+    finalContent = JSON.stringify({ deadline, questions: quizData.questions });
+    if (!finalTitle) finalTitle = '在线测验';
+  } else if (type === '教材') {
+    if (!textbookForm.name) return ElMessage.warning('请填写教材名称');
+    finalContent = JSON.stringify({ ...textbookForm });
+    finalTitle = textbookForm.name;
+  } else if (type === '知识图谱') {
+    finalContent = JSON.stringify(graphData);
+    if (!finalTitle) finalTitle = '知识图谱';
+  } else if (type === '目录') {
+    if (catalogData.value.length === 0) return ElMessage.warning('请添加章节目录');
+    finalContent = JSON.stringify(catalogData.value);
+    if (!finalTitle) finalTitle = '课程目录';
+  } else if (['作业', '项目'].includes(type)) {
+    if (!finalTitle) return ElMessage.warning('请填写任务标题');
+    if (!deadline) return ElMessage.warning('请设置截止时间');
+    const payload = { text: finalContent, deadline };
+    finalContent = JSON.stringify(payload);
   }
+
+  if (!finalTitle) return ElMessage.warning('请填写资料标题');
 
   uploading.value = true;
 
   const formData = new FormData();
-  formData.append('type', batchMaterialForm.type);
-  formData.append('title', batchMaterialForm.title);
+  formData.append('type', type);
+  formData.append('title', finalTitle);
+  formData.append('content', finalContent);
 
-  // 内容和截止时间处理
-  let finalContent = batchMaterialForm.content;
-  if (['作业','测验','项目'].includes(batchMaterialForm.type)) {
-    const payload = batchMaterialForm.type === '测验' ?
-        { deadline: batchMaterialForm.deadline, questions: quizData.questions } :
-        { text: batchMaterialForm.content, deadline: batchMaterialForm.deadline };
-    finalContent = JSON.stringify(payload);
-    formData.append('fileName', batchMaterialForm.type === '测验' ? 'online_quiz.json' : batchMaterialForm.title);
-  } else {
-    finalContent = batchMaterialForm.content;
+  // 截止时间
+  if (deadline) {
+    formData.append('deadline', deadline);
+  } else if (['作业', '项目', '测验'].includes(type)) {
+    formData.append('deadline', '');
   }
 
-  formData.append('content', finalContent);
-  formData.append('deadline', batchMaterialForm.deadline);
-
-  // 关键：遍历多选列表，正确添加到 FormData
   batchMaterialForm.courseNames.forEach(name => {
     formData.append('courseNames', name);
   });
 
-  // 添加文件
   if (batchMaterialForm.fileList.length > 0) {
     formData.append('file', batchMaterialForm.fileList[0].raw);
   }

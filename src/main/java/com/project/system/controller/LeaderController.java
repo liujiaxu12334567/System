@@ -103,6 +103,17 @@ public class LeaderController {
     public ResponseEntity<?> listPendingApplications() {
         return ResponseEntity.ok(leaderService.listPendingApplications());
     }
+    // 【新增接口 1：批量发布考试】
+    @PostMapping("/course/batch-publish-exam")
+    public ResponseEntity<?> batchPublishExam(@RequestBody Map<String, Object> examData) {
+        try {
+            List<String> courseNames = (List<String>) examData.get("courseNames");
+            leaderService.batchPublishExam(examData, courseNames);
+            return ResponseEntity.ok("批量考试发布成功");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
     @PostMapping(value = "/course/batch-material", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> batchSendMaterial(
             @RequestParam("type") String type,

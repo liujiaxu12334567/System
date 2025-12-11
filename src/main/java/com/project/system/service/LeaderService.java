@@ -32,7 +32,7 @@ public interface LeaderService {
 
     /** 更新资料截止时间 */
     void updateMaterialDeadline(Long materialId, String newDeadline);
-
+    void batchPublishExam(Map<String, Object> examData, List<String> courseNames);
     /** 获取待审核延期申请 */
     List<Object> listPendingApplications();
     void batchSendMaterialToTeachers(String type, String title, String content, String deadline, MultipartFile file, List<String> courseNames);

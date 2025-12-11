@@ -403,6 +403,65 @@ public class LeaderServiceImpl implements LeaderService {
             }
         }
     }
+    // 【新增方法实现：批量发布考试】
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void batchPublishExam(Map<String, Object> examData, List<String> courseNames) {
+        if (courseNames == null || courseNames.isEmpty()) {
+            throw new IllegalArgumentException("请选择要发布考试的课程。");
+        }
+
+        String title = (String) examData.get("title");
+        String content = (String) examData.get("content");
+        String startTime = (String) examData.get("startTime");
+        String deadline = (String) examData.get("deadline");
+        Integer duration = (Integer) examData.get("duration");
+
+        if (title == null || content == null || startTime == null || deadline == null) {
+            throw new IllegalArgumentException("考试信息不完整");
+        }
+
+        User leader = getCurrentLeader();
+        String initialStatus = (String) examData.get("status");
+        if (initialStatus == null) {
+            // 根据开始时间计算状态
+            initialStatus = (new Date()).after(java.sql.Timestamp.valueOf(startTime)) ? "进行中" : "未开始";
+        }
+
+
+        List<Course> allCourses = courseMapper.selectAllCourses();
+        Set<Long> processedCourseIds = new HashSet<>();
+
+        for (String courseName : courseNames) {
+            String trimmedCourseName = courseName.trim();
+
+            List<Course> targetCourses = allCourses.stream()
+                    .filter(c -> c.getName() != null && c.getName().equals(trimmedCourseName))
+                    .collect(Collectors.toList());
+
+            for (Course course : targetCourses) {
+                if (processedCourseIds.contains(course.getId())) continue;
+
+                Exam exam = new Exam();
+                exam.setCourseId(course.getId());
+                exam.setTitle(title);
+                exam.setContent(content);
+                exam.setStartTime(startTime);
+                exam.setDeadline(deadline);
+                exam.setDuration(duration != null ? duration : 60);
+                exam.setStatus(initialStatus);
+                exam.setTeacherId(leader.getUserId());
+
+                examMapper.insertExam(exam);
+                processedCourseIds.add(course.getId());
+
+                sendTaskNotification(course.getId(), title, "正式考试", leader.getRealName());
+            }
+        }
+        if (processedCourseIds.isEmpty()) {
+            throw new RuntimeException("没有找到匹配的课程来发布考试。");
+        }
+    }
     @Override
     @Transactional
     public void reviewApplication(Long appId, String status) {
