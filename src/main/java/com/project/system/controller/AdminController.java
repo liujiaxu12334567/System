@@ -8,8 +8,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -125,5 +128,35 @@ public class AdminController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
+    }
+    @PostMapping("/notification/send")
+    public ResponseEntity<?> sendNotification(@RequestBody Map<String, Object> data) {
+        try {
+            String title = (String) data.get("title");
+            String content = (String) data.get("content");
+            String targetType = (String) data.get("targetType"); // SPECIFIC, ALL_STUDENTS, ALL_TEACHERS, ALL
+            boolean needReply = (boolean) data.get("needReply");
+
+            List<Long> userIds = new ArrayList<>();
+            if (data.get("userIds") != null) {
+                List<Integer> list = (List<Integer>) data.get("userIds");
+                list.forEach(id -> userIds.add(Long.valueOf(id)));
+            }
+
+            adminService.sendNotification(title, content, targetType, userIds, needReply);
+            return ResponseEntity.ok("通知发送成功");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("发送失败: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/notification/history")
+    public ResponseEntity<?> getNotificationHistory() {
+        return ResponseEntity.ok(adminService.getNotificationHistory());
+    }
+
+    @GetMapping("/notification/stats/{batchId}")
+    public ResponseEntity<?> getNotificationStats(@PathVariable String batchId) {
+        return ResponseEntity.ok(adminService.getNotificationStats(batchId));
     }
 }

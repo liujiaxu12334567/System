@@ -5,6 +5,8 @@ import com.project.system.dto.PaginationResponse;
 import com.project.system.entity.Course;
 import com.project.system.entity.User;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 import java.util.Map;
 
 public interface AdminService {
@@ -20,8 +22,18 @@ public interface AdminService {
     void batchAssignCourse(String name, String semester, java.util.List<String> teacherNames, java.util.List<Object> rawClassIds);
     void updateCourse(Course course);
     void deleteCourse(Long id);
+    // ...
+    // 修改原发送接口，支持更多参数
+    void sendNotification(String title, String content, String targetType, List<Long> specificUserIds, boolean needReply);
 
+    // 获取管理员发送记录
+    List<Object> getNotificationHistory();
+
+    // 获取某条通知的统计详情
+    List<Map<String, Object>> getNotificationStats(String batchId);
+    // ...
     Object listClasses();
     Object listPendingApplications();
     void reviewApplication(Long appId, String status);
+    void sendNotificationToUsers(List<Long> userIds, String title, String content);
 }

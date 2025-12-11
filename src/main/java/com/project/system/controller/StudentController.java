@@ -1,9 +1,7 @@
 package com.project.system.controller;
 
-import com.project.system.entity.Course;
-import com.project.system.entity.Exam;
-import com.project.system.entity.Material;
-import com.project.system.entity.QuizRecord;
+import com.project.system.entity.*;
+import com.project.system.mapper.NotificationMapper;
 import com.project.system.service.StudentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -21,7 +19,8 @@ public class StudentController {
 
     @Autowired
     private StudentService studentService;
-
+    @Autowired
+    private NotificationMapper notificationMapper;
     // 1. 获取课程详情 (Service 层已集成 Redis 缓存)
     @GetMapping("/course/{courseId}/info")
     public ResponseEntity<?> getCourseInfo(@PathVariable Long courseId) {
@@ -109,4 +108,25 @@ public class StudentController {
     public ResponseEntity<List<Map<String, Object>>> getRecentActivities() {
         return ResponseEntity.ok(studentService.getRecentActivities());
     }
+    // 【新增】获取右上角通知列表
+    @GetMapping("/notifications")
+    public ResponseEntity<List<Notification>> getMyNotifications() {
+        return ResponseEntity.ok(studentService.getMyNotifications());
+    }
+
+    // 【新增】获取首页待办任务
+    @GetMapping("/pending-tasks")
+    public ResponseEntity<List<Map<String, Object>>> getPendingTasks() {
+        return ResponseEntity.ok(studentService.getPendingTasks());
+    }
+    // ...
+    @PostMapping("/notification/reply")
+    public ResponseEntity<?> replyNotification(@RequestBody Map<String, Object> data) {
+        Long id = Long.valueOf(data.get("id").toString());
+        String reply = (String) data.get("reply");
+
+        notificationMapper.updateReply(id, reply);
+        return ResponseEntity.ok("回复提交成功");
+    }
+    // ...
 }

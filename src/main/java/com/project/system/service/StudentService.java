@@ -1,9 +1,6 @@
 package com.project.system.service;
 
-import com.project.system.entity.Course;
-import com.project.system.entity.Exam;
-import com.project.system.entity.Material;
-import com.project.system.entity.QuizRecord;
+import com.project.system.entity.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -13,7 +10,10 @@ import java.util.Map;
  * 学生端业务服务接口
  */
 public interface StudentService {
+    List<Notification> getMyNotifications();
 
+    /** 获取我的待办任务 (用于首页下半部分) */
+    List<Map<String, Object>> getPendingTasks();
     /**
      * 获取课程详情（支持 Redis 缓存）
      */

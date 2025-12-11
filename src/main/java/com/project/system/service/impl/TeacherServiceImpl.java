@@ -248,4 +248,19 @@ public class TeacherServiceImpl implements TeacherService {
         }
         return result;
     }
+    // 【新增】获取教师的通知
+    @Override
+    public List<Notification> getMyNotifications() {
+        User teacher = getCurrentTeacher();
+        return notificationMapper.selectByUserId(teacher.getUserId());
+    }
+
+    // 【新增】教师回复通知
+    @Override
+    public void replyNotification(Long notificationId, String content) {
+        // 简单校验一下是否是该用户的通知（可选）
+        // notificationMapper.updateReply(notificationId, content);
+        // 这里假设 Mapper 已有 updateReply 方法 (上一步已添加)
+        notificationMapper.updateReply(notificationId, content);
+    }
 }

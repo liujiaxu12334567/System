@@ -17,11 +17,36 @@
           <el-button type="primary" round class="ai-btn">
             <el-icon style="margin-right: 4px"><MagicStick /></el-icon> NEU AI
           </el-button>
-          <div class="icon-wrap">
-            <el-badge is-dot class="badge-dot">
-              <el-icon :size="20" color="#606266"><Bell /></el-icon>
-            </el-badge>
-          </div>
+
+          <el-popover
+              placement="bottom"
+              :width="300"
+              trigger="click"
+              popper-class="notification-popover"
+          >
+            <template #reference>
+              <div class="icon-wrap">
+                <el-badge :value="notificationList.length" :hidden="notificationList.length === 0" class="badge-dot">
+                  <el-icon :size="20" color="#606266"><Bell /></el-icon>
+                </el-badge>
+              </div>
+            </template>
+
+            <div class="notify-box">
+              <div class="notify-header">
+                <span>消息通知 ({{ notificationList.length }})</span>
+                <el-button link type="primary" size="small" @click="fetchNotifications">刷新</el-button>
+              </div>
+              <div class="notify-list" v-if="notificationList.length > 0">
+                <div v-for="(note, index) in notificationList" :key="index" class="notify-item">
+                  <div class="n-title">{{ note.title }}</div>
+                  <div class="n-desc">{{ note.message }}</div>
+                  <div class="n-time">{{ formatTime(note.createTime) }}</div>
+                </div>
+              </div>
+              <div v-else class="notify-empty">暂无新通知</div>
+            </div>
+          </el-popover>
 
           <el-dropdown trigger="click">
             <div class="user-info">
@@ -102,51 +127,37 @@
         </div>
       </section>
 
-      <section class="content-block">
-        <div class="block-header">
-          <h3 class="title">我的项目 <span class="count">(0)</span></h3>
-          <el-link :underline="false" class="more-link">更多 <el-icon><ArrowRight /></el-icon></el-link>
-        </div>
-        <div class="empty-area">
-          <div class="custom-empty">
-            <el-icon :size="60" color="#e0e0e0"><Box /></el-icon>
-            <p>暂无项目</p>
-          </div>
-        </div>
-      </section>
-
       <div class="bottom-row">
         <section class="content-block half-block">
           <div class="block-header">
             <div class="header-left">
-              <h3 class="title">最近活动与通知</h3>
-              <div class="tabs">
-                <span class="tab active">最新</span>
-                <span class="tab">未读</span>
-              </div>
+              <h3 class="title">我的待办 <span class="count">({{ pendingTasks.length }})</span></h3>
             </div>
           </div>
 
-          <div class="task-list" v-if="activityList.length > 0">
-            <div class="task-item" v-for="(activity, index) in activityList" :key="index">
+          <div class="task-list" v-if="pendingTasks.length > 0">
+            <div class="task-item" v-for="(task, index) in pendingTasks" :key="index">
               <div class="item-left">
-                <el-tag :type="getActivityTag(activity.type)" effect="plain" size="small" class="type-tag">
-                  {{ getActivityTypeName(activity.type) }}
+                <el-tag :type="task.type === '测验' ? 'warning' : 'success'" effect="dark" size="small" class="type-tag">
+                  {{ task.type }}
                 </el-tag>
                 <div class="item-content">
-                  <div class="task-title">{{ activity.title }}</div>
-                  <div class="task-desc">{{ activity.message }} <span class="sep">| {{ formatTime(activity.displayTime) }}</span></div>
+                  <div class="task-title">
+                    {{ task.title }}
+                    <span class="course-badge">{{ task.courseName }}</span>
+                  </div>
+                  <div class="task-desc">截止时间：{{ task.deadline }}</div>
                 </div>
               </div>
-              <el-button v-if="activity.targetUrl" type="primary" link round size="small" class="action-btn">
-                查看详情
+              <el-button type="primary" link round size="small" @click="$router.push(`/quiz/${task.courseId || 0}/${task.id}`)">
+                去完成
               </el-button>
             </div>
           </div>
           <div class="empty-area small" v-else>
             <div class="custom-empty">
               <el-icon :size="50" color="#e0e0e0"><Document /></el-icon>
-              <p>暂无最新活动</p>
+              <p>真棒！所有作业都已完成</p>
             </div>
           </div>
         </section>
@@ -200,22 +211,20 @@ import { Bell, MagicStick, Platform, ArrowRight, Box, Document, Tickets, ArrowDo
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 
-// === 核心修复：引入 Day.js 及相关插件 ===
+// ★★★ Day.js 修复：引入相对时间插件 ★★★
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
-import 'dayjs/locale/zh-cn' // 导入中文语言包
-
-// 必须先扩展插件，否则 .fromNow() 会报错
+import 'dayjs/locale/zh-cn'
 dayjs.extend(relativeTime)
-dayjs.locale('zh-cn') // 设置全局语言为中文
-// ===================================
+dayjs.locale('zh-cn')
 
 const router = useRouter()
 const userInfo = ref({ realName: '' })
 const currentSemester = ref('2025-1')
 const loading = ref(true)
 const courseList = ref([])
-const activityList = ref([])
+const notificationList = ref([]) // 通知列表
+const pendingTasks = ref([])     // 待办任务
 
 // 弹窗和表单
 const settingsDialogVisible = ref(false)
@@ -226,7 +235,6 @@ const passwordForm = reactive({
   confirmNewPassword: ''
 })
 
-// 自定义校验规则：检查两次输入的新密码是否一致
 const validatePass = (rule, value, callback) => {
   if (value === '') {
     callback(new Error('请再次输入新密码'))
@@ -246,7 +254,6 @@ const passwordRules = reactive({
   confirmNewPassword: [{ required: true, validator: validatePass, trigger: 'blur' }]
 })
 
-
 onMounted(() => {
   const storedUser = localStorage.getItem('userInfo')
   if (storedUser) {
@@ -257,18 +264,22 @@ onMounted(() => {
 
 const fetchHomeData = async () => {
   try {
+    // 1. 获取基础首页数据
     const res = await request.get('/home/data')
-    // 获取通知列表
-    const activitiesRes = await request.get('/student/recent-activities')
-
     if (res) {
       if (res.realName) {
         userInfo.value.realName = res.realName
       }
       courseList.value = res.courses || []
-      // 使用后端返回的真实通知数据
-      activityList.value = activitiesRes || []
     }
+
+    // 2. 获取通知列表 (用于铃铛)
+    await fetchNotifications()
+
+    // 3. 获取待办任务 (用于底部列表)
+    const tasksRes = await request.get('/student/pending-tasks')
+    pendingTasks.value = tasksRes || []
+
   } catch (error) {
     console.error(error)
   } finally {
@@ -276,30 +287,15 @@ const fetchHomeData = async () => {
   }
 }
 
-// 活动通知辅助函数
-const getActivityTypeName = (type) => {
-  const map = {
-    GRADE_SUCCESS: '批改得分',
-    REJECT_SUBMISSION: '打回重做',
-    PUBLISH_NEW: '新资料',
-    GENERAL_NOTICE: '教师通知',
-    DEADLINE_EXTENDED: '截止延期',
-  };
-  return map[type] || '通知';
-};
+const fetchNotifications = async () => {
+  try {
+    const res = await request.get('/student/notifications')
+    notificationList.value = res || []
+  } catch(e) {
+    console.error("获取通知失败", e)
+  }
+}
 
-const getActivityTag = (type) => {
-  const map = {
-    GRADE_SUCCESS: 'success',
-    REJECT_SUBMISSION: 'danger',
-    PUBLISH_NEW: 'primary',
-    GENERAL_NOTICE: 'info',
-    DEADLINE_EXTENDED: 'warning',
-  };
-  return map[type] || 'info';
-};
-
-// 格式化时间显示 (使用 dayjs)
 const formatTime = (timeString) => {
   if (!timeString) return ''
   return dayjs(timeString).fromNow()
@@ -324,11 +320,9 @@ const submitPasswordChange = () => {
           oldPassword: passwordForm.oldPassword,
           newPassword: passwordForm.newPassword
         })
-
         ElMessage.success('密码修改成功，请重新登录')
         settingsDialogVisible.value = false
         logout()
-
       } catch (error) {
         console.error('密码修改失败', error)
       }
@@ -350,7 +344,6 @@ const logout = () => {
 </script>
 
 <style scoped lang="scss">
-/* 90% 宽度，配合全局样式 */
 $content-width: 90%;
 
 .home-container {
@@ -398,7 +391,6 @@ $content-width: 90%;
       }
       .icon-wrap { cursor: pointer; display: flex; align-items: center; }
 
-      // Dropdown and User Info Styles
       :deep(.el-dropdown) {
         cursor: pointer;
       }
@@ -406,9 +398,7 @@ $content-width: 90%;
         display: flex; align-items: center; gap: 10px;
         padding: 0 5px;
         border-radius: 4px;
-        &:hover {
-          background-color: #f0f2f5;
-        }
+        &:hover { background-color: #f0f2f5; }
         .username { font-size: 14px; color: #333; font-weight: 500;}
       }
     }
@@ -458,7 +448,7 @@ $content-width: 90%;
   padding-bottom: 20px;
 }
 
-/* 通用块 */
+/* Content Block */
 .content-block {
   margin-bottom: 24px;
 
@@ -490,7 +480,6 @@ $content-width: 90%;
 }
 
 .course-card {
-  /* 设置默认深灰色背景，防止白底白字看不见 */
   background: #909399;
   border-radius: 8px;
   height: 160px;
@@ -507,7 +496,6 @@ $content-width: 90%;
 
   &:hover { transform: translateY(-3px); }
 
-  /* 颜色样式定义 - 覆盖默认背景 */
   &.bg-pink { background: linear-gradient(135deg, #FF758C 0%, #FF7EB3 100%); }
   &.bg-blue { background: linear-gradient(135deg, #6B8DD6 0%, #8E9EFC 100%); }
   &.bg-purple { background: linear-gradient(135deg, #A18CD1 0%, #FBC2EB 100%); }
@@ -550,6 +538,7 @@ $content-width: 90%;
 
 .bottom-row { display: flex; gap: 20px; .half-block { flex: 1; } }
 
+/* 任务列表 */
 .task-list {
   background: #fff; border-radius: 8px; padding: 0 20px; min-height: 300px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.02);
@@ -566,5 +555,27 @@ $content-width: 90%;
     }
     .action-btn { font-size: 12px; padding: 6px 15px; }
   }
+}
+
+/* 通知气泡 */
+.notify-box {
+  .notify-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 10px; border-bottom: 1px solid #eee; margin-bottom: 10px; font-weight: bold;
+  }
+  .notify-list { max-height: 300px; overflow-y: auto; }
+  .notify-item {
+    padding: 10px 0; border-bottom: 1px solid #f5f5f5;
+    &:last-child { border-bottom: none; }
+    .n-title { font-size: 14px; font-weight: 500; color: #333; margin-bottom: 4px; }
+    .n-desc { font-size: 12px; color: #666; line-height: 1.4; margin-bottom: 4px; }
+    .n-time { font-size: 11px; color: #999; text-align: right; }
+  }
+  .notify-empty { text-align: center; color: #999; padding: 20px 0; }
+}
+
+/* 课程徽标 */
+.course-badge {
+  background: #f0f2f5; color: #909399; font-size: 11px; padding: 1px 5px; border-radius: 4px; margin-left: 8px; font-weight: normal;
 }
 </style>

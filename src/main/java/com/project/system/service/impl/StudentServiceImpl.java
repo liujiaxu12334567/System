@@ -293,4 +293,61 @@ public class StudentServiceImpl implements StudentService {
             return activity;
         }).collect(Collectors.toList());
     }
+    @Override
+    public List<Notification> getMyNotifications() {
+        return notificationMapper.selectByUserId(getCurrentUser().getUserId());
+    }
+
+    // 【新增】获取待办任务（逻辑：该学生所在班级的所有作业 - 该学生已提交的作业）
+    @Override
+    public List<Map<String, Object>> getPendingTasks() {
+        User user = getCurrentUser();
+        if (user.getClassId() == null) return Collections.emptyList();
+
+        // 1. 获取该班级所有课程
+        List<Course> courses = courseMapper.selectAllCourses().stream()
+                .filter(c -> c.getClassId() != null && c.getClassId().equals(user.getClassId()))
+                .collect(Collectors.toList());
+
+        // 2. 获取这些课程下的所有"作业/测验/项目"资料
+        List<Material> allTasks = new ArrayList<>();
+        for (Course c : courses) {
+            List<Material> materials = materialMapper.selectByCourseId(c.getId());
+            materials.stream()
+                    .filter(m -> Arrays.asList("作业", "测验", "项目").contains(m.getType()))
+                    .forEach(m -> {
+                        // 临时借用 filePath 字段存课程名，方便前端显示（或者用 Map 包装）
+                        m.setFilePath(c.getName());
+                        allTasks.add(m);
+                    });
+        }
+
+        // 3. 获取学生已提交的记录
+        List<QuizRecord> submittedRecords = quizRecordMapper.selectByUserId(user.getUserId());
+        Set<Long> submittedMaterialIds = submittedRecords.stream()
+                .map(QuizRecord::getMaterialId)
+                .collect(Collectors.toSet());
+
+        // 4. 过滤出未提交的任务
+        return allTasks.stream()
+                .filter(task -> !submittedMaterialIds.contains(task.getId()))
+                .map(task -> {
+                    Map<String, Object> map = new HashMap<>();
+                    map.put("id", task.getId());
+                    map.put("courseName", task.getFilePath()); // 之前临时存的课程名
+                    map.put("title", task.getFileName());
+                    map.put("type", task.getType());
+
+                    // 解析截止时间
+                    String deadline = "无限制";
+                    try {
+                        JsonNode node = new ObjectMapper().readTree(task.getContent());
+                        if (node.has("deadline")) deadline = node.get("deadline").asText();
+                    } catch (Exception e) {}
+                    map.put("deadline", deadline);
+
+                    return map;
+                })
+                .collect(Collectors.toList());
+    }
 }

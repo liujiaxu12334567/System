@@ -14,6 +14,7 @@
         <el-menu-item index="2"><el-icon><Tickets /></el-icon>批量分班/入学</el-menu-item>
         <el-menu-item index="3"><el-icon><Reading /></el-icon>课程管理</el-menu-item>
         <el-menu-item index="4"><el-icon><DocumentChecked /></el-icon>申请审核</el-menu-item>
+        <el-menu-item index="5"><el-icon><Bell /></el-icon>通知管理与统计</el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -23,7 +24,12 @@
 
         <div class="header-actions-top">
           <h2>用户管理</h2>
-          <el-button type="primary" @click="openDialog(null)" class="add-button">+ 新增用户</el-button>
+          <div class="right-btns">
+            <el-button type="warning" @click="openNotifyDialog" style="margin-right: 10px;">
+              <el-icon style="margin-right: 4px"><Bell /></el-icon> 下发通知
+            </el-button>
+            <el-button type="primary" @click="openDialog(null)" class="add-button">+ 新增用户</el-button>
+          </div>
         </div>
 
         <el-card shadow="never" class="filter-card">
@@ -73,7 +79,6 @@
                 />
               </el-select>
             </template>
-
 
             <el-input
                 v-model="keyword"
@@ -167,20 +172,16 @@
 
         <el-card shadow="hover" header="表格导入分班" style="margin-top: 20px;">
           <el-form :model="uploadForm" label-width="120px" :inline="true">
-
             <el-form-item label="目标班级ID">
               <el-input v-model="uploadForm.targetClassId" placeholder="请输入班级ID (例如: 202303)" type="number" style="width: 200px;" />
             </el-form-item>
-
             <el-form-item label="所属专业">
               <el-input v-model="uploadForm.major" placeholder="请输入专业名称" style="width: 200px;" />
             </el-form-item>
-
             <el-form-item label="起始学号">
               <el-input v-model="uploadForm.startUsername" placeholder="例如: 24107311201" style="width: 200px;" />
               <el-tag style="margin-left: 20px" type="warning">导入前必须填写此项，系统将顺序分配学号</el-tag>
             </el-form-item>
-
             <el-form-item>
               <el-button
                   type="primary"
@@ -191,7 +192,6 @@
                 提交导入
               </el-button>
             </el-form-item>
-
           </el-form>
 
           <el-upload
@@ -221,7 +221,6 @@
             </template>
           </el-upload>
         </el-card>
-
       </div>
 
       <div v-if="activeMenu === '3'">
@@ -290,22 +289,48 @@
         </el-table>
       </div>
 
+      <div v-if="activeMenu === '5'">
+        <div class="header-actions-top">
+          <h2>通知下发与统计</h2>
+          <el-button type="warning" @click="openNotifyDialog">
+            <el-icon style="margin-right: 4px"><Promotion /></el-icon> 新建通知
+          </el-button>
+        </div>
+
+        <el-alert title="您可以查看历史发送记录，并统计用户的填报/阅读情况。" type="info" show-icon style="margin-bottom: 20px;" />
+
+        <el-table :data="notifyHistory" border stripe style="width: 100%">
+          <el-table-column prop="title" label="通知标题" min-width="150" />
+          <el-table-column prop="message" label="内容摘要" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="createTime" label="发送时间" width="180">
+            <template #default="scope">{{ formatDate(scope.row.createTime) }}</template>
+          </el-table-column>
+          <el-table-column label="类型" width="120">
+            <template #default="scope">
+              <el-tag v-if="scope.row.isActionRequired" type="danger" effect="dark">需填报</el-tag>
+              <el-tag v-else type="info">普通通知</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="150" fixed="right">
+            <template #default="scope">
+              <el-button size="small" type="primary" plain @click="viewStats(scope.row)">查看统计</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
 
       <el-dialog v-model="dialogVisible" :title="form.userId ? '编辑用户' : '新增用户'" width="500px">
         <el-form :model="form" label-width="100px">
-
           <el-form-item label="账号/学号">
             <el-input v-model="form.username" :disabled="!!form.userId" />
           </el-form-item>
-
           <el-form-item label="真实姓名">
             <el-input v-model="form.realName" />
           </el-form-item>
-
           <el-form-item label="密码">
             <el-input v-model="form.password" placeholder="不填则不修改(新增默认123456)" show-password />
           </el-form-item>
-
           <el-form-item label="角色">
             <el-select v-model="form.roleType" placeholder="请选择角色" style="width: 100%" :disabled="!!form.userId">
               <el-option label="管理员" :value="1" />
@@ -341,13 +366,89 @@
               </el-select>
             </el-form-item>
           </template>
-
-
         </el-form>
         <template #footer>
           <el-button @click="dialogVisible = false">取消</el-button>
           <el-button type="primary" @click="submitForm">确定</el-button>
         </template>
+      </el-dialog>
+
+      <el-dialog v-model="notifyDialogVisible" title="下发系统通知" width="600px">
+        <el-form :model="notifyForm" label-width="100px">
+          <el-form-item label="通知标题">
+            <el-input v-model="notifyForm.title" placeholder="请输入通知标题" />
+          </el-form-item>
+          <el-form-item label="通知内容">
+            <el-input v-model="notifyForm.content" type="textarea" :rows="4" placeholder="请输入通知正文" />
+          </el-form-item>
+
+          <el-form-item label="发送对象">
+            <el-radio-group v-model="notifyForm.targetType">
+              <el-radio label="SPECIFIC">指定用户</el-radio>
+              <el-radio label="ALL_STUDENTS">全体学生</el-radio>
+              <el-radio label="ALL_TEACHERS">全体教师</el-radio>
+              <el-radio label="ALL">全校所有用户</el-radio>
+            </el-radio-group>
+          </el-form-item>
+
+          <el-form-item label="选择用户" v-if="notifyForm.targetType === 'SPECIFIC'">
+            <el-select
+                v-model="notifyForm.userIds"
+                multiple
+                filterable
+                remote
+                :remote-method="searchUsersForNotify"
+                placeholder="输入姓名搜索用户 (默认加载当前页用户)"
+                style="width: 100%"
+            >
+              <el-option
+                  v-for="item in notifyUserOptions"
+                  :key="item.userId"
+                  :label="item.realName + ' (' + item.username + ')'"
+                  :value="item.userId"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="回执要求">
+            <el-checkbox v-model="notifyForm.needReply">要求用户填写信息/回复</el-checkbox>
+            <div style="font-size:12px; color:#999; line-height:1.2; margin-top:5px;">
+              勾选后，用户在查看通知时会看到输入框，您可以在“查看统计”中看到回复内容。
+            </div>
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <span class="dialog-footer">
+            <el-button @click="notifyDialogVisible = false">取消</el-button>
+            <el-button type="primary" @click="submitNotification">确认发送</el-button>
+          </span>
+        </template>
+      </el-dialog>
+
+      <el-dialog v-model="statsDialogVisible" title="通知统计详情" width="800px">
+        <div style="margin-bottom:15px; font-weight:bold;">通知标题：{{ currentStatsTitle }}</div>
+        <el-table :data="currentStatsList" height="400" border stripe>
+          <el-table-column property="realName" label="姓名" width="120" />
+          <el-table-column property="username" label="学号/工号" width="120" />
+          <el-table-column property="roleType" label="身份" width="100">
+            <template #default="scope">{{ getRoleName(scope.row.roleType) }}</template>
+          </el-table-column>
+          <el-table-column property="isRead" label="状态" width="100">
+            <template #default="scope">
+              <el-tag v-if="scope.row.isRead" type="success">已读/已回</el-tag>
+              <el-tag v-else type="info">未读</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column property="userReply" label="填报/回复内容" min-width="200">
+            <template #default="scope">
+              <span v-if="scope.row.userReply" style="color:#333">{{ scope.row.userReply }}</span>
+              <span v-else style="color:#ccc">--</span>
+            </template>
+          </el-table-column>
+          <el-table-column property="createTime" label="发送时间" width="160">
+            <template #default="scope">{{ formatDate(scope.row.createTime) }}</template>
+          </el-table-column>
+        </el-table>
       </el-dialog>
 
       <el-dialog v-model="courseDialogVisible" title="发布新课程" width="500px">
@@ -361,7 +462,6 @@
               <el-option label="2024-2025学年 第2学期" value="2024-2" />
             </el-select>
           </el-form-item>
-
           <el-form-item label="所选班级">
             <el-select v-model="courseForm.classId" placeholder="请选择所属班级 (必填)" style="width: 100%">
               <el-option
@@ -372,7 +472,6 @@
               />
             </el-select>
           </el-form-item>
-
           <el-form-item label="主讲教师">
             <el-select v-model="courseForm.teacher" placeholder="请选择(可选)" style="width: 100%">
               <el-option
@@ -387,6 +486,44 @@
         <template #footer>
           <el-button @click="courseDialogVisible = false">取消</el-button>
           <el-button type="primary" @click="submitCourse">确认发布</el-button>
+        </template>
+      </el-dialog>
+
+      <el-dialog v-model="batchAssignDialogVisible" title="批量分配/复制课程" width="600px">
+        <el-form :model="batchAssignForm" label-width="100px">
+          <el-form-item label="课程名称">
+            <el-input v-model="batchAssignForm.name" placeholder="例如：高级Java程序设计" />
+          </el-form-item>
+          <el-form-item label="所属学期">
+            <el-select v-model="batchAssignForm.semester" placeholder="请选择学期" style="width: 100%">
+              <el-option label="2025-2026学年 第1学期" value="2025-1" />
+              <el-option label="2024-2025学年 第2学期" value="2024-2" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="分配教师">
+            <el-select v-model="batchAssignForm.teacherNames" multiple placeholder="请选择主讲教师 (可多选)" style="width: 100%">
+              <el-option
+                  v-for="t in teacherList"
+                  :key="t.userId"
+                  :label="t.realName"
+                  :value="t.realName"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="目标班级">
+            <el-select v-model="batchAssignForm.classIds" multiple placeholder="请选择要分配的班级 (可多选)" style="width: 100%">
+              <el-option
+                  v-for="c in classList"
+                  :key="c.id"
+                  :label="c.name + ' (ID: ' + c.id + ')'"
+                  :value="c.id"
+              />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="batchAssignDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="submitBatchAssign">确认批量分配</el-button>
         </template>
       </el-dialog>
 
@@ -407,47 +544,6 @@
         </template>
       </el-dialog>
 
-      <el-dialog v-model="batchAssignDialogVisible" title="批量分配/复制课程" width="600px">
-        <el-form :model="batchAssignForm" label-width="100px">
-          <el-form-item label="课程名称">
-            <el-input v-model="batchAssignForm.name" placeholder="例如：高级Java程序设计" />
-          </el-form-item>
-          <el-form-item label="所属学期">
-            <el-select v-model="batchAssignForm.semester" placeholder="请选择学期" style="width: 100%">
-              <el-option label="2025-2026学年 第1学期" value="2025-1" />
-              <el-option label="2024-2025学年 第2学期" value="2024-2" />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="分配教师">
-            <el-select v-model="batchAssignForm.teacherNames" multiple placeholder="请选择主讲教师 (可多选)" style="width: 100%">
-              <el-option
-                  v-for="t in teacherList"
-                  :key="t.userId"
-                  :label="t.realName"
-                  :value="t.realName"
-              />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="目标班级">
-            <el-select v-model="batchAssignForm.classIds" multiple placeholder="请选择要分配的班级 (可多选)" style="width: 100%">
-              <el-option
-                  v-for="c in classList"
-                  :key="c.id"
-                  :label="c.name + ' (ID: ' + c.id + ')'"
-                  :value="c.id"
-              />
-            </el-select>
-          </el-form-item>
-
-        </el-form>
-        <template #footer>
-          <el-button @click="batchAssignDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="submitBatchAssign">确认批量分配</el-button>
-        </template>
-      </el-dialog>
-
     </el-main>
   </div>
 </template>
@@ -456,7 +552,8 @@
 import { ref, onMounted, reactive, nextTick } from 'vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
-import { User, Reading, DataBoard, Tickets, UploadFilled, DocumentChecked } from '@element-plus/icons-vue'
+import { User, Reading, DataBoard, Tickets, UploadFilled, DocumentChecked, Bell, Plus, Upload, Promotion } from '@element-plus/icons-vue'
+import dayjs from 'dayjs' // 确保已安装: npm install dayjs
 
 const userList = ref([])
 const keyword = ref('')
@@ -468,7 +565,7 @@ const pageSize = ref(10)
 const total = ref(0)
 
 const dialogVisible = ref(false)
-const form = ref({ managerCourses: [] }) // 【修改】初始化 form，包含 managerCourses
+const form = ref({ managerCourses: [] }) // 初始化 form
 const activeMenu = ref('1')
 const loading = reactive({ range: false, upload: false })
 const rangeForm = reactive({ startUsername: '', endUsername: '', targetClassId: null, major: null })
@@ -492,6 +589,20 @@ const classList = ref([]);
 // --- 申请审核状态 ---
 const applicationList = ref([]);
 
+// --- 通知相关状态 (新增) ---
+const notifyDialogVisible = ref(false)
+const statsDialogVisible = ref(false)
+const notifyHistory = ref([])
+const currentStatsList = ref([])
+const currentStatsTitle = ref('')
+const notifyUserOptions = ref([])
+const notifyForm = reactive({
+  title: '',
+  content: '',
+  targetType: 'SPECIFIC', // 默认类型
+  userIds: [],
+  needReply: false // 新增：是否需要回复
+})
 
 onMounted(() => {
   fetchUsers();
@@ -524,7 +635,6 @@ const fetchUsers = async () => {
     total.value = res.total || 0;
     pageNum.value = res.pageNum || 1;
     pageSize.value = res.pageSize || 10;
-
   } catch (error) {
     console.error("加载用户失败", error);
   }
@@ -550,7 +660,7 @@ const fetchCourseAndTeacherData = async () => {
   }
 }
 
-// 【新增】获取待审核的申请列表
+// 获取待审核的申请列表
 const fetchPendingApplications = async () => {
   try {
     const res = await request.get('/admin/applications/pending');
@@ -558,6 +668,16 @@ const fetchPendingApplications = async () => {
   } catch (e) {
     ElMessage.error('加载待审核申请失败');
     console.error(e);
+  }
+}
+
+// 获取通知历史
+const fetchNotifyHistory = async () => {
+  try {
+    const res = await request.get('/admin/notification/history');
+    notifyHistory.value = res || [];
+  } catch(e) {
+    ElMessage.error('加载通知历史失败');
   }
 }
 
@@ -589,6 +709,8 @@ const handleMenuSelect = (index) => {
     fetchCourseAndTeacherData();
   } else if (index === '4') { // 切换到申请审核
     fetchPendingApplications();
+  } else if (index === '5') { // 切换到通知管理
+    fetchNotifyHistory();
   }
 }
 
@@ -608,8 +730,7 @@ const openDialog = (row) => {
       classId: row.classId,
       teachingClasses: row.teachingClasses,
       major: null,
-      // 【核心修改】课题组长（Role=2）时，从 teacherRank 中解析课程名列表
-      // 注意：我们假设 row.teacherRank 存储了逗号分隔的课程名
+      // 课题组长（Role=2）时，从 teacherRank 中解析课程名列表
       managerCourses: isLeader && row.teacherRank ? row.teacherRank.split(',') : [],
     }
   } else {
@@ -639,7 +760,6 @@ const submitForm = async () => {
     if (!form.value.major) return ElMessage.warning('新增学生必须填写专业名称');
   }
 
-  // 【核心修改：构建 payload，处理课题组长负责课程】
   const coursesToManage = form.value.managerCourses || [];
 
   const payload = {
@@ -650,11 +770,9 @@ const submitForm = async () => {
     teacherRank: form.value.roleType === 2 ? coursesToManage.join(',') : form.value.teacherRank,
 
     // 如果是课题组长，将负责课程名列表放在 teachingClasses 字段中传递给后端进行统一处理
-    // 否则使用原有的 teachingClasses（班级 ID）
     teachingClasses: form.value.roleType === 2 ? coursesToManage.join(',') : form.value.teachingClasses,
   }
 
-  // 删除 managerCourses 避免它被发送到 User 实体中不存在的字段
   delete payload.managerCourses;
 
   try {
@@ -678,8 +796,50 @@ const handleDelete = async (id) => {
   }
 }
 
+// ★★★ 新增：通知相关逻辑 ★★★
+const openNotifyDialog = () => {
+  notifyForm.title = ''
+  notifyForm.content = ''
+  notifyForm.targetType = 'SPECIFIC'
+  notifyForm.userIds = []
+  notifyForm.needReply = false
+  // 默认把当前页面表格里的用户加载进去，方便选择
+  notifyUserOptions.value = [...userList.value]
+  notifyDialogVisible.value = true
+}
 
-// --- 课程管理逻辑 (CRUD and Batch) ---
+const searchUsersForNotify = async (query) => {
+  const res = await request.get('/admin/user/list', {
+    params: { keyword: query, pageNum: 1, pageSize: 20 }
+  })
+  notifyUserOptions.value = res.list || []
+}
+
+const submitNotification = async () => {
+  if (!notifyForm.title || !notifyForm.content) return ElMessage.warning('请填写标题和内容');
+  if (notifyForm.targetType === 'SPECIFIC' && notifyForm.userIds.length === 0) return ElMessage.warning('请选择用户');
+
+  try {
+    await request.post('/admin/notification/send', notifyForm)
+    ElMessage.success('通知发送成功')
+    notifyDialogVisible.value = false
+    if(activeMenu.value === '5') fetchNotifyHistory()
+  } catch (e) {
+    ElMessage.error('发送失败')
+  }
+}
+
+// 查看统计
+const viewStats = async (row) => {
+  currentStatsTitle.value = row.title;
+  try {
+    const res = await request.get(`/admin/notification/stats/${row.batchId}`);
+    currentStatsList.value = res || [];
+    statsDialogVisible.value = true;
+  } catch(e) { ElMessage.error('加载统计失败'); }
+}
+
+// --- 课程管理逻辑 ---
 
 const openCourseDialog = () => {
   courseForm.value = { name: '', semester: '2025-1', teacher: '', classId: null };
@@ -695,7 +855,7 @@ const submitCourse = async () => {
   try {
     const payload = {
       ...courseForm.value,
-      managerName: currentAdmin.realName // 设置课题组长字段，默认为当前管理员
+      managerName: currentAdmin.realName // 设置课题组长字段
     };
 
     await request.post('/admin/course/add', payload);
@@ -724,7 +884,7 @@ const submitBatchAssign = async () => {
       semester: form.semester,
       teacherNames: form.teacherNames,
       classIds: form.classIds,
-      managerName: currentAdmin.realName // 设置课题组长字段，默认为当前管理员
+      managerName: currentAdmin.realName
     });
     ElMessage.success(`成功分配课程给 ${form.classIds.length} 个班级，教师执教班级已同步更新。`);
     batchAssignDialogVisible.value = false;
@@ -871,6 +1031,7 @@ const getTypeTag = (type) => {
   const map = { ADD: 'success', DELETE: 'danger', RESET_PWD: 'warning' }
   return map[type] || 'info'
 }
+const formatDate = (t) => t ? dayjs(t).format('YYYY-MM-DD HH:mm') : ''
 
 onMounted(() => {
   fetchUsers();
@@ -879,66 +1040,19 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* 样式优化，让筛选框和按钮对齐 */
 .admin-container { display: flex; height: 100vh; }
 .sidebar { background-color: #304156; color: white; }
 .logo { height: 60px; line-height: 60px; text-align: center; font-size: 18px; font-weight: bold; background-color: #2b3649; }
 .el-menu-vertical:not(.el-menu--collapse) { width: 200px; min-height: 400px; }
-.main-content { padding: 20px; background-color: #f0f2f5; }
+.main-content { padding: 20px; background-color: #f0f2f5; flex: 1; overflow-y: auto; }
 
-/* 【顶部操作区样式】 */
-.header-actions-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-.header-actions-top h2 {
-  margin: 0;
-}
-
-/* 筛选区域样式 */
-.filter-card {
-  margin-bottom: 20px;
-  padding: 15px;
-  display: flex;
-  justify-content: flex-start; /* 保持筛选控件在左侧 */
-  align-items: center;
-}
-.filter-controls {
-  display: flex;
-  align-items: center;
-}
-
-/* 【分页容器样式】 */
-.pagination-container {
-  margin-top: 20px;
-  padding: 15px;
-  background: #fff;
-  border-radius: 4px;
-  display: flex;
-  justify-content: flex-end;
-}
-
-/* 课程管理样式 */
-.content-panel {
-  margin: 0;
-  padding: 20px;
-  background: #fff;
-  border-radius: 4px;
-  flex: 1;
-}
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-.header-buttons {
-  display: flex;
-}
-
-
+.header-actions-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.header-actions-top h2 { margin: 0; }
+.filter-card { margin-bottom: 20px; padding: 15px; display: flex; justify-content: flex-start; align-items: center; }
+.filter-controls { display: flex; align-items: center; }
+.pagination-container { margin-top: 20px; padding: 15px; background: #fff; border-radius: 4px; display: flex; justify-content: flex-end; }
+.content-panel { margin: 0; padding: 20px; background: #fff; border-radius: 4px; flex: 1; }
+.panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 h2 { margin: 0; }
 .batch-enrollment-container h2 { margin-bottom: 20px; }
 .el-upload__text em { color: #409eff; }

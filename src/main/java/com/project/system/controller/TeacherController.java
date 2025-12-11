@@ -19,6 +19,7 @@ import com.project.system.mapper.QuizRecordMapper;
 import com.project.system.mapper.UserMapper;
 import com.project.system.mapper.NotificationMapper; // 引入 NotificationMapper
 
+import com.project.system.service.TeacherService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -39,7 +40,8 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/teacher")
 public class TeacherController {
-
+    @Autowired
+    private TeacherService teacherService;
     @Autowired
     private UserMapper userMapper;
 
@@ -333,5 +335,19 @@ public class TeacherController {
         }
 
         return ResponseEntity.ok(cheatingList);
+    }
+    // 【新增】获取通知列表
+    @GetMapping("/notifications")
+    public ResponseEntity<List<Notification>> getMyNotifications() {
+        return ResponseEntity.ok(teacherService.getMyNotifications());
+    }
+
+    // 【新增】回复通知
+    @PostMapping("/notification/reply")
+    public ResponseEntity<?> replyNotification(@RequestBody Map<String, Object> data) {
+        Long id = Long.valueOf(data.get("id").toString());
+        String reply = (String) data.get("reply");
+        teacherService.replyNotification(id, reply);
+        return ResponseEntity.ok("回复提交成功");
     }
 }

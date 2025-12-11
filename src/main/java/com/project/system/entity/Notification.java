@@ -6,11 +6,18 @@ import java.time.LocalDateTime;
 @Data
 public class Notification {
     private Long id;
-    private Long userId;        // 目标用户ID (学生或教师)
-    private Long relatedId;     // 关联的业务ID (如 materialId, examId)
-    private String type;        // 通知类型: GRADE_SUCCESS, REJECT_SUBMISSION, PUBLISH_NEW, DEADLINE_EXTENDED, GENERAL_NOTICE
-    private String title;       // 通知标题
-    private String message;     // 通知内容详情
+    private Long userId;        // 接收人ID
+    private Long relatedId;     // 关联ID
+    private String type;        // 类型
+    private String title;       // 标题
+    private String message;     // 内容
     private Boolean isRead;     // 是否已读
+
+    // 【新增字段】
+    private Boolean isActionRequired; // 是否需要用户填写信息返回
+    private String userReply;         // 用户填写的回复信息
+    private String batchId;           // 批次ID (用于管理员统计同一次群发的数据)
+    private String senderName;        // 发送者姓名
+
     private LocalDateTime createTime;
 }

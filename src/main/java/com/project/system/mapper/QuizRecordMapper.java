@@ -26,7 +26,8 @@ public interface QuizRecordMapper {
     // 【🔥 核心修复 🔥】 确保表名是 sys_quiz_record，而不是 sys_course 或 sys_material
     @Delete("DELETE FROM sys_quiz_record WHERE id = #{id}")
     int deleteById(@Param("id") Long id);
-
+    @Select("SELECT * FROM sys_quiz_record WHERE user_id = #{userId}")
+    List<QuizRecord> selectByUserId(Long userId);
     @Select("SELECT * FROM sys_quiz_record WHERE id = #{id}")
     QuizRecord findById(@Param("id") Long id);
 }

@@ -10,18 +10,41 @@
         <result property="title" column="title"/>
         <result property="message" column="message"/>
         <result property="isRead" column="is_read"/>
+        <result property="isActionRequired" column="is_action_required"/>
+        <result property="userReply" column="user_reply"/>
+        <result property="batchId" column="batch_id"/>
+        <result property="senderName" column="sender_name"/>
         <result property="createTime" column="create_time"/>
     </resultMap>
 
     <insert id="insert" parameterType="com.project.system.entity.Notification" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO sys_notification (user_id, related_id, type, title, message, is_read, create_time)
-        VALUES (#{userId}, #{relatedId}, #{type}, #{title}, #{message}, FALSE, NOW())
+        INSERT INTO sys_notification
+        (user_id, related_id, type, title, message, is_read, is_action_required, user_reply, batch_id, sender_name, create_time)
+        VALUES
+            (#{userId}, #{relatedId}, #{type}, #{title}, #{message}, FALSE, #{isActionRequired}, #{userReply}, #{batchId}, #{senderName}, NOW())
     </insert>
 
     <select id="selectByUserId" resultMap="NotificationResultMap">
+        SELECT * FROM sys_notification WHERE user_id = #{userId} ORDER BY create_time DESC LIMIT 50
+    </select>
+
+    <update id="updateReply">
+        UPDATE sys_notification SET user_reply = #{userReply}, is_read = TRUE WHERE id = #{id}
+    </update>
+
+    <select id="selectSentBatches" resultMap="NotificationResultMap">
         SELECT * FROM sys_notification
-        WHERE user_id = #{userId}
+        WHERE batch_id IS NOT NULL
+        GROUP BY batch_id
         ORDER BY create_time DESC
-            LIMIT 50
+    </select>
+
+    <select id="selectStatsByBatchId" resultType="java.util.Map">
+        SELECT
+            n.id, n.is_read as isRead, n.user_reply as userReply, n.create_time as createTime,
+            u.real_name as realName, u.username as username, u.role_type as roleType
+        FROM sys_notification n
+                 LEFT JOIN sys_user u ON n.user_id = u.user_id
+        WHERE n.batch_id = #{batchId}
     </select>
 </mapper>

@@ -16,8 +16,53 @@
       <div class="header-bar">
         <span>欢迎您，{{ teacherName }} 老师</span>
         <div class="header-actions">
+
+          <el-popover
+              placement="bottom"
+              :width="350"
+              trigger="click"
+              popper-class="notify-popover"
+          >
+            <template #reference>
+              <div class="icon-btn">
+                <el-badge :value="unreadCount" :hidden="unreadCount === 0" class="badge-dot">
+                  <el-icon :size="20"><Bell /></el-icon>
+                </el-badge>
+              </div>
+            </template>
+
+            <div class="notify-box">
+              <div class="notify-header">
+                <span>通知中心</span>
+                <el-button link type="primary" size="small" @click="fetchNotifications">刷新</el-button>
+              </div>
+              <div class="notify-list" v-if="notificationList.length > 0">
+                <div v-for="(note, index) in notificationList" :key="index" class="notify-item">
+                  <div class="n-title">
+                    {{ note.title }}
+                    <el-tag v-if="note.isActionRequired" size="small" type="warning" effect="dark">需回复</el-tag>
+                  </div>
+                  <div class="n-desc">{{ note.message }}</div>
+
+                  <div v-if="note.isActionRequired" class="reply-area">
+                    <div v-if="note.userReply" class="replied-text">
+                      <el-icon><Check /></el-icon> 已回复: {{ note.userReply }}
+                    </div>
+                    <div v-else class="reply-input-box">
+                      <el-input v-model="note.tempReply" size="small" placeholder="请输入信息并回复..." />
+                      <el-button type="primary" size="small" @click="submitReply(note)">提交</el-button>
+                    </div>
+                  </div>
+
+                  <div class="n-time">{{ formatTime(note.createTime) }}</div>
+                </div>
+              </div>
+              <div v-else class="notify-empty">暂无通知</div>
+            </div>
+          </el-popover>
+
           <el-button type="warning" plain @click="openNotificationDialog">
-            <el-icon style="margin-right: 5px;"><Bell /></el-icon> 下发通知
+            <el-icon style="margin-right: 5px;"><Promotion /></el-icon> 下发通知(给学生)
           </el-button>
           <el-button link type="primary" @click="logout">退出</el-button>
         </div>
@@ -326,9 +371,16 @@
 <script setup>
 import { ref, onMounted, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Reading, User, Document, DocumentChecked, Tickets, Bell, Close } from '@element-plus/icons-vue'
+import { Reading, User, Document, DocumentChecked, Tickets, Bell, Close, Promotion, Check } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+// ★★★ 引入 Day.js ★★★
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import 'dayjs/locale/zh-cn'
+dayjs.extend(relativeTime)
+dayjs.locale('zh-cn')
 
 const router = useRouter()
 const teacherInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
@@ -342,6 +394,9 @@ const teachingClassIds = ref([]) // 存储教师的执教班级ID列表
 const teachingMaterials = ref([]) // 教师执教班级的资料列表
 const availableExams = ref([]) // 所有考试列表
 const cheatingRecords = ref([]) // 作弊记录列表
+
+// ★★★ 新增：通知列表 ★★★
+const notificationList = ref([])
 
 // 分页和筛选状态
 const keyword = ref('')
@@ -363,7 +418,7 @@ const dialogTitle = ref('')
 const currentRow = ref({})
 const currentMaterial = ref({})
 const currentSubmission = ref({ gradeForm: {} })
-const currentCheatingRecord = ref({})
+const currentCheatingRecord = ref({ record: {} }) // 初始化防止空指针
 const submissions = ref([])
 
 const applyForm = ref({ type: '', reason: '', newUsername: '', newRealName: '', newClassId: null, materialId: null })
@@ -379,6 +434,8 @@ onMounted(() => {
   fetchStudents()
   fetchMaterials()
   fetchAvailableExams()
+  // ★★★ 加载通知 ★★★
+  fetchNotifications()
 })
 
 const initializeTeachingClasses = () => {
@@ -388,6 +445,32 @@ const initializeTeachingClasses = () => {
         .map(s => s.trim())
         .filter(s => s.length > 0);
   }
+}
+
+// ★★★ 新增：获取通知逻辑 ★★★
+const fetchNotifications = async () => {
+  try {
+    const res = await request.get('/teacher/notifications')
+    notificationList.value = res || []
+  } catch(e) {}
+}
+
+const unreadCount = computed(() => notificationList.value.filter(n => !n.isRead).length)
+
+// ★★★ 新增：回复通知逻辑 ★★★
+const submitReply = async (note) => {
+  if (!note.tempReply) return ElMessage.warning('请输入内容');
+  try {
+    await request.post('/teacher/notification/reply', { id: note.id, reply: note.tempReply });
+    ElMessage.success('提交成功');
+    note.userReply = note.tempReply;
+    note.isRead = true; // 本地更新已读状态
+  } catch(e) { ElMessage.error('失败'); }
+}
+
+const formatTime = (timeString) => {
+  if (!timeString) return ''
+  return dayjs(timeString).fromNow()
 }
 
 const fetchAvailableExams = async () => {
@@ -732,6 +815,7 @@ const getMaterialTypeTag = (type) => {
 .main-content { padding: 20px; flex: 1; display: flex; flex-direction: column; }
 .header-bar { background: #fff; padding: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 .header-actions { display: flex; align-items: center; gap: 10px; }
+.icon-btn { cursor: pointer; display: flex; align-items: center; padding: 0 10px; }
 .content-block { background: #fff; padding: 20px; border-radius: 4px; flex: 1; min-height: 400px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 .panel-header { display: flex; justify-content: space-between; margin-bottom: 20px; align-items: center; }
 h3 { margin: 0 0 10px; border-left: 4px solid #409EFF; padding-left: 10px; }
@@ -754,5 +838,16 @@ h3 { margin: 0 0 10px; border-left: 4px solid #409EFF; padding-left: 10px; }
   border-radius: 4px;
   display: flex;
   justify-content: flex-end;
+}
+
+/* 通知气泡样式 (复用 Home.vue 样式) */
+.notify-box {
+  .notify-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #eee; margin-bottom: 10px; font-weight: bold; }
+  .notify-list { max-height: 300px; overflow-y: auto; }
+  .notify-item { padding: 10px 0; border-bottom: 1px solid #f5f5f5; &:last-child { border-bottom: none; } .n-title { font-size: 14px; font-weight: 500; color: #333; margin-bottom: 4px; } .n-desc { font-size: 12px; color: #666; line-height: 1.4; margin-bottom: 4px; } .n-time { font-size: 11px; color: #999; text-align: right; } }
+  .reply-area { margin-top: 8px; background: #f9f9f9; padding: 8px; border-radius: 4px; }
+  .reply-input-box { display: flex; gap: 5px; }
+  .replied-text { color: #67C23A; font-size: 12px; }
+  .notify-empty { text-align: center; color: #999; padding: 20px 0; }
 }
 </style>

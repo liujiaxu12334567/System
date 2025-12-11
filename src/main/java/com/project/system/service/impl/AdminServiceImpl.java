@@ -14,14 +14,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-
+import com.project.system.mapper.NotificationMapper;
 import java.io.InputStream;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 public class AdminServiceImpl implements AdminService {
-
+    @Autowired private NotificationMapper notificationMapper;
     @Autowired private UserMapper userMapper;
     @Autowired private CourseMapper courseMapper;
     @Autowired private ClassMapper classMapper;
@@ -292,4 +292,71 @@ public class AdminServiceImpl implements AdminService {
         }
         applicationMapper.updateStatus(appId, status);
     }
+    @Override
+    @Transactional
+    public void sendNotificationToUsers(List<Long> userIds, String title, String content) {
+        for (Long userId : userIds) {
+            Notification n = new Notification();
+            n.setUserId(userId);
+            n.setType("GENERAL_NOTICE"); // 管理员通知类型
+            n.setTitle(title);
+            n.setMessage(content);
+            notificationMapper.insert(n);
+        }
+    }
+    // ...
+    @Override
+    @Transactional
+    public void sendNotification(String title, String content, String targetType, List<Long> specificUserIds, boolean needReply) {
+        String currentAdminName = SecurityContextHolder.getContext().getAuthentication().getName(); // 获取当前管理员名
+        String batchId = UUID.randomUUID().toString(); // 生成批次ID
+
+        List<User> targets = new ArrayList<>();
+
+        // 1. 根据类型筛选目标用户
+        if ("SPECIFIC".equals(targetType)) {
+            if (specificUserIds != null && !specificUserIds.isEmpty()) {
+                // 这里简单循环查，实际可以用 WHERE IN
+                for(Long uid : specificUserIds) {
+                    // 假设有个 findById，或者用 selectAllUsers 过滤
+                    // 为了简便，这里重新查一下
+                    // 实际项目建议在 UserMapper 加 selectByIds
+                    userMapper.selectAllUsers(null, null, null, 0, 100000).stream()
+                            .filter(u -> u.getUserId().equals(uid)).findFirst().ifPresent(targets::add);
+                }
+            }
+        } else if ("ALL_STUDENTS".equals(targetType)) {
+            targets = userMapper.selectUsersByRole("4");
+        } else if ("ALL_TEACHERS".equals(targetType)) {
+            targets.addAll(userMapper.selectUsersByRole("2")); // 组长
+            targets.addAll(userMapper.selectUsersByRole("3")); // 教师
+        } else if ("ALL".equals(targetType)) {
+            targets = userMapper.selectAllUsers(null, null, null, 0, 100000);
+        }
+
+        // 2. 批量插入通知
+        for (User user : targets) {
+            Notification n = new Notification();
+            n.setUserId(user.getUserId());
+            n.setType("Admin_Notice");
+            n.setTitle(title);
+            n.setMessage(content);
+            n.setIsActionRequired(needReply);
+            n.setBatchId(batchId);
+            n.setSenderName("管理员"); // 或 currentAdminName
+            notificationMapper.insert(n);
+        }
+    }
+
+    @Override
+    public List<Object> getNotificationHistory() {
+        // 这里返回的是批次列表
+        return new ArrayList<>(notificationMapper.selectSentBatches());
+    }
+
+    @Override
+    public List<Map<String, Object>> getNotificationStats(String batchId) {
+        return notificationMapper.selectStatsByBatchId(batchId);
+    }
+
 }

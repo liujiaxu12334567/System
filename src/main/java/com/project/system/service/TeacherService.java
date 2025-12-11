@@ -2,6 +2,7 @@ package com.project.system.service;
 
 import com.project.system.dto.PaginationResponse;
 import com.project.system.entity.Application;
+import com.project.system.entity.Notification;
 import com.project.system.entity.QuizRecord;
 
 import java.util.List;
@@ -48,4 +49,8 @@ public interface TeacherService {
      * 获取考试作弊记录
      */
     List<Map<String, Object>> getExamCheatingRecords(Long examId);
+    List<Notification> getMyNotifications();
+
+    // 【新增】回复通知
+    void replyNotification(Long notificationId, String content);
 }
