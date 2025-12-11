@@ -1,33 +1,34 @@
 package com.project.system.mapper;
 
 import com.project.system.entity.QuizRecord;
-import org.apache.ibatis.annotations.*;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 import java.util.List;
 
 @Mapper
 public interface QuizRecordMapper {
 
-    @Insert("INSERT INTO sys_quiz_record(user_id, material_id, score, user_answers, ai_feedback, submit_time) " +
-            "VALUES(#{userId}, #{materialId}, #{score}, #{userAnswers}, #{aiFeedback}, NOW())")
+    // 1. 插入测验记录
     int insert(QuizRecord record);
 
-    @Select("SELECT * FROM sys_quiz_record WHERE user_id = #{userId} AND material_id = #{materialId} LIMIT 1")
+    // 2. 根据用户和资料ID查找记录
     QuizRecord findByUserIdAndMaterialId(@Param("userId") Long userId, @Param("materialId") Long materialId);
 
-    @Update("UPDATE sys_quiz_record SET ai_feedback = #{aiFeedback} WHERE id = #{id}")
+    // 3. 更新 AI 反馈
     int updateAiFeedback(QuizRecord record);
 
-    @Select("SELECT * FROM sys_quiz_record WHERE material_id = #{materialId} ORDER BY submit_time DESC")
+    // 4. 根据资料ID查找所有记录
     List<QuizRecord> findByMaterialId(@Param("materialId") Long materialId);
 
-    @Update("UPDATE sys_quiz_record SET score = #{score}, ai_feedback = #{aiFeedback} WHERE id = #{id}")
+    // 5. 更新分数和反馈
     int updateScoreAndFeedback(QuizRecord record);
 
-    // 【🔥 核心修复 🔥】 确保表名是 sys_quiz_record，而不是 sys_course 或 sys_material
-    @Delete("DELETE FROM sys_quiz_record WHERE id = #{id}")
+    // 6. 删除记录 (打回重做)
     int deleteById(@Param("id") Long id);
-    @Select("SELECT * FROM sys_quiz_record WHERE user_id = #{userId}")
+
+    // 7. 根据用户ID查找所有记录
     List<QuizRecord> selectByUserId(Long userId);
-    @Select("SELECT * FROM sys_quiz_record WHERE id = #{id}")
+
+    // 8. 根据ID查找单个记录
     QuizRecord findById(@Param("id") Long id);
 }

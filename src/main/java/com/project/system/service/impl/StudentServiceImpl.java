@@ -9,7 +9,7 @@ import com.project.system.mapper.*;
 import com.project.system.service.StudentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.annotation.Cacheable; // Redis 缓存注解
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -70,7 +70,10 @@ public class StudentServiceImpl implements StudentService {
         List<Course> all = courseMapper.selectAllCourses();
         return all.stream().filter(c -> c.getId().equals(courseId)).findFirst().orElse(null);
     }
-
+    @Override
+    public void markNotificationAsRead(Long id) {
+        notificationMapper.updateReadStatus(id);
+    }
     @Override
     public List<Material> getCourseMaterials(Long courseId) {
         return materialMapper.selectByCourseId(courseId);
@@ -334,6 +337,7 @@ public class StudentServiceImpl implements StudentService {
                 .map(task -> {
                     Map<String, Object> map = new HashMap<>();
                     map.put("id", task.getId());
+                    map.put("courseId", task.getCourseId()); // ★★★ 修复点：添加 courseId ★★★
                     map.put("courseName", task.getFilePath()); // 之前临时存的课程名
                     map.put("title", task.getFileName());
                     map.put("type", task.getType());

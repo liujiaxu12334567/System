@@ -127,4 +127,9 @@ public class StudentController {
         notificationMapper.updateReply(id, reply);
         return ResponseEntity.ok("回复提交成功");
     }
+    @PostMapping("/notification/read/{id}")
+    public ResponseEntity<?> markNotificationAsRead(@PathVariable Long id) {
+        studentService.markNotificationAsRead(id);
+        return ResponseEntity.ok("标记已读成功");
+    }
 }

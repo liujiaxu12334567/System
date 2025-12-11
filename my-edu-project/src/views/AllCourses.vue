@@ -6,7 +6,7 @@
           <h1 class="logo">Neuedu</h1>
           <nav class="nav-links">
             <a @click="$router.push('/home')">首页</a>
-            <a href="#" class="active">课程学习</a>
+            <a class="active">课程学习</a>
             <a href="#">个性学习</a>
             <a href="#">考试</a>
             <a href="#">素质活动</a>
@@ -14,9 +14,10 @@
           </nav>
         </div>
         <div class="right-section">
-          <el-button type="primary" round class="ai-btn">
+          <el-button type="primary" round class="ai-btn" @click="$router.push('/neu-ai')">
             <el-icon style="margin-right: 4px"><MagicStick /></el-icon> NEU AI
           </el-button>
+
           <div class="icon-wrap">
             <el-badge :value="99" :max="99" class="badge-dot">
               <el-icon :size="20" color="#606266"><Bell /></el-icon>
@@ -88,20 +89,19 @@
                 <span>{{ item.teacher }}</span>
               </div>
               <p class="course-code">{{ item.code }}</p>
-            </template>
-          </div>
-
-          <div class="card-footer">
-            <span class="enter-text" v-if="item.isTop === 1">置顶</span>
-            <span class="enter-text" v-else></span>
-            <span class="start-btn" @click="goToCourse(item.id)">开始学习</span>
           </div>
         </div>
+
+        <div class="card-footer">
+          <span class="enter-text" v-if="item.isTop === 1">置顶</span>
+          <span class="enter-text" v-else></span>
+          <span class="start-btn" @click="goToCourse(item.id)">开始学习</span>
+        </div>
       </div>
+  </div>
 
-      <el-empty v-if="filteredCourses.length === 0 && !loading" description="未找到符合条件的课程" />
-
-    </main>
+  <el-empty v-if="filteredCourses.length === 0 && !loading" description="未找到符合条件的课程" />
+  </main>
   </div>
 </template>
 
@@ -109,12 +109,12 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
-import { ArrowDown, Bell, MagicStick, Platform, Plus, Search, CloseBold } from '@element-plus/icons-vue'
+import { ArrowDown, Bell, MagicStick, Plus, Search, CloseBold } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userInfo = ref({ realName: '' })
 const loading = ref(true)
-const courseList = ref([]) // 所有课程列表
+const courseList = ref([])
 
 // 筛选状态
 const keyword = ref('')
@@ -132,8 +132,6 @@ onMounted(() => {
 const fetchCourses = async () => {
   loading.value = true
   try {
-    // 调用后端获取所有课程的接口
-    // 注意：Home.vue 已经做了角色筛选，这里我们默认获取所有可访问的课程
     const res = await request.get('/home/data')
     courseList.value = res.courses || []
   } catch (error) {
@@ -167,13 +165,6 @@ const filteredCourses = computed(() => {
   if (semesterFilter.value) {
     list = list.filter(item => item.semester === semesterFilter.value)
   }
-
-  // 模拟您图片中的“匹配失败”卡片
-  if (list.length > 3) {
-    list.splice(2, 0, { id: 'fail', name: '软件测试(II)', semester: '2025-2026学年 第1学期', teacher: '林欣茹', status: '匹配失败', color: 'grey', isTop: 0, code: '240422-015' });
-  }
-
-
   return list
 })
 
@@ -183,7 +174,6 @@ const goToCourse = (courseId) => {
   }
 }
 
-// --- 样式辅助函数 ---
 const getCourseCardClass = (item) => {
   if (item.status === '匹配失败') return 'bg-match-fail'
   return 'bg-' + (item.color || 'blue')
@@ -196,12 +186,11 @@ const getStatusTagClass = (status) => {
   if (status === '匹配失败') return 'status-grey'
   return 'status-blue'
 }
-
 </script>
 
 <style scoped lang="scss">
-/* 从 Home.vue 复制的基础样式 */
-$content-width: 1200px; /* 固定宽度以匹配图片 */
+/* 基础样式复用 */
+$content-width: 1200px;
 $header-height: 60px;
 
 .all-courses-container {
@@ -259,27 +248,22 @@ $header-height: 60px;
   line-height: 24px;
 }
 
-/* 筛选区域 */
 .filter-panel {
   padding: 15px;
   margin-bottom: 20px;
-  .filter-row {
-    display: flex;
-    align-items: center;
-  }
+  .filter-row { display: flex; align-items: center; }
 }
 
-/* 课程网格列表 */
 .course-list-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr); /* 4 列布局 */
+  grid-template-columns: repeat(4, 1fr);
   gap: 20px;
 }
 
 .course-card {
   background: #fff;
   border-radius: 8px;
-  height: 200px; /* 增加高度以容纳更多信息 */
+  height: 200px;
   padding: 15px;
   color: #fff;
   display: flex;
@@ -293,17 +277,11 @@ $header-height: 60px;
 
   &:hover { transform: translateY(-3px); }
 
-  /* 状态标签定位 */
   .top-status-tag {
-    position: absolute;
-    top: 0;
-    right: 0;
-    background: #409EFF; /* 默认蓝色 */
-    color: #fff;
-    padding: 2px 8px;
-    border-radius: 0 8px 0 8px;
-    font-size: 12px;
-    font-weight: bold;
+    position: absolute; top: 0; right: 0;
+    background: #409EFF; color: #fff;
+    padding: 2px 8px; border-radius: 0 8px 0 8px;
+    font-size: 12px; font-weight: bold;
     &.status-green { background-color: #67C23A; }
     &.status-purple { background-color: #9370DB; }
     &.status-grey { background-color: #909399; }
@@ -311,22 +289,8 @@ $header-height: 60px;
   }
 
   .card-content {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end; /* 内容向下对齐 */
-    padding-bottom: 10px;
-
-    .error-content {
-      text-align: center;
-      color: #fff;
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      p { margin-top: 10px; font-weight: bold; }
-    }
-
+    flex-grow: 1; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 10px;
+    .error-content { text-align: center; color: #fff; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); p { margin-top: 10px; font-weight: bold; } }
     .course-name { font-size: 18px; margin: 0 0 8px 0; font-weight: 700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
     .course-meta { font-size: 12px; opacity: 0.95; margin-bottom: 4px; .divider { margin: 0 5px; opacity: 0.6; } }
     .course-code { font-size: 12px; opacity: 0.75; font-family: monospace; margin: 0; }
@@ -335,13 +299,9 @@ $header-height: 60px;
   .card-footer {
     display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px;
     .enter-text { font-size: 12px; opacity: 0.8; cursor: default; }
-    .start-btn {
-      font-size: 12px; background: #fff; color: #333; padding: 4px 12px; border-radius: 16px; font-weight: 500;
-      cursor: pointer;
-    }
+    .start-btn { font-size: 12px; background: #fff; color: #333; padding: 4px 12px; border-radius: 16px; font-weight: 500; cursor: pointer; }
   }
 
-  /* 颜色和背景 (与 Home.vue 保持一致并扩展) */
   &.bg-blue { background: linear-gradient(135deg, #6B8DD6 0%, #8E9EFC 100%); }
   &.bg-green { background: linear-gradient(135deg, #42e695 0%, #3bb2b8 100%); }
   &.bg-orange { background: linear-gradient(135deg, #FFC371 0%, #FF5F6D 100%); }
@@ -350,24 +310,10 @@ $header-height: 60px;
   &.bg-cyan { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
   &.bg-grey { background: linear-gradient(135deg, #868f96 0%, #596164 100%); }
 
-  /* 匹配失败的特殊样式 (白底灰字，模仿图片) */
   &.bg-match-fail {
-    background: #fff;
-    border: 1px dashed #C0C4CC;
-    color: #909399;
-
-    .top-status-tag {
-      background-color: #909399;
-    }
-
-    .card-footer {
-      border-top: 1px solid #EBEEF5;
-      .start-btn {
-        background: #DCDFE6;
-        color: #909399;
-        cursor: not-allowed;
-      }
-    }
+    background: #fff; border: 1px dashed #C0C4CC; color: #909399;
+    .top-status-tag { background-color: #909399; }
+    .card-footer { border-top: 1px solid #EBEEF5; .start-btn { background: #DCDFE6; color: #909399; cursor: not-allowed; } }
     .course-meta, .course-code, .course-name { color: #909399; }
   }
 }

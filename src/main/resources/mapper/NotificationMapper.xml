@@ -32,6 +32,10 @@
         UPDATE sys_notification SET user_reply = #{userReply}, is_read = TRUE WHERE id = #{id}
     </update>
 
+    <update id="updateReadStatus">
+        UPDATE sys_notification SET is_read = TRUE WHERE id = #{id}
+    </update>
+
     <select id="selectSentBatches" resultMap="NotificationResultMap">
         SELECT * FROM sys_notification
         WHERE batch_id IS NOT NULL

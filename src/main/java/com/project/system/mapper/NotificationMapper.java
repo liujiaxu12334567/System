@@ -12,12 +12,15 @@ public interface NotificationMapper {
 
     List<Notification> selectByUserId(@Param("userId") Long userId);
 
-    // 【新增】用户提交回复
+    // 用户提交回复 (同时标记已读)
     int updateReply(@Param("id") Long id, @Param("userReply") String userReply);
 
-    // 【新增】管理员查询自己发送的通知批次 (去重显示)
+    // 【新增】仅标记为已读
+    int updateReadStatus(@Param("id") Long id);
+
+    // 管理员查询自己发送的通知批次
     List<Notification> selectSentBatches();
 
-    // 【新增】根据批次ID查询详细统计 (包含接收人信息)
+    // 根据批次ID查询详细统计
     List<Map<String, Object>> selectStatsByBatchId(@Param("batchId") String batchId);
 }

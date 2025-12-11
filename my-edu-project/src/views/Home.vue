@@ -14,10 +14,16 @@
           </nav>
         </div>
         <div class="right-section">
-          <el-button type="primary" round class="ai-btn">
+
+
+          <el-button
+              type="primary"
+              round
+              class="ai-btn"
+              @click="$router.push('/neu-ai')"
+          >
             <el-icon style="margin-right: 4px"><MagicStick /></el-icon> NEU AI
           </el-button>
-
           <el-popover
               placement="bottom"
               :width="300"
@@ -101,7 +107,6 @@
     </div>
 
     <main class="main-content">
-
       <section class="content-block">
         <div class="block-header">
           <h3 class="title">我的课程 <span class="count">({{ courseList.length }})</span></h3>
@@ -160,7 +165,6 @@
                   <div class="task-desc">截止时间：{{ task.deadline }}</div>
                 </div>
               </div>
-
               <el-button
                   type="primary"
                   link
@@ -372,17 +376,25 @@ const fetchNotifications = async () => {
   }
 }
 
-// 打开详情对话框
-const openDetailDialog = (note) => {
+// ★★★ 核心修改：打开详情对话框并标记已读 ★★★
+const openDetailDialog = async (note) => {
   // Deep clone the note for binding to the dialog
   currentNotification.value = { ...note };
   // Ensure tempReply is initialized for the dialog
   currentNotification.value.tempReply = currentNotification.value.tempReply || '';
 
   detailDialogVisible.value = true;
-  // 标记为已读（如果未读）
+
+  // 如果未读，调用后端接口标记为已读
   if (!note.isRead) {
-    note.isRead = true; // Update local list immediately
+    try {
+      // 1. 更新本地状态 (立即响应)
+      note.isRead = true;
+      // 2. 调用后端接口持久化
+      await request.post(`/student/notification/read/${note.id}`);
+    } catch (e) {
+      console.error("标记已读失败", e);
+    }
   }
 };
 
@@ -391,7 +403,6 @@ const submitReply = async (note) => {
   // Find the original note in the list to update its state directly
   const targetNote = notificationList.value.find(n => n.id === note.id) || note;
 
-  // Use the dialog's bound tempReply (which is part of currentNotification.value)
   if (!note.tempReply || targetNote.submitting) return ElMessage.warning('请填写回复内容');
 
   targetNote.submitting = true;
@@ -407,7 +418,7 @@ const submitReply = async (note) => {
     ElMessage.success('回执提交成功');
     // 本地更新状态
     targetNote.userReply = note.tempReply;
-    targetNote.isRead = true;
+    targetNote.isRead = true; // 提交回执也视为已读
 
     // Update the dialog content too
     currentNotification.value.userReply = note.tempReply;

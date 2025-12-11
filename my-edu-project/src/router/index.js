@@ -66,6 +66,13 @@ const routes = [
         name: 'ExamDetail',
         component: ExamDetail,
         meta: { title: '在线考试' }
+    },
+    // 在 routes 数组中添加以下对象
+    {
+        path: '/neu-ai',
+        name: 'NeuAi',
+        component: () => import('../views/NeuAi.vue'),
+        meta: { title: 'NEU AI 智能助手' }
     }
 ]
 
