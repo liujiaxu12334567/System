@@ -32,7 +32,7 @@ public class LeaderServiceImpl implements LeaderService {
     @Autowired private MaterialMapper materialMapper;
     @Autowired private ExamMapper examMapper;
     @Autowired private ApplicationMapper applicationMapper;
-    @Autowired private NotificationMapper notificationMapper;
+    @Autowired private NotificationMapper notificationMapper; // 【新增注入】
     @Autowired private RabbitTemplate rabbitTemplate;
 
     @Value("${file.upload-dir:./uploads}")
@@ -43,6 +43,33 @@ public class LeaderServiceImpl implements LeaderService {
         return userMapper.findByUsername(username);
     }
 
+    // 辅助方法：获取课程信息 (简化实现)
+    private Course getCourseInfo(Long courseId) {
+        List<Course> all = courseMapper.selectAllCourses();
+        return all.stream().filter(c -> c.getId().equals(courseId)).findFirst().orElse(null);
+    }
+
+    // 【新增辅助方法】发送任务/考试发布通知
+    private void sendTaskNotification(Long courseId, String title, String type, String senderName) {
+        Course course = getCourseInfo(courseId);
+        if (course == null || course.getClassId() == null) return;
+
+        // 获取该班级的学生列表
+        List<User> students = userMapper.selectStudentsByClassIds(Collections.singletonList(course.getClassId()));
+
+        for (User student : students) {
+            Notification n = new Notification();
+            n.setUserId(student.getUserId());
+            n.setRelatedId(courseId);
+            n.setType("TASK_PUBLISHED"); // 新的通知类型
+            n.setTitle(type + "发布：" + title);
+            n.setMessage("课程《" + course.getName() + "》发布了新的" + type + "，请前往课程学习查看。");
+            n.setSenderName(senderName);
+            notificationMapper.insert(n);
+        }
+    }
+
+
     @Override
     public void publishCourseExam(Long courseId, Map<String, Object> examData) {
         String title = (String) examData.get("title");
@@ -51,6 +78,8 @@ public class LeaderServiceImpl implements LeaderService {
         String deadline = (String) examData.get("deadline");
         Integer duration = (Integer) examData.get("duration");
         String status = (String) examData.get("status");
+
+        User leader = getCurrentLeader();
 
         if (title == null || content == null || startTime == null || deadline == null) {
             throw new IllegalArgumentException("考试信息不完整");
@@ -64,8 +93,12 @@ public class LeaderServiceImpl implements LeaderService {
         exam.setDeadline(deadline);
         exam.setDuration(duration != null ? duration : 60);
         exam.setStatus(status != null ? status : "未开始");
+        exam.setTeacherId(leader.getUserId()); // 设置发布人ID
 
         examMapper.insertExam(exam);
+
+        // 【新增通知逻辑】
+        sendTaskNotification(courseId, title, "正式考试", leader.getRealName());
     }
 
     @Override
@@ -183,6 +216,13 @@ public class LeaderServiceImpl implements LeaderService {
         material.setFileName(finalFileName);
         material.setFilePath(filePath);
         materialMapper.insert(material);
+
+        // 【新增通知逻辑】
+        if (Arrays.asList("测验", "作业", "项目").contains(type)) {
+            String finalTitle = title != null ? title : (file != null ? file.getOriginalFilename() : type);
+            User leader = getCurrentLeader();
+            sendTaskNotification(courseId, finalTitle, type, leader.getRealName());
+        }
     }
 
     @Override

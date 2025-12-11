@@ -217,61 +217,31 @@ public class TeacherController {
         if (record.getId() == null || record.getScore() == null) {
             return ResponseEntity.badRequest().body("记录ID和分数不能为空");
         }
-
-        QuizRecord originalRecord = quizRecordMapper.findById(record.getId());
-        Material material = materialMapper.findById(originalRecord.getMaterialId());
-
-        int rows = quizRecordMapper.updateScoreAndFeedback(record);
-        if (rows > 0) {
-            // 【实际通知】: 插入通知到数据库
-            Notification notification = new Notification();
-            notification.setUserId(originalRecord.getUserId());
-            notification.setRelatedId(material.getId());
-            notification.setType("GRADE_SUCCESS");
-
-            String[] fileNameParts = material.getFileName().split(" - ");
-            String materialName = fileNameParts.length > 1 ? fileNameParts[1] : material.getFileName();
-
-            notification.setTitle(material.getType() + "已批改：[" + materialName + "]");
-            notification.setMessage("您的提交已获得 " + record.getScore() + " 分！请前往查看评语。");
-            notificationMapper.insert(notification);
-
+        try {
+            // 【修改：委托给 Service 层处理，Service 会设置正确的发送者姓名】
+            teacherService.gradeSubmission(record);
             return ResponseEntity.ok("批改成功，分数已更新。");
-        } else {
-            return ResponseEntity.status(404).body("找不到对应的提交记录或更新失败。");
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(404).body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("批改失败: " + e.getMessage());
         }
     }
 
     // 7. 教师打回学生提交的作业/测验 (允许学生重新提交)
     @PostMapping("/reject-submission/{recordId}")
-    @Transactional
     public ResponseEntity<?> rejectSubmission(@PathVariable Long recordId) {
         if (recordId == null) {
             return ResponseEntity.badRequest().body("记录ID不能为空");
         }
-
-        QuizRecord originalRecord = quizRecordMapper.findById(recordId);
-        Material material = materialMapper.findById(originalRecord.getMaterialId());
-
-        int rows = quizRecordMapper.deleteById(recordId);
-
-        if (rows > 0) {
-            // 【实际通知】: 插入通知到数据库
-            Notification notification = new Notification();
-            notification.setUserId(originalRecord.getUserId());
-            notification.setRelatedId(material.getId());
-            notification.setType("REJECT_SUBMISSION");
-
-            String[] fileNameParts = material.getFileName().split(" - ");
-            String materialName = fileNameParts.length > 1 ? fileNameParts[1] : material.getFileName();
-
-            notification.setTitle(material.getType() + "被打回：[" + materialName + "]");
-            notification.setMessage("您的提交已被教师打回重做，请尽快修改后重新提交。");
-            notificationMapper.insert(notification);
-
+        try {
+            // 【修改：委托给 Service 层处理，Service 会设置正确的发送者姓名】
+            teacherService.rejectSubmission(recordId);
             return ResponseEntity.ok("作业提交记录已打回，学生可以重新提交。");
-        } else {
-            return ResponseEntity.status(404).body("找不到对应的提交记录或打回失败。");
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(404).body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("打回失败: " + e.getMessage());
         }
     }
 

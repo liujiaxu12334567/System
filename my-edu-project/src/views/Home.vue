@@ -26,7 +26,7 @@
           >
             <template #reference>
               <div class="icon-wrap">
-                <el-badge :value="notificationList.length" :hidden="notificationList.length === 0" class="badge-dot">
+                <el-badge :value="unreadCount" :hidden="unreadCount === 0" class="badge-dot">
                   <el-icon :size="20" color="#606266"><Bell /></el-icon>
                 </el-badge>
               </div>
@@ -38,8 +38,19 @@
                 <el-button link type="primary" size="small" @click="fetchNotifications">刷新</el-button>
               </div>
               <div class="notify-list" v-if="notificationList.length > 0">
-                <div v-for="(note, index) in notificationList" :key="index" class="notify-item">
-                  <div class="n-title">{{ note.title }}</div>
+                <div
+                    v-for="(note, index) in notificationList"
+                    :key="index"
+                    class="notify-item"
+                    :class="{'unread': !note.isRead, 'required': note.isActionRequired && !note.userReply}"
+                    @click="openDetailDialog(note)">
+                  <div class="n-title">
+                    {{ note.title }}
+                    <el-tag v-if="note.isActionRequired" size="small" :type="note.userReply ? 'success' : 'warning'" effect="dark">
+                      {{ note.userReply ? '已填报' : '需填报' }}
+                    </el-tag>
+                    <el-icon v-if="!note.isRead" color="#409EFF"><ChatDotRound /></el-icon>
+                  </div>
                   <div class="n-desc">{{ note.message }}</div>
                   <div class="n-time">{{ formatTime(note.createTime) }}</div>
                 </div>
@@ -149,7 +160,14 @@
                   <div class="task-desc">截止时间：{{ task.deadline }}</div>
                 </div>
               </div>
-              <el-button type="primary" link round size="small" @click="$router.push(`/quiz/${task.courseId || 0}/${task.id}`)">
+
+              <el-button
+                  type="primary"
+                  link
+                  round
+                  size="small"
+                  @click="$router.push({ name: 'QuizDetail', params: { courseId: task.courseId || 0, materialId: task.id }, query: { mode: 'take', type: task.type } })"
+              >
                 去完成
               </el-button>
             </div>
@@ -178,6 +196,54 @@
 
     </main>
 
+    <el-dialog
+        v-model="detailDialogVisible"
+        :title="currentNotification.title"
+        width="500px"
+        destroy-on-close
+    >
+      <div class="detail-content">
+        <el-alert type="info" :closable="false" style="margin-bottom: 15px;">
+          <template #title>
+            <strong>通知详情</strong>
+          </template>
+          <p>{{ currentNotification.message }}</p>
+        </el-alert>
+
+        <div class="detail-meta">
+          <p><strong>发送者：</strong> {{ currentNotification.senderName || '系统/管理员' }}</p>
+          <p><strong>发送时间：</strong> {{ currentNotification.createTime ? formatFullTime(currentNotification.createTime) : '未知' }}</p>
+        </div>
+
+        <el-divider v-if="currentNotification.isActionRequired">回执要求</el-divider>
+
+        <div v-if="currentNotification.isActionRequired" class="reply-area-dialog">
+          <div v-if="currentNotification.userReply" class="replied-text-dialog">
+            <el-icon><Check /></el-icon> 您已填报信息：<strong>{{ currentNotification.userReply }}</strong>
+          </div>
+          <div v-else class="reply-input-box-dialog">
+            <el-input
+                v-model="currentNotification.tempReply"
+                type="textarea"
+                :rows="4"
+                placeholder="请在此填写所需信息或回复..." />
+            <el-button
+                type="primary"
+                style="margin-top: 10px;"
+                @click="submitReply(currentNotification)"
+                :loading="currentNotification.submitting"
+            >
+              提交回执
+            </el-button>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="detailDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="settingsDialogVisible" title="账户设置 - 修改密码" width="400px">
       <el-form
           :model="passwordForm"
@@ -205,13 +271,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Bell, MagicStick, Platform, ArrowRight, Box, Document, Tickets, ArrowDown, Setting, SwitchButton } from '@element-plus/icons-vue'
+import { Bell, MagicStick, Platform, ArrowRight, Box, Document, Tickets, ArrowDown, Setting, SwitchButton, Check, ChatDotRound } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 
-// ★★★ Day.js 修复：引入相对时间插件 ★★★
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
@@ -223,8 +288,12 @@ const userInfo = ref({ realName: '' })
 const currentSemester = ref('2025-1')
 const loading = ref(true)
 const courseList = ref([])
-const notificationList = ref([]) // 通知列表
-const pendingTasks = ref([])     // 待办任务
+const notificationList = ref([])
+const pendingTasks = ref([])
+
+// 通知详情状态
+const detailDialogVisible = ref(false)
+const currentNotification = ref({})
 
 // 弹窗和表单
 const settingsDialogVisible = ref(false)
@@ -234,6 +303,8 @@ const passwordForm = reactive({
   newPassword: '',
   confirmNewPassword: ''
 })
+
+const unreadCount = computed(() => notificationList.value.filter(n => !n.isRead).length);
 
 const validatePass = (rule, value, callback) => {
   if (value === '') {
@@ -290,15 +361,72 @@ const fetchHomeData = async () => {
 const fetchNotifications = async () => {
   try {
     const res = await request.get('/student/notifications')
-    notificationList.value = res || []
+    // 为每个通知添加临时状态和回复字段
+    notificationList.value = (res || []).map(n => ({
+      ...n,
+      tempReply: '', // 用于 v-model 绑定用户的临时输入
+      submitting: false // 用于控制提交按钮的 loading 状态
+    }))
   } catch(e) {
     console.error("获取通知失败", e)
+  }
+}
+
+// 打开详情对话框
+const openDetailDialog = (note) => {
+  // Deep clone the note for binding to the dialog
+  currentNotification.value = { ...note };
+  // Ensure tempReply is initialized for the dialog
+  currentNotification.value.tempReply = currentNotification.value.tempReply || '';
+
+  detailDialogVisible.value = true;
+  // 标记为已读（如果未读）
+  if (!note.isRead) {
+    note.isRead = true; // Update local list immediately
+  }
+};
+
+// 提交通知回复
+const submitReply = async (note) => {
+  // Find the original note in the list to update its state directly
+  const targetNote = notificationList.value.find(n => n.id === note.id) || note;
+
+  // Use the dialog's bound tempReply (which is part of currentNotification.value)
+  if (!note.tempReply || targetNote.submitting) return ElMessage.warning('请填写回复内容');
+
+  targetNote.submitting = true;
+
+  try {
+    const payload = {
+      id: targetNote.id,
+      reply: note.tempReply
+    };
+
+    await request.post('/student/notification/reply', payload);
+
+    ElMessage.success('回执提交成功');
+    // 本地更新状态
+    targetNote.userReply = note.tempReply;
+    targetNote.isRead = true;
+
+    // Update the dialog content too
+    currentNotification.value.userReply = note.tempReply;
+
+  } catch (e) {
+    ElMessage.error(e.response?.data || '提交失败');
+  } finally {
+    targetNote.submitting = false;
   }
 }
 
 const formatTime = (timeString) => {
   if (!timeString) return ''
   return dayjs(timeString).fromNow()
+}
+
+const formatFullTime = (timeString) => {
+  if (!timeString) return ''
+  return dayjs(timeString).format('YYYY-MM-DD HH:mm:ss')
 }
 
 const openPasswordDialog = () => {
@@ -356,8 +484,8 @@ $content-width: 90%;
 
 /* Header */
 .neu-header {
-  background: #fff;
   height: 60px;
+  background: #fff;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -565,16 +693,64 @@ $content-width: 90%;
   }
   .notify-list { max-height: 300px; overflow-y: auto; }
   .notify-item {
-    padding: 10px 0; border-bottom: 1px solid #f5f5f5;
+    padding: 10px;
+    border-bottom: 1px solid #f5f5f5;
+    cursor: pointer;
+    transition: background-color 0.2s;
     &:last-child { border-bottom: none; }
-    .n-title { font-size: 14px; font-weight: 500; color: #333; margin-bottom: 4px; }
-    .n-desc { font-size: 12px; color: #666; line-height: 1.4; margin-bottom: 4px; }
+    &:hover { background-color: #f7f9fd; }
+
+    // 需填报消息高亮
+    &.required {
+      border-left: 3px solid #E6A23C;
+      background-color: #fffaf0;
+    }
+    // 未读消息
+    &.unread {
+      background-color: #f0f5ff;
+      .n-title { color: #409EFF; }
+    }
+
+    .n-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .n-desc { font-size: 12px; color: #666; line-height: 1.4; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
     .n-time { font-size: 11px; color: #999; text-align: right; }
   }
   .notify-empty { text-align: center; color: #999; padding: 20px 0; }
+
+  /* 详情对话框样式 */
+  .detail-content {
+    .detail-meta {
+      margin-top: 15px;
+      font-size: 14px;
+      color: #606266;
+      p { margin: 5px 0; }
+    }
+    .reply-area-dialog {
+      padding: 15px;
+      border: 1px solid #c6e2ff;
+      background: #e6f1fc;
+      border-radius: 4px;
+    }
+    .replied-text-dialog {
+      color: #67C23A;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-weight: 600;
+    }
+  }
 }
 
-/* 课程徽标 */
+/* 课程徽章 */
 .course-badge {
   background: #f0f2f5; color: #909399; font-size: 11px; padding: 1px 5px; border-radius: 4px; margin-left: 8px; font-weight: normal;
 }

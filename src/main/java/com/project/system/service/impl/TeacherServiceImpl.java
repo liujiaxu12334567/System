@@ -147,6 +147,8 @@ public class TeacherServiceImpl implements TeacherService {
     @Override
     @Transactional
     public void gradeSubmission(QuizRecord record) {
+        User teacher = getCurrentTeacher(); // 【修改点】获取当前教师信息
+
         QuizRecord originalRecord = quizRecordMapper.findById(record.getId());
         if (originalRecord == null) throw new RuntimeException("记录不存在");
 
@@ -168,6 +170,7 @@ public class TeacherServiceImpl implements TeacherService {
 
             notification.setTitle(material.getType() + "已批改：[" + fileName + "]");
             notification.setMessage("您的提交已获得 " + record.getScore() + " 分！请前往查看评语。");
+            notification.setSenderName(teacher.getRealName()); // 【修改点】设置发送者姓名
             notificationMapper.insert(notification);
         }
     }
@@ -175,6 +178,8 @@ public class TeacherServiceImpl implements TeacherService {
     @Override
     @Transactional
     public void rejectSubmission(Long recordId) {
+        User teacher = getCurrentTeacher(); // 【修改点】获取当前教师信息
+
         QuizRecord originalRecord = quizRecordMapper.findById(recordId);
         if (originalRecord == null) throw new RuntimeException("记录不存在");
 
@@ -194,6 +199,7 @@ public class TeacherServiceImpl implements TeacherService {
 
             notification.setTitle(material.getType() + "被打回：[" + fileName + "]");
             notification.setMessage("您的提交已被教师打回重做，请尽快修改后重新提交。");
+            notification.setSenderName(teacher.getRealName()); // 【修改点】设置发送者姓名
             notificationMapper.insert(notification);
         }
     }
@@ -251,8 +257,7 @@ public class TeacherServiceImpl implements TeacherService {
     // 【新增】获取教师的通知
     @Override
     public List<Notification> getMyNotifications() {
-        User teacher = getCurrentTeacher();
-        return notificationMapper.selectByUserId(teacher.getUserId());
+        return notificationMapper.selectByUserId(getCurrentTeacher().getUserId());
     }
 
     // 【新增】教师回复通知

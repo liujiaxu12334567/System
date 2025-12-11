@@ -119,7 +119,6 @@ public class StudentController {
     public ResponseEntity<List<Map<String, Object>>> getPendingTasks() {
         return ResponseEntity.ok(studentService.getPendingTasks());
     }
-    // ...
     @PostMapping("/notification/reply")
     public ResponseEntity<?> replyNotification(@RequestBody Map<String, Object> data) {
         Long id = Long.valueOf(data.get("id").toString());
@@ -128,5 +127,4 @@ public class StudentController {
         notificationMapper.updateReply(id, reply);
         return ResponseEntity.ok("回复提交成功");
     }
-    // ...
 }
