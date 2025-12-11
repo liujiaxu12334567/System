@@ -35,7 +35,7 @@ public interface LeaderService {
 
     /** 获取待审核延期申请 */
     List<Object> listPendingApplications();
-
+    void batchSendMaterialToTeachers(String type, String title, String content, String deadline, MultipartFile file, List<String> courseNames);
     /** 审核申请 */
     void reviewApplication(Long appId, String status);
 }

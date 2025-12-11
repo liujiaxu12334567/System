@@ -32,7 +32,7 @@ public class LeaderServiceImpl implements LeaderService {
     @Autowired private MaterialMapper materialMapper;
     @Autowired private ExamMapper examMapper;
     @Autowired private ApplicationMapper applicationMapper;
-    @Autowired private NotificationMapper notificationMapper; // 【新增注入】
+    @Autowired private NotificationMapper notificationMapper;
     @Autowired private RabbitTemplate rabbitTemplate;
 
     @Value("${file.upload-dir:./uploads}")
@@ -49,19 +49,18 @@ public class LeaderServiceImpl implements LeaderService {
         return all.stream().filter(c -> c.getId().equals(courseId)).findFirst().orElse(null);
     }
 
-    // 【新增辅助方法】发送任务/考试发布通知
+    // 辅助方法：发送任务发布通知
     private void sendTaskNotification(Long courseId, String title, String type, String senderName) {
         Course course = getCourseInfo(courseId);
         if (course == null || course.getClassId() == null) return;
 
-        // 获取该班级的学生列表
         List<User> students = userMapper.selectStudentsByClassIds(Collections.singletonList(course.getClassId()));
 
         for (User student : students) {
             Notification n = new Notification();
             n.setUserId(student.getUserId());
             n.setRelatedId(courseId);
-            n.setType("TASK_PUBLISHED"); // 新的通知类型
+            n.setType("TASK_PUBLISHED");
             n.setTitle(type + "发布：" + title);
             n.setMessage("课程《" + course.getName() + "》发布了新的" + type + "，请前往课程学习查看。");
             n.setSenderName(senderName);
@@ -93,11 +92,10 @@ public class LeaderServiceImpl implements LeaderService {
         exam.setDeadline(deadline);
         exam.setDuration(duration != null ? duration : 60);
         exam.setStatus(status != null ? status : "未开始");
-        exam.setTeacherId(leader.getUserId()); // 设置发布人ID
+        exam.setTeacherId(leader.getUserId());
 
         examMapper.insertExam(exam);
 
-        // 【新增通知逻辑】
         sendTaskNotification(courseId, title, "正式考试", leader.getRealName());
     }
 
@@ -106,52 +104,67 @@ public class LeaderServiceImpl implements LeaderService {
         User currentLeader = getCurrentLeader();
         if (currentLeader == null) return Collections.emptyList();
 
-        List<Course> allCourses = courseMapper.selectAllCourses();
-        Set<String> rankCourseNames = new HashSet<>();
+        // 1. 获取组长负责的所有课程名 (teacherRank)
+        Set<String> leaderManagedCourses = new HashSet<>();
         if (currentLeader.getTeacherRank() != null && !currentLeader.getTeacherRank().isEmpty()) {
             Arrays.stream(currentLeader.getTeacherRank().replace("，", ",").split(","))
-                    .forEach(r -> rankCourseNames.add(r.trim()));
+                    .map(String::trim)
+                    .forEach(leaderManagedCourses::add);
         }
 
-        Set<String> targetTeacherNames = new HashSet<>();
-        Set<String> targetClassIds = new HashSet<>();
-
-        for (Course c : allCourses) {
-            boolean isManager = c.getManagerName() != null && c.getManagerName().equals(currentLeader.getRealName());
-            boolean isNameMatch = rankCourseNames.contains(c.getName());
-
-            if (isManager || isNameMatch) {
-                if (c.getClassId() != null) targetClassIds.add(String.valueOf(c.getClassId()));
-                if (c.getTeacher() != null) {
-                    Arrays.stream(c.getTeacher().replace("，", ",").split(","))
-                            .forEach(name -> targetTeacherNames.add(name.trim()));
-                }
-            }
+        if (leaderManagedCourses.isEmpty()) {
+            // 如果组长没有负责任何课程，则只返回他自己
+            return Collections.singletonList(currentLeader);
         }
 
-        List<User> allCandidates = new ArrayList<>();
-        allCandidates.addAll(userMapper.selectUsersByRole("3"));
-        allCandidates.addAll(userMapper.selectUsersByRole("2"));
+        // 2. 查找所有教师 (包括其他组长和普通教师)
+        List<User> allTeachers = userMapper.selectUsersByRole("3"); // 普通教师
+        allTeachers.addAll(userMapper.selectUsersByRole("2")); // 其他组长
 
-        Map<Long, User> teamMap = new HashMap<>();
-        teamMap.put(currentLeader.getUserId(), currentLeader);
+        Set<Long> teamMemberIds = new HashSet<>();
+        teamMemberIds.add(currentLeader.getUserId()); // 首先加入组长自己
 
-        for (User user : allCandidates) {
-            if (teamMap.containsKey(user.getUserId())) continue;
-            boolean isMatch = false;
-            if (user.getRealName() != null && targetTeacherNames.contains(user.getRealName())) isMatch = true;
-            if (!isMatch && user.getTeachingClasses() != null) {
-                String[] classes = user.getTeachingClasses().replace("，", ",").split(",");
-                for (String cls : classes) {
-                    if (targetClassIds.contains(cls.trim())) {
-                        isMatch = true;
-                        break;
+        // 3. 筛选出教授了组长负责课程的教师
+        List<User> filteredMembers = allTeachers.stream()
+                .filter(user -> {
+                    // 如果是当前组长自己，跳过（已经在集合里）
+                    if (user.getUserId().equals(currentLeader.getUserId())) {
+                        return false;
                     }
-                }
+
+                    // 教师的教授范围 (teachingClasses) 或其负责的科目 (teacherRank)
+                    String teacherCourses = user.getTeacherRank();
+
+                    if (teacherCourses != null) {
+                        // 检查该教师的负责科目（通常是组长）是否与本组长的负责科目有交集
+                        Set<String> memberCourses = Arrays.stream(teacherCourses.replace("，", ",").split(","))
+                                .map(String::trim)
+                                .collect(Collectors.toSet());
+
+                        // 如果两个 Set 有交集，则该教师是相关成员
+                        memberCourses.retainAll(leaderManagedCourses);
+                        return !memberCourses.isEmpty();
+                    }
+
+                    // 默认情况下，普通教师不应被筛选进来，除非他们被明确分配为组长负责的课程的老师
+                    // 但由于我们没有直接根据 classId 反查教师负责课程的便捷方法，
+                    // 且题意要求只根据“负责科目”筛选，所以对于普通教师，我们依赖 Admin/Leader 设置其 teacherRank（尽管通常是空的）。
+                    // 为了严格遵循“只显示负责该科目的老师”，我们只检查 teacherRank。
+                    return false;
+                })
+                .collect(Collectors.toList());
+
+        // 4. 将筛选出的成员加入结果列表
+        List<Object> result = new ArrayList<>();
+        result.add(currentLeader);
+
+        for (User member : filteredMembers) {
+            if (teamMemberIds.add(member.getUserId())) {
+                result.add(member);
             }
-            if (isMatch) teamMap.put(user.getUserId(), user);
         }
-        return new ArrayList<>(teamMap.values());
+
+        return result;
     }
 
     @Override
@@ -229,7 +242,6 @@ public class LeaderServiceImpl implements LeaderService {
     public void sendNotification(String title, String content, List<String> targetUsernames) {
         if (targetUsernames == null || targetUsernames.isEmpty()) {
             // 发送给全体 (这里需要根据业务确定全体的范围，假设是所有用户或特定范围，暂用 MQ 广播)
-            // 实际业务中可能需要更精细的逻辑，这里简化为打印
             System.out.println("暂不支持全员广播，请指定目标");
         } else {
             for (String username : targetUsernames) {
@@ -319,7 +331,78 @@ public class LeaderServiceImpl implements LeaderService {
                 .filter(app -> "DEADLINE_EXTENSION".equals(app.getType()))
                 .collect(Collectors.toList());
     }
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void batchSendMaterialToTeachers(String type, String title, String content, String deadline, MultipartFile file, List<String> courseNames) {
+        if (courseNames == null || courseNames.isEmpty()) {
+            throw new IllegalArgumentException("请选择要下发的课程。");
+        }
 
+        User currentLeader = getCurrentLeader();
+        String senderName = currentLeader.getRealName();
+        String uniqueFileName = "";
+        String filePath = "";
+        String finalContent = content;
+
+        // 1. 处理文件上传（文件只上传一次）
+        if (file != null && !file.isEmpty()) {
+            try {
+                File directory = new File(uploadDir);
+                if (!directory.exists()) directory.mkdirs();
+                String originalFilename = file.getOriginalFilename();
+                String extension = originalFilename != null && originalFilename.lastIndexOf(".") > 0 ?
+                        originalFilename.substring(originalFilename.lastIndexOf(".")) : "";
+                uniqueFileName = UUID.randomUUID().toString() + extension;
+                Path path = Paths.get(uploadDir + File.separator + uniqueFileName);
+                Files.write(path, file.getBytes());
+                filePath = path.toString();
+            } catch (IOException e) {
+                throw new RuntimeException("文件上传失败: " + e.getMessage());
+            }
+        }
+
+        // 2. 格式化内容（处理截止时间）
+        if (deadline != null && !deadline.isEmpty()) {
+            finalContent = String.format("{\"text\": \"%s\", \"deadline\": \"%s\"}",
+                    content != null ? content.replace("\"", "\\\"") : "", deadline);
+        }
+
+        // 3. 查找所有受影响的课程
+        List<Course> allCourses = courseMapper.selectAllCourses();
+
+        // 用于记录已下发的课程ID，避免重复发送给同一个班级的课程实例
+        Set<Long> processedCourseIds = new HashSet<>();
+
+        for (String courseName : courseNames) {
+            String trimmedCourseName = courseName.trim();
+
+            // 查找所有名称匹配的课程实例
+            List<Course> targetCourses = allCourses.stream()
+                    .filter(c -> c.getName() != null && c.getName().equals(trimmedCourseName))
+                    .collect(Collectors.toList());
+
+            for (Course course : targetCourses) {
+                if (processedCourseIds.contains(course.getId())) continue;
+
+                // 4. 插入资料
+                Material material = new Material();
+                material.setCourseId(course.getId());
+                material.setType(type);
+                material.setContent(finalContent);
+                // 这里使用 title 作为文件名，并将实际存储的文件名作为 filePath 的一部分（如果存在文件）
+                material.setFileName(title != null ? title : (file != null ? file.getOriginalFilename() : type));
+                // 确保文件路径是可访问的，这里只存 unique name，方便下载
+                material.setFilePath(uniqueFileName);
+                materialMapper.insert(material);
+                processedCourseIds.add(course.getId());
+
+                // 5. 如果是任务类，发送通知给所有班级学生
+                if (Arrays.asList("测验", "作业", "项目").contains(type)) {
+                    sendTaskNotification(course.getId(), material.getFileName(), type, senderName);
+                }
+            }
+        }
+    }
     @Override
     @Transactional
     public void reviewApplication(Long appId, String status) {
@@ -343,7 +426,7 @@ public class LeaderServiceImpl implements LeaderService {
         applicationMapper.updateStatus(appId, status);
     }
 
-    // 辅助方法：更新教师执教班级 (合并到Service内部)
+    // 辅助方法：更新教师执教班级 (保持不变)
     private void updateTeacherTeachingClasses(List<String> teacherNames, List<Long> classIds) {
         List<User> allTeachers = new ArrayList<>();
         allTeachers.addAll(userMapper.selectUsersByRole("2"));

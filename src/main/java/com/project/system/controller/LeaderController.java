@@ -103,7 +103,21 @@ public class LeaderController {
     public ResponseEntity<?> listPendingApplications() {
         return ResponseEntity.ok(leaderService.listPendingApplications());
     }
-
+    @PostMapping(value = "/course/batch-material", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> batchSendMaterial(
+            @RequestParam("type") String type,
+            @RequestParam(value = "title", required = false) String title,
+            @RequestParam(value = "content", required = false) String content,
+            @RequestParam(value = "deadline", required = false) String deadline,
+            @RequestParam(value = "file", required = false) MultipartFile file,
+            @RequestParam(value = "courseNames") List<String> courseNames) {
+        try {
+            leaderService.batchSendMaterialToTeachers(type, title, content, deadline, file, courseNames);
+            return ResponseEntity.ok("批量资料下发成功，共影响 " + courseNames.size() + " 个课程");
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("批量下发失败: " + e.getMessage());
+        }
+    }
     @PostMapping("/applications/review")
     public ResponseEntity<?> reviewApplication(@RequestBody Map<String, Object> request) {
         try {
