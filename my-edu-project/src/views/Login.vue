@@ -163,6 +163,7 @@ const handleSubmit = async () => {
         // 2 = 课程组长 -> /leader
         // 3 = 普通教师 -> /teacher (预留)
         // 4 = 学生 -> /home
+        // 5 = 素质教师 -> /quality-teacher
         const role = String(res.role)
 
         if (role === '1') {
@@ -170,7 +171,9 @@ const handleSubmit = async () => {
         } else if (role === '2') {
           router.push('/leader') // <--- 跳转到组长页面
         } else if (role === '3') {
-          router.push('/teacher') // <--- 跳转到普通教师页面 (如果没有这个页，可以暂时跳 /home)
+          router.push('/teacher') // <--- 跳转到普通教师页面
+        } else if (role === '5') {
+          router.push('/quality-teacher') // <--- 跳转到素质教师页面
         } else {
           router.push('/home')
         }

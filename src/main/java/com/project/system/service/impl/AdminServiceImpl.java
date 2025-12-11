@@ -77,6 +77,8 @@ public class AdminServiceImpl implements AdminService {
         String roleType = String.valueOf(userMap.get("roleType"));
         Long classId = userMap.get("classId") != null ? Long.valueOf(userMap.get("classId").toString()) : null;
         String major = (String) userMap.get("major");
+        // 【新增】获取 teachingClasses 字段
+        String teachingClasses = (String) userMap.get("teachingClasses");
 
         if (userMapper.findByUsername(username) != null) throw new RuntimeException("用户名已存在");
 
@@ -97,6 +99,12 @@ public class AdminServiceImpl implements AdminService {
         if ("4".equals(roleType) && classId != null) {
             checkAndInsertClass(classId, major);
         }
+
+        // 【新增】如果角色是 5（素质教师），设置 teachingClasses
+        if ("5".equals(roleType) && teachingClasses != null) {
+            user.setTeachingClasses(teachingClasses);
+        }
+
         userMapper.insert(user);
     }
 

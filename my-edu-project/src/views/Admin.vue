@@ -40,6 +40,7 @@
               <el-option label="课题组长" value="2" />
               <el-option label="普通教师" value="3" />
               <el-option label="学生" value="4" />
+              <el-option label="素质教师" value="5" />
             </el-select>
 
             <template v-if="!roleFilter || roleFilter === '4'">
@@ -109,7 +110,7 @@
                   负责课程: <el-tag size="small">{{ scope.row.teacherRank || '未分配' }}</el-tag>
               </span>
               <span v-else-if="scope.row.teachingClasses">
-                  执教班级: {{ scope.row.teachingClasses }}
+                  {{ scope.row.roleType === '5' ? '负责班级: ' : '执教班级: ' }} {{ scope.row.teachingClasses }}
               </span>
               <span v-else>-</span>
             </template>
@@ -319,7 +320,6 @@
         </el-table>
       </div>
 
-
       <el-dialog v-model="dialogVisible" :title="form.userId ? '编辑用户' : '新增用户'" width="500px">
         <el-form :model="form" label-width="100px">
           <el-form-item label="账号/学号">
@@ -337,6 +337,7 @@
               <el-option label="课题组长" :value="2" />
               <el-option label="普通教师" :value="3" />
               <el-option label="学生" :value="4" />
+              <el-option label="素质教师" :value="5" />
             </el-select>
           </el-form-item>
 
@@ -366,6 +367,25 @@
               </el-select>
             </el-form-item>
           </template>
+
+          <template v-if="form.roleType === 5">
+            <el-form-item label="负责班级">
+              <el-select
+                  v-model="form.teachingClassesIds"
+                  multiple
+                  placeholder="请选择负责的班级 (可多选)"
+                  style="width: 100%"
+              >
+                <el-option
+                    v-for="c in classList"
+                    :key="c.id"
+                    :label="c.name + ' (ID: ' + c.id + ')'"
+                    :value="c.id"
+                />
+              </el-select>
+            </el-form-item>
+          </template>
+
         </el-form>
         <template #footer>
           <el-button @click="dialogVisible = false">取消</el-button>
@@ -553,7 +573,7 @@ import { ref, onMounted, reactive, nextTick } from 'vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { User, Reading, DataBoard, Tickets, UploadFilled, DocumentChecked, Bell, Plus, Upload, Promotion } from '@element-plus/icons-vue'
-import dayjs from 'dayjs' // 确保已安装: npm install dayjs
+import dayjs from 'dayjs'
 
 const userList = ref([])
 const keyword = ref('')
@@ -565,7 +585,8 @@ const pageSize = ref(10)
 const total = ref(0)
 
 const dialogVisible = ref(false)
-const form = ref({ managerCourses: [] }) // 初始化 form
+// 【修改】添加 teachingClassesIds 以支持多选
+const form = ref({ managerCourses: [], teachingClassesIds: [] })
 const activeMenu = ref('1')
 const loading = reactive({ range: false, upload: false })
 const rangeForm = reactive({ startUsername: '', endUsername: '', targetClassId: null, major: null })
@@ -589,7 +610,7 @@ const classList = ref([]);
 // --- 申请审核状态 ---
 const applicationList = ref([]);
 
-// --- 通知相关状态 (新增) ---
+// --- 通知相关状态 ---
 const notifyDialogVisible = ref(false)
 const statsDialogVisible = ref(false)
 const notifyHistory = ref([])
@@ -601,7 +622,7 @@ const notifyForm = reactive({
   content: '',
   targetType: 'SPECIFIC', // 默认类型
   userIds: [],
-  needReply: false // 新增：是否需要回复
+  needReply: false
 })
 
 onMounted(() => {
@@ -719,8 +740,9 @@ const handleMenuSelect = (index) => {
 const openDialog = (row) => {
   if (row) {
     const isLeader = row.roleType === '2';
+    // 【修改】如果是素质教师 (Role=5)，解析 teachingClasses 字段
+    const isQualityTeacher = row.roleType === '5';
 
-    // 编辑用户：加载通用信息
     form.value = {
       userId: row.userId,
       username: row.username,
@@ -730,8 +752,10 @@ const openDialog = (row) => {
       classId: row.classId,
       teachingClasses: row.teachingClasses,
       major: null,
-      // 课题组长（Role=2）时，从 teacherRank 中解析课程名列表
       managerCourses: isLeader && row.teacherRank ? row.teacherRank.split(',') : [],
+      // 【修改】解析素质教师的负责班级
+      teachingClassesIds: isQualityTeacher && row.teachingClasses ?
+          row.teachingClasses.split(',').map(id => Number(id)) : []
     }
   } else {
     // 新增用户
@@ -742,7 +766,8 @@ const openDialog = (row) => {
       major: null,
       username: '',
       realName: '',
-      managerCourses: [] // 新增时初始化为空列表
+      managerCourses: [],
+      teachingClassesIds: [] // 新增初始化
     }
   }
   dialogVisible.value = true
@@ -762,18 +787,26 @@ const submitForm = async () => {
 
   const coursesToManage = form.value.managerCourses || [];
 
+  // 【修改】处理素质教师的负责班级
+  let teachingClassesStr = form.value.teachingClasses;
+  if (form.value.roleType === 5) {
+    teachingClassesStr = form.value.teachingClassesIds.join(',');
+  } else if (form.value.roleType === 2) {
+    teachingClassesStr = coursesToManage.join(',');
+  }
+
   const payload = {
     ...form.value,
     roleType: String(form.value.roleType),
-
     // 关键：将课程名列表存储在 User.teacherRank 字段中
     teacherRank: form.value.roleType === 2 ? coursesToManage.join(',') : form.value.teacherRank,
-
-    // 如果是课题组长，将负责课程名列表放在 teachingClasses 字段中传递给后端进行统一处理
-    teachingClasses: form.value.roleType === 2 ? coursesToManage.join(',') : form.value.teachingClasses,
+    // 关键：将负责班级或课程列表放在 teachingClasses 字段中
+    teachingClasses: teachingClassesStr,
   }
 
+  // 清理临时字段
   delete payload.managerCourses;
+  delete payload.teachingClassesIds;
 
   try {
     await request.post(url, payload)
@@ -796,7 +829,7 @@ const handleDelete = async (id) => {
   }
 }
 
-// ★★★ 新增：通知相关逻辑 ★★★
+// ... (其余部分代码保持不变：通知、课程、申请审核等) ...
 const openNotifyDialog = () => {
   notifyForm.title = ''
   notifyForm.content = ''
@@ -1016,11 +1049,11 @@ const handleReview = async (id, status) => {
 // --- 辅助函数 ---
 
 const getRoleName = (type) => {
-  const map = {'1':'管理员', '2':'课题组长', '3':'普通教师', '4':'学生'}
+  const map = {'1':'管理员', '2':'课题组长', '3':'普通教师', '4':'学生', '5':'素质教师'}
   return map[String(type)] || '未知'
 }
 const getRoleTag = (type) => {
-  const map = {'1':'danger', '2':'success', '3':'primary', '4':'info'}
+  const map = {'1':'danger', '2':'success', '3':'primary', '4':'info', '5':'warning'}
   return map[String(type)]
 }
 const formatType = (type) => {

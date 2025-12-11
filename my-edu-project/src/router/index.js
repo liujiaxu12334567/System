@@ -9,6 +9,8 @@ const CourseStudy = () => import('../views/CourseStudy.vue')
 const QuizDetail = () => import('../views/QuizDetail.vue')
 const AllCourses = () => import('../views/AllCourses.vue') // 【新增引入】
 const ExamDetail = () => import('../views/ExamDetail.vue')
+const QualityTeacher = () => import('../views/QualityTeacher.vue')
+const StudentQuality = () => import('../views/StudentQuality.vue')
 const routes = [
 
     {
@@ -73,6 +75,17 @@ const routes = [
         name: 'NeuAi',
         component: () => import('../views/NeuAi.vue'),
         meta: { title: 'NEU AI 智能助手' }
+    },{
+        path: '/quality-teacher',
+        name: 'QualityTeacher',
+        component: QualityTeacher,
+        meta: { title: '素质教师工作台' }
+    },
+    {
+        path: '/student-quality',
+        name: 'StudentQuality',
+        component: StudentQuality,
+        meta: { title: '素质活动与请假' }
     }
 ]
 

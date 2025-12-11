@@ -9,12 +9,11 @@
             <a @click="$router.push('/all-courses')">课程学习</a>
             <a href="#">个性学习</a>
             <a href="#">考试</a>
-            <a href="#">素质活动</a>
+            <a @click="$router.push('/student-quality')">素质活动</a>
             <a href="#">毕业设计</a>
           </nav>
         </div>
         <div class="right-section">
-
 
           <el-button
               type="primary"
@@ -24,6 +23,7 @@
           >
             <el-icon style="margin-right: 4px"><MagicStick /></el-icon> NEU AI
           </el-button>
+
           <el-popover
               placement="bottom"
               :width="300"
@@ -67,7 +67,7 @@
 
           <el-dropdown trigger="click">
             <div class="user-info">
-              <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
+              <el-avatar :size="32" src="[https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png](https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png)" />
               <span class="username">{{ userInfo.realName || '同学' }}</span>
               <el-icon class="el-icon--right"><ArrowDown /></el-icon>
             </div>
@@ -376,7 +376,6 @@ const fetchNotifications = async () => {
   }
 }
 
-// ★★★ 核心修改：打开详情对话框并标记已读 ★★★
 const openDetailDialog = async (note) => {
   // Deep clone the note for binding to the dialog
   currentNotification.value = { ...note };
@@ -398,7 +397,6 @@ const openDetailDialog = async (note) => {
   }
 };
 
-// 提交通知回复
 const submitReply = async (note) => {
   // Find the original note in the list to update its state directly
   const targetNote = notificationList.value.find(n => n.id === note.id) || note;
