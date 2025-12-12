@@ -46,4 +46,10 @@ public interface UserMapper {
             @Param("offset") int offset,
             @Param("pageSize") int pageSize
     );
+
+    // 【新增】按班级统计学生人数（用于课程应到人数）
+    long countStudentsByClassId(@Param("classId") Long classId);
+
+    // 【新增】按班级ID列表统计学生总数
+    long countStudentsByClassIds(@Param("classIds") List<Long> classIds);
 }

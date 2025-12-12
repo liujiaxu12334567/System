@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.project.system.mapper.CourseChatMapper">
+
+    <resultMap id="ChatMap" type="com.project.system.entity.CourseChat">
+        <id column="id" property="id"/>
+        <result column="course_id" property="courseId"/>
+        <result column="sender_id" property="senderId"/>
+        <result column="sender_name" property="senderName"/>
+        <result column="role" property="role"/>
+        <result column="content" property="content"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO course_chat (course_id, sender_id, sender_name, role, content, create_time)
+        VALUES (#{courseId}, #{senderId}, #{senderName}, #{role}, #{content}, NOW())
+    </insert>
+
+    <select id="selectByCourseId" resultMap="ChatMap">
+        SELECT id, course_id, sender_id, sender_name, role, content, create_time
+        FROM course_chat
+        WHERE course_id = #{courseId}
+        ORDER BY create_time DESC
+        LIMIT #{limit}
+    </select>
+</mapper>

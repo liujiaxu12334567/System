@@ -27,6 +27,13 @@
         </div>
 
         <div class="right-actions">
+          <div class="action-btn checkin-btn"
+               v-if="isCheckInOpen"
+               @click="handleStudentCheckIn">
+            <el-icon><Location /></el-icon>
+            <span>立即签到</span>
+          </div>
+
           <div class="action-btn">
             <el-icon><Document /></el-icon>
             <span>课程简介</span>
@@ -417,7 +424,7 @@ import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import {
-  ArrowLeft, Document, Bell, Search, Download, View,
+  ArrowLeft, Document, Bell, Search, Download, View, Location,
   TrendCharts, ChatLineRound, DataAnalysis, CircleCheck,
   Share, Operation, Notebook, ZoomIn, ZoomOut, Refresh,
   Flag, Folder, CollectionTag, Reading, Aim, Files, DataBoard, QuestionFilled
@@ -433,9 +440,8 @@ const courseInfo = ref({})
 const allMaterials = ref([])
 const examList = ref([])
 const currentTab = ref('导学')
-const tabs = ['导学', '教材', '教学目标', '知识图谱', '目录', 'FAQ', '学习资料', '测验', '作业', '项目', '考试'] // 【修改】新增考试Tab
+const tabs = ['导学', '教材', '教学目标', '知识图谱', '目录', 'FAQ', '学习资料', '测验', '作业', '项目', '考试']
 const searchKeyword = ref('')
-const onlyPublished = ref(true)
 
 // 图谱/目录数据
 const chartRef = ref(null); let myChart = null;
@@ -445,19 +451,46 @@ const graphNodeCount = ref(0); const graphMode = ref('graph')
 const treeData = ref([])
 const quizStatusMap = ref({})
 
+// 【新增】签到状态
+const isCheckInOpen = ref(false)
+let checkTimer = null
+
 // 允许预览的白名单
 const previewWhiteList = ['pdf', 'txt', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'mp3', 'mp4']
 
 onMounted(() => {
   fetchCourseInfo();
   fetchMaterials();
+  // 启动签到检查
+  checkStatus();
+  checkTimer = setInterval(checkStatus, 5000);
+
   window.addEventListener('resize', resizeChart)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeChart);
-  if (myChart) myChart.dispose()
+  if (myChart) myChart.dispose();
+  if (checkTimer) clearInterval(checkTimer);
 })
+
+// === 签到逻辑 ===
+const checkStatus = async () => {
+  try {
+    const res = await request.get(`/student/checkin/status/${courseId}`)
+    isCheckInOpen.value = res.active
+  } catch(e){}
+}
+
+const handleStudentCheckIn = async () => {
+  try {
+    await request.post('/student/checkin', { courseId: Number(courseId) })
+    ElMessage.success('签到成功！')
+    isCheckInOpen.value = false // 签到后立即隐藏按钮防止重复
+  } catch(e) {
+    ElMessage.error(e.response?.data || '签到失败')
+  }
+}
 
 // === API 请求 ===
 const fetchCourseInfo = async () => {
@@ -695,8 +728,24 @@ const formatTime = (t) => t ? t.replace('T',' ').substring(0,16) : ''
         width: 70px; height: 70px; background: rgba(255,255,255,0.15); border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer;
         .el-icon { font-size: 24px; margin-bottom: 5px; } span { font-size: 12px; }
       }
+
+      /* 【新增】签到按钮样式 */
+      .checkin-btn {
+        background-color: #E6A23C;
+        animation: bounce 2s infinite;
+        box-shadow: 0 4px 12px rgba(230, 162, 60, 0.4);
+        &:hover {
+          background-color: #cf9236;
+        }
+      }
     }
   }
+}
+
+@keyframes bounce {
+  0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
+  40% {transform: translateY(-10px);}
+  60% {transform: translateY(-5px);}
 }
 
 /* 3. 主体卡片 */

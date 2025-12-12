@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.project.system.mapper.OnlineQuestionMapper">
+
+    <resultMap id="QuestionMap" type="com.project.system.entity.OnlineQuestion">
+        <id column="id" property="id"/>
+        <result column="course_id" property="courseId"/>
+        <result column="class_id" property="classId"/>
+        <result column="teacher_id" property="teacherId"/>
+        <result column="title" property="title"/>
+        <result column="content" property="content"/>
+        <result column="deadline" property="deadline"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO online_question (course_id, class_id, teacher_id, title, content, deadline, create_time)
+        VALUES (#{courseId}, #{classId}, #{teacherId}, #{title}, #{content}, #{deadline}, NOW())
+    </insert>
+
+    <select id="selectByCourseIds" resultMap="QuestionMap">
+        SELECT id, course_id, class_id, teacher_id, title, content, deadline, create_time
+        FROM online_question
+        WHERE course_id IN
+        <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+        ORDER BY create_time DESC
+    </select>
+
+    <select id="selectById" resultMap="QuestionMap">
+        SELECT id, course_id, class_id, teacher_id, title, content, deadline, create_time
+        FROM online_question
+        WHERE id = #{id}
+    </select>
+
+    <select id="countByCourseIds" resultType="long">
+        SELECT COUNT(*) FROM online_question
+        WHERE course_id IN
+        <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+    </select>
+
+    <select id="selectAllByCourseIds" resultMap="QuestionMap">
+        SELECT id, course_id, class_id, teacher_id, title, content, deadline, create_time
+        FROM online_question
+        WHERE course_id IN
+        <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+        ORDER BY create_time DESC
+    </select>
+</mapper>

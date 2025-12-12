@@ -11,6 +11,8 @@ const AllCourses = () => import('../views/AllCourses.vue') // 【新增引入】
 const ExamDetail = () => import('../views/ExamDetail.vue')
 const QualityTeacher = () => import('../views/QualityTeacher.vue')
 const StudentQuality = () => import('../views/StudentQuality.vue')
+const TeacherClassroom = () => import('../views/TeacherClassroom.vue')
+const StudentClassroom = () => import('../views/StudentClassroom.vue')
 const routes = [
 
     {
@@ -68,6 +70,18 @@ const routes = [
         name: 'ExamDetail',
         component: ExamDetail,
         meta: { title: '在线考试' }
+    },
+    {
+        path: '/teacher/classroom/:courseId',
+        name: 'TeacherClassroom',
+        component: TeacherClassroom,
+        meta: { title: '在线课堂（教师）' }
+    },
+    {
+        path: '/student/classroom/:courseId',
+        name: 'StudentClassroom',
+        component: StudentClassroom,
+        meta: { title: '在线课堂（学生）' }
     },
     // 在 routes 数组中添加以下对象
     {

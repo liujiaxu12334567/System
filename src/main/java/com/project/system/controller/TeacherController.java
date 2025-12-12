@@ -3,13 +3,7 @@ package com.project.system.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.system.dto.PaginationResponse;
-import com.project.system.entity.Application;
-import com.project.system.entity.ExamRecord;
-import com.project.system.entity.Course;
-import com.project.system.entity.Material;
-import com.project.system.entity.QuizRecord;
-import com.project.system.entity.User;
-import com.project.system.entity.Notification; // 引入 Notification
+import com.project.system.entity.*;
 
 import com.project.system.mapper.ApplicationMapper;
 import com.project.system.mapper.ExamMapper;
@@ -42,6 +36,7 @@ import java.util.stream.Collectors;
 public class TeacherController {
     @Autowired
     private TeacherService teacherService;
+
     @Autowired
     private UserMapper userMapper;
 
@@ -63,6 +58,29 @@ public class TeacherController {
     @Autowired
     private NotificationMapper notificationMapper; // 【新增注入】
 
+    // 根据课程表推导教师负责的班级（优先 responsibleClassIds，其次 classId）
+    private Set<Long> getTeacherClassIds(String teacherName) {
+        List<Course> courses = courseMapper.selectAllCourses();
+        Set<Long> classIds = new HashSet<>();
+        if (teacherName == null) return classIds;
+        String normalized = teacherName.replaceAll("\\s+", "");
+        for (Course c : courses) {
+            String tName = c.getTeacher() == null ? "" : c.getTeacher().replaceAll("\\s+", "");
+            if (!tName.contains(normalized)) continue;
+            if (c.getResponsibleClassIds() != null && !c.getResponsibleClassIds().trim().isEmpty()) {
+                for (String s : c.getResponsibleClassIds().split(",")) {
+                    s = s.trim();
+                    if (!s.isEmpty()) {
+                        try { classIds.add(Long.parseLong(s)); } catch (NumberFormatException ignored) {}
+                    }
+                }
+            } else if (c.getClassId() != null) {
+                classIds.add(c.getClassId());
+            }
+        }
+        return classIds;
+    }
+
 
     // 1. 获取该老师执教班级的学生列表 (支持分页和筛选)
     @GetMapping("/students")
@@ -75,15 +93,12 @@ public class TeacherController {
         String currentUsername = SecurityContextHolder.getContext().getAuthentication().getName();
         User teacher = userMapper.findByUsername(currentUsername);
 
-        String classesStr = teacher.getTeachingClasses();
-        if (classesStr == null || classesStr.isEmpty()) {
+        Set<Long> classIdSet = getTeacherClassIds(teacher.getRealName());
+        if (classIdSet.isEmpty()) {
             return ResponseEntity.ok(new PaginationResponse<>(Collections.emptyList(), 0, pageNum, pageSize));
         }
 
-        List<String> validClassIds = Arrays.stream(classesStr.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toList());
+        List<String> validClassIds = classIdSet.stream().map(String::valueOf).collect(Collectors.toList());
 
         if (validClassIds.isEmpty()) {
             return ResponseEntity.ok(new PaginationResponse<>(Collections.emptyList(), 0, pageNum, pageSize));
@@ -143,36 +158,7 @@ public class TeacherController {
     // 4. 获取该老师执教班级的所有作业/测验资料
     @GetMapping("/materials")
     public ResponseEntity<?> listTeachingMaterials() {
-        String currentUsername = SecurityContextHolder.getContext().getAuthentication().getName();
-        User teacher = userMapper.findByUsername(currentUsername);
-
-        List<String> validClassIds = Arrays.stream(teacher.getTeachingClasses() != null ? teacher.getTeachingClasses().split(",") : new String[0])
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toList());
-
-        if (validClassIds.isEmpty()) {
-            return ResponseEntity.ok(Collections.emptyList());
-        }
-
-        List<Material> allMaterials = new ArrayList<>();
-        List<Long> classIds = validClassIds.stream().map(Long::parseLong).collect(Collectors.toList());
-
-        for (Long classId : classIds) {
-            List<Course> courses = courseMapper.selectAllCourses().stream()
-                    .filter(c -> c.getClassId() != null && c.getClassId().equals(classId))
-                    .collect(Collectors.toList());
-
-            for (Course course : courses) {
-                List<Material> materials = materialMapper.selectByCourseId(course.getId());
-                materials.forEach(m -> m.setFileName(course.getName() + " - " + m.getFileName()));
-                allMaterials.addAll(materials);
-            }
-        }
-
-        return ResponseEntity.ok(allMaterials.stream()
-                .filter(m -> Arrays.asList("测验", "作业", "项目").contains(m.getType()))
-                .collect(Collectors.toList()));
+        return ResponseEntity.ok(teacherService.listTeachingMaterials());
     }
 
     // 5. 获取某个资料的所有提交记录 (仅限该老师班级的学生)
@@ -311,7 +297,108 @@ public class TeacherController {
     public ResponseEntity<List<Notification>> getMyNotifications() {
         return ResponseEntity.ok(teacherService.getMyNotifications());
     }
+    // 【新增接口】获取仪表盘数据
+    @GetMapping("/dashboard")
+    public ResponseEntity<?> getDashboardStats() {
+        try {
+            return ResponseEntity.ok(teacherService.getDashboardStats());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("获取数据失败: " + e.getMessage());
+        }
+    }
 
+    // 【新增接口】获取教师课程列表（带多班级与人数）
+    @GetMapping("/courses")
+    public ResponseEntity<?> listMyCoursesV2() {
+        try {
+            return ResponseEntity.ok(teacherService.getMyCourses());
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("获取课程失败: " + e.getMessage());
+        }
+    }
+
+    // 【新增接口】获取考试列表
+    @GetMapping("/exams")
+    public ResponseEntity<List<Exam>> getExams() {
+        return ResponseEntity.ok(teacherService.getTeacherExams());
+    }
+
+    // ================= 在线课堂 =================
+    @PostMapping("/classroom/question")
+    public ResponseEntity<?> createClassroomQuestion(@RequestBody Map<String, Object> payload) {
+        try {
+            OnlineQuestion q = new OnlineQuestion();
+            q.setCourseId(Long.valueOf(payload.get("courseId").toString()));
+            q.setTitle((String) payload.getOrDefault("title", ""));
+            q.setContent((String) payload.getOrDefault("content", ""));
+            q.setMode((String) payload.getOrDefault("mode", "broadcast"));
+            if (payload.get("deadline") != null && !payload.get("deadline").toString().isEmpty()) {
+                q.setDeadline(java.time.LocalDateTime.parse(payload.get("deadline").toString().replace(" ", "T")));
+            }
+            return ResponseEntity.ok(teacherService.createOnlineQuestion(q));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("发布失败: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/classroom/questions")
+    public ResponseEntity<List<OnlineQuestion>> classroomQuestions(@RequestParam(required = false) Long courseId) {
+        return ResponseEntity.ok(teacherService.listOnlineQuestions(courseId));
+    }
+
+    @GetMapping("/classroom/question/{questionId}/queue")
+    public ResponseEntity<List<OnlineAnswer>> classroomQueue(@PathVariable Long questionId) {
+        return ResponseEntity.ok(teacherService.listQueue(questionId));
+    }
+
+    @PostMapping("/classroom/answer/{answerId}/call")
+    public ResponseEntity<?> callAnswer(@PathVariable Long answerId) {
+        teacherService.callAnswer(answerId);
+        return ResponseEntity.ok("已点名/允许发言");
+    }
+
+    // 【新增】发布在线问题
+    @PostMapping("/online-question")
+    public ResponseEntity<?> createOnlineQuestion(@RequestBody Map<String, Object> payload) {
+        try {
+            OnlineQuestion q = new OnlineQuestion();
+            q.setCourseId(Long.valueOf(payload.get("courseId").toString()));
+            q.setTitle((String) payload.getOrDefault("title", ""));
+            q.setContent((String) payload.getOrDefault("content", ""));
+            if (payload.get("deadline") != null && !payload.get("deadline").toString().isEmpty()) {
+                q.setDeadline(java.time.LocalDateTime.parse(payload.get("deadline").toString().replace(" ", "T")));
+            }
+            return ResponseEntity.ok(teacherService.createOnlineQuestion(q));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("发布问题失败: " + e.getMessage());
+        }
+    }
+
+    // 【新增】老师查看自己课程的在线问题列表
+    @GetMapping("/online-questions")
+    public ResponseEntity<List<OnlineQuestion>> listOnlineQuestions(@RequestParam(required = false) Long courseId) {
+        return ResponseEntity.ok(teacherService.listOnlineQuestions(courseId));
+    }
+
+    // 【新增】查看问题的全部回答
+    @GetMapping("/online-question/{questionId}/answers")
+    public ResponseEntity<List<OnlineAnswer>> listOnlineAnswers(@PathVariable Long questionId) {
+        return ResponseEntity.ok(teacherService.listOnlineAnswers(questionId));
+    }
+
+    @GetMapping("/classroom/{courseId}/chat")
+    public ResponseEntity<List<CourseChat>> listCourseChat(@PathVariable Long courseId, @RequestParam(defaultValue = "200") int limit) {
+        return ResponseEntity.ok(teacherService.listCourseChat(courseId, limit));
+    }
+
+    @PostMapping("/classroom/{courseId}/chat")
+    public ResponseEntity<?> sendCourseChat(@PathVariable Long courseId, @RequestBody Map<String, String> payload) {
+        String content = payload.get("content");
+        if (content == null || content.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body("内容不能为空");
+        }
+        return ResponseEntity.ok(teacherService.sendCourseChat(courseId, content.trim()));
+    }
     // 【新增】回复通知
     @PostMapping("/notification/reply")
     public ResponseEntity<?> replyNotification(@RequestBody Map<String, Object> data) {
@@ -319,5 +406,21 @@ public class TeacherController {
         String reply = (String) data.get("reply");
         teacherService.replyNotification(id, reply);
         return ResponseEntity.ok("回复提交成功");
+    }
+    @PostMapping("/checkin/start")
+    public ResponseEntity<?> startCheckIn(@RequestBody Map<String, Long> payload) {
+        String batchId = teacherService.startCheckIn(payload.get("courseId"));
+        return ResponseEntity.ok(Map.of("message", "签到已开启", "batchId", batchId));
+    }
+
+    @PostMapping("/checkin/stop")
+    public ResponseEntity<?> stopCheckIn(@RequestBody Map<String, Long> payload) {
+        teacherService.stopCheckIn(payload.get("courseId"));
+        return ResponseEntity.ok("签到已结束");
+    }
+
+    @GetMapping("/checkin/status/{courseId}")
+    public ResponseEntity<?> getCheckInStatus(@PathVariable Long courseId) {
+        return ResponseEntity.ok(teacherService.getCheckInStatus(courseId));
     }
 }

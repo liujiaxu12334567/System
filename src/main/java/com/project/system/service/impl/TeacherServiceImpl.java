@@ -1,16 +1,23 @@
 package com.project.system.service.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.system.dto.PaginationResponse;
 import com.project.system.entity.*;
 import com.project.system.mapper.*;
 import com.project.system.service.TeacherService;
+import com.project.system.websocket.ClassroomEvent;
+import com.project.system.websocket.ClassroomEventPublisher;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Service
@@ -25,22 +32,55 @@ public class TeacherServiceImpl implements TeacherService {
     @Autowired private NotificationMapper notificationMapper;
     @Autowired private RabbitTemplate rabbitTemplate;
 
+    // 【新增】注入 Redis 模板用于处理签到数据
+    @Autowired private StringRedisTemplate redisTemplate;
+    @Autowired private CourseClassMapper courseClassMapper;
+    @Autowired private AttendanceSummaryMapper attendanceSummaryMapper;
+    @Autowired private AssignmentSummaryMapper assignmentSummaryMapper;
+    @Autowired private TeacherInteractionMapper teacherInteractionMapper;
+    @Autowired private OnlineQuestionMapper onlineQuestionMapper;
+    @Autowired private OnlineAnswerMapper onlineAnswerMapper;
+    @Autowired private ClassroomEventPublisher classroomEventPublisher;
+    @Autowired private CourseChatMapper courseChatMapper;
+
     // 辅助方法：获取当前登录教师
     private User getCurrentTeacher() {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         return userMapper.findByUsername(username);
     }
 
-    // 辅助方法：解析教师的执教班级字符串为 List<String>
+    // 辅助方法：从课程表推导老师负责的班级ID集合（支持 responsibleClassIds/classId）
     private List<String> getValidClassIds(User teacher) {
-        String classesStr = teacher.getTeachingClasses();
-        if (classesStr == null || classesStr.isEmpty()) {
-            return new ArrayList<>();
+        String teacherName = teacher.getRealName() == null ? "" : teacher.getRealName().replaceAll("\\s+", "");
+        List<Course> courses = courseMapper.selectAllCourses();
+        Set<String> ids = new HashSet<>();
+        for (Course c : courses) {
+            String tName = c.getTeacher() == null ? "" : c.getTeacher().replaceAll("\\s+", "");
+            if (!tName.contains(teacherName)) continue;
+            if (c.getResponsibleClassIds() != null && !c.getResponsibleClassIds().trim().isEmpty()) {
+                for (String s : c.getResponsibleClassIds().split(",")) {
+                    s = s.trim();
+                    if (!s.isEmpty()) ids.add(s);
+                }
+            } else if (c.getClassId() != null) {
+                ids.add(String.valueOf(c.getClassId()));
+            }
         }
-        return Arrays.stream(classesStr.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toList());
+        return new ArrayList<>(ids);
+    }
+
+    private Map<Long, List<Long>> getCourseClassMap(List<Long> courseIds) {
+        if (courseIds == null || courseIds.isEmpty()) return Collections.emptyMap();
+        List<CourseClass> relations = courseClassMapper.selectByCourseIds(courseIds);
+        Map<Long, List<Long>> map = new HashMap<>();
+        for (CourseClass cc : relations) {
+            map.computeIfAbsent(cc.getCourseId(), k -> new ArrayList<>()).add(cc.getClassId());
+        }
+        return map;
+    }
+
+    private double roundToOne(double value) {
+        return Math.round(value * 10.0) / 10.0;
     }
 
     @Override
@@ -81,26 +121,19 @@ public class TeacherServiceImpl implements TeacherService {
 
     @Override
     public List<Object> listTeachingMaterials() {
-        User teacher = getCurrentTeacher();
-        List<String> validClassIds = getValidClassIds(teacher);
+        List<Course> myCourses = getMyCourses();
+        if (myCourses.isEmpty()) return Collections.emptyList();
 
-        if (validClassIds.isEmpty()) return Collections.emptyList();
+        Map<Long, Course> courseMap = myCourses.stream()
+                .filter(c -> c.getId() != null)
+                .collect(Collectors.toMap(Course::getId, c -> c, (a, b) -> a));
 
         List<Material> allMaterials = new ArrayList<>();
-        List<Long> classIds = validClassIds.stream().map(Long::parseLong).collect(Collectors.toList());
-
-        // 优化建议：这里存在 N+1 查询问题，但暂且保持逻辑正确性
-        for (Long classId : classIds) {
-            // 获取该班级下的所有课程
-            List<Course> courses = courseMapper.selectAllCourses().stream()
-                    .filter(c -> c.getClassId() != null && c.getClassId().equals(classId))
-                    .collect(Collectors.toList());
-
-            for (Course course : courses) {
-                List<Material> materials = materialMapper.selectByCourseId(course.getId());
-                materials.forEach(m -> m.setFileName(course.getName() + " - " + m.getFileName()));
-                allMaterials.addAll(materials);
-            }
+        for (Long courseId : courseMap.keySet()) {
+            List<Material> materials = materialMapper.selectByCourseId(courseId);
+            Course course = courseMap.get(courseId);
+            materials.forEach(m -> m.setFileName(course.getName() + " - " + m.getFileName()));
+            allMaterials.addAll(materials);
         }
 
         return allMaterials.stream()
@@ -114,15 +147,31 @@ public class TeacherServiceImpl implements TeacherService {
         Material material = materialMapper.findById(materialId);
         if (material == null) return new ArrayList<>();
 
-        // 2. 获取该资料所属的课程 -> 班级
-        // 假设 CourseMapper 有 selectById 方法，如果没有，这里先遍历查找
-        List<Course> allCourses = courseMapper.selectAllCourses();
-        Course course = allCourses.stream().filter(c -> c.getId().equals(material.getCourseId())).findFirst().orElse(null);
+        // 2. 获取当前教师的课程列表，确保只看自己课程
+        List<Course> myCourses = getMyCourses();
+        Map<Long, Course> myCourseMap = myCourses.stream()
+                .filter(c -> c.getId() != null)
+                .collect(Collectors.toMap(Course::getId, c -> c, (a, b) -> a));
 
-        if (course == null || course.getClassId() == null) return new ArrayList<>();
+        Course course = myCourseMap.get(material.getCourseId());
+        if (course == null) return new ArrayList<>();
 
-        // 3. 【优化】只查询该班级的学生，而不是全校学生
-        List<User> students = userMapper.selectStudentsByClassIds(Collections.singletonList(course.getClassId()));
+        // 3. 计算该课程对应的班级列表（course_class > responsible_class_ids > class_id）
+        List<Long> classList = new ArrayList<>(getCourseClassMap(Collections.singletonList(course.getId()))
+                .getOrDefault(course.getId(), Collections.emptyList()));
+        if (classList.isEmpty() && course.getResponsibleClassIds() != null && !course.getResponsibleClassIds().trim().isEmpty()) {
+            for (String s : course.getResponsibleClassIds().split(",")) {
+                s = s.trim();
+                if (s.isEmpty()) continue;
+                try { classList.add(Long.parseLong(s)); } catch (NumberFormatException ignored) {}
+            }
+        } else if (classList.isEmpty() && course.getClassId() != null) {
+            classList.add(course.getClassId());
+        }
+        if (classList.isEmpty()) return new ArrayList<>();
+
+        // 4. 只查询这些班级的学生
+        List<User> students = userMapper.selectStudentsByClassIds(classList);
         Map<Long, User> studentMap = students.stream().collect(Collectors.toMap(User::getUserId, u -> u));
 
         // 4. 获取提交记录
@@ -130,7 +179,7 @@ public class TeacherServiceImpl implements TeacherService {
 
         List<Map<String, Object>> result = new ArrayList<>();
         for (QuizRecord r : records) {
-            // 只有该班级的学生提交才显示（双重保险）
+            // 只有该班级的学生提交才显示
             User s = studentMap.get(r.getUserId());
             if (s != null) {
                 Map<String, Object> map = new HashMap<>();
@@ -144,10 +193,181 @@ public class TeacherServiceImpl implements TeacherService {
         return result;
     }
 
+    // 【新增实现】获取仪表盘统计数据
+    @Override
+    public Map<String, Object> getDashboardStats() {
+        User teacher = getCurrentTeacher();
+        List<Course> myCourses = getMyCourses();
+        if (myCourses.isEmpty()) {
+            return Map.of(
+                    "studentCount", 0,
+                    "attendanceRate", 0d,
+                    "interactionIndex", 0d,
+                    "submissionRate", 0d,
+                    "pieChart", Collections.emptyList(),
+                    "lineChart", Collections.emptyList(),
+                    "radarChart", Collections.emptyList(),
+                    "courses", Collections.emptyList()
+            );
+        }
+
+        List<Long> courseIds = myCourses.stream()
+                .map(Course::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        Map<Long, List<Long>> courseClassMap = getCourseClassMap(courseIds);
+
+        Set<Long> classIds = new HashSet<>();
+        for (Course c : myCourses) {
+            List<Long> viaRelation = courseClassMap.getOrDefault(c.getId(), Collections.emptyList());
+            if (!viaRelation.isEmpty()) {
+                classIds.addAll(viaRelation);
+            } else if (c.getResponsibleClassIds() != null && !c.getResponsibleClassIds().isEmpty()) {
+                for (String s : c.getResponsibleClassIds().split(",")) {
+                    s = s.trim();
+                    if (s.isEmpty()) continue;
+                    try { classIds.add(Long.parseLong(s)); } catch (NumberFormatException ignored) {}
+                }
+            } else if (c.getClassId() != null) {
+                classIds.add(c.getClassId());
+            }
+        }
+
+        long studentCount = classIds.isEmpty() ? 0 : userMapper.countStudentsByClassIds(new ArrayList<>(classIds));
+
+        // 出勤统计
+        List<AttendanceSummary> attendanceList = courseIds.isEmpty()
+                ? Collections.emptyList()
+                : attendanceSummaryMapper.selectByCourseIds(courseIds);
+        long presentSum = 0;
+        long expectedSum = 0;
+        Map<LocalDate, long[]> attendanceByDate = new TreeMap<>();
+        for (AttendanceSummary a : attendanceList) {
+            long p = a.getPresent() == null ? 0 : a.getPresent();
+            long e = a.getExpected() == null ? 0 : a.getExpected();
+            presentSum += p;
+            expectedSum += e;
+            if (a.getDate() != null) {
+                LocalDate d = a.getDate().toLocalDate();
+                long[] pair = attendanceByDate.computeIfAbsent(d, k -> new long[2]);
+                pair[0] += p;
+                pair[1] += e;
+            }
+        }
+        double attendanceRate = expectedSum > 0 ? roundToOne((double) presentSum * 100 / expectedSum) : 0d;
+
+        List<Double> lineChart = attendanceByDate.values().stream()
+                .map(v -> v[1] > 0 ? roundToOne((double) v[0] * 100 / v[1]) : 0d)
+                .collect(Collectors.toList());
+        if (lineChart.size() > 7) {
+            lineChart = lineChart.subList(lineChart.size() - 7, lineChart.size());
+        }
+
+        // 作业提交统计
+        List<AssignmentSummary> assignmentList = courseIds.isEmpty()
+                ? Collections.emptyList()
+                : assignmentSummaryMapper.selectByCourseIds(courseIds);
+        long submittedSum = 0;
+        long totalSum = 0;
+        for (AssignmentSummary a : assignmentList) {
+            submittedSum += a.getSubmitted() == null ? 0 : a.getSubmitted();
+            totalSum += a.getTotal() == null ? 0 : a.getTotal();
+        }
+        double submissionRate = totalSum > 0 ? roundToOne((double) submittedSum * 100 / totalSum) : 0d;
+
+        // 课堂互动统计
+        List<TeacherInteraction> interactionList = courseIds.isEmpty()
+                ? Collections.emptyList()
+                : teacherInteractionMapper.selectByCourseIds(courseIds);
+        List<OnlineAnswer> qaAnswers = courseIds.isEmpty() ? Collections.emptyList()
+                : enrichAnswers(onlineAnswerMapper.selectByCourseIds(courseIds));
+        long qaQuestionCount = courseIds.isEmpty() ? 0 : onlineQuestionMapper.countByCourseIds(courseIds);
+        long teacherTalk = 0;
+        long studentTalk = 0;
+        long groupTalk = 0;
+        long interactionCount = 0;
+        for (TeacherInteraction i : interactionList) {
+            teacherTalk += i.getTalkTimeSeconds() == null ? 0 : i.getTalkTimeSeconds();
+            studentTalk += i.getStudentTalkSeconds() == null ? 0 : i.getStudentTalkSeconds();
+            groupTalk += i.getGroupTalkSeconds() == null ? 0 : i.getGroupTalkSeconds();
+            interactionCount += i.getInteractionCount() == null ? 0 : i.getInteractionCount();
+        }
+        // 折算在线问答时长/互动次数
+        long qaTalk = 0;
+        for (OnlineAnswer a : qaAnswers) {
+            String type = a.getType() == null ? "answer" : a.getType();
+            if ("hand".equals(type) || "race".equals(type)) {
+                qaTalk += 20;
+            } else {
+                qaTalk += 45;
+            }
+            interactionCount += 1;
+        }
+        long interactionSamples = interactionList.size() + qaQuestionCount;
+        double interactionIndex = interactionSamples == 0 ? 0d :
+                roundToOne(Math.min(10d, interactionCount / (double) interactionSamples));
+
+        long totalTalk = teacherTalk + studentTalk + groupTalk + qaTalk;
+        List<Map<String, Object>> pieChart = Arrays.asList(
+                Map.of("name", "教师讲授", "value", teacherTalk),
+                Map.of("name", "学生互动", "value", studentTalk),
+                Map.of("name", "小组讨论", "value", groupTalk),
+                Map.of("name", "在线问答", "value", qaTalk > 0 ? qaTalk : Math.max(0, totalTalk > 0 ? 0 : 1))
+        );
+
+        double lineAvg = lineChart.isEmpty() ? attendanceRate : lineChart.stream().mapToDouble(Double::doubleValue).average().orElse(attendanceRate);
+        double studentShare = totalTalk > 0 ? roundToOne(studentTalk * 100.0 / totalTalk) : 0d;
+        double groupShare = totalTalk > 0 ? roundToOne(groupTalk * 100.0 / totalTalk) : 0d;
+        List<Double> radarChart = Arrays.asList(
+                attendanceRate,
+                submissionRate,
+                Math.min(100d, roundToOne(interactionIndex * 10)),
+                lineAvg,
+                Math.min(100d, roundToOne(studentShare + groupShare))
+        );
+
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("studentCount", studentCount);
+        stats.put("attendanceRate", attendanceRate);
+        stats.put("interactionIndex", interactionIndex);
+        stats.put("submissionRate", submissionRate);
+        stats.put("pieChart", pieChart);
+        stats.put("lineChart", lineChart);
+        stats.put("radarChart", radarChart);
+        stats.put("courses", myCourses);
+        return stats;
+    }
+
+    // 【新增实现】获取教师名下的考试
+    @Override
+    public List<Exam> getTeacherExams() {
+        User teacher = getCurrentTeacher();
+        List<String> validClassIds = getValidClassIds(teacher);
+
+        if (validClassIds.isEmpty()) return Collections.emptyList();
+
+        List<Long> classIdLongs = validClassIds.stream().map(Long::parseLong).collect(Collectors.toList());
+
+        // 1. 找到这些班级的所有课程
+        List<Course> courses = courseMapper.selectAllCourses().stream()
+                .filter(c -> c.getClassId() != null && classIdLongs.contains(c.getClassId()))
+                .collect(Collectors.toList());
+
+        List<Exam> exams = new ArrayList<>();
+        // 2. 找到这些课程的所有考试
+        for (Course c : courses) {
+            List<Exam> courseExams = examMapper.selectExamsByCourseId(c.getId());
+            // 拼上课程名，方便前端展示
+            courseExams.forEach(e -> e.setTitle(c.getName() + " - " + e.getTitle()));
+            exams.addAll(courseExams);
+        }
+        return exams;
+    }
+
     @Override
     @Transactional
     public void gradeSubmission(QuizRecord record) {
-        User teacher = getCurrentTeacher(); // 【修改点】获取当前教师信息
+        User teacher = getCurrentTeacher();
 
         QuizRecord originalRecord = quizRecordMapper.findById(record.getId());
         if (originalRecord == null) throw new RuntimeException("记录不存在");
@@ -156,21 +376,19 @@ public class TeacherServiceImpl implements TeacherService {
 
         int rows = quizRecordMapper.updateScoreAndFeedback(record);
         if (rows > 0) {
-            // 单条通知直接入库，保持即时性
             Notification notification = new Notification();
             notification.setUserId(originalRecord.getUserId());
             notification.setRelatedId(material.getId());
             notification.setType("GRADE_SUCCESS");
 
             String fileName = material.getFileName();
-            // 处理文件名显示
             if (fileName.contains(" - ")) {
                 fileName = fileName.split(" - ")[1];
             }
 
             notification.setTitle(material.getType() + "已批改：[" + fileName + "]");
             notification.setMessage("您的提交已获得 " + record.getScore() + " 分！请前往查看评语。");
-            notification.setSenderName(teacher.getRealName()); // 【修改点】设置发送者姓名
+            notification.setSenderName(teacher.getRealName());
             notificationMapper.insert(notification);
         }
     }
@@ -178,7 +396,7 @@ public class TeacherServiceImpl implements TeacherService {
     @Override
     @Transactional
     public void rejectSubmission(Long recordId) {
-        User teacher = getCurrentTeacher(); // 【修改点】获取当前教师信息
+        User teacher = getCurrentTeacher();
 
         QuizRecord originalRecord = quizRecordMapper.findById(recordId);
         if (originalRecord == null) throw new RuntimeException("记录不存在");
@@ -199,12 +417,11 @@ public class TeacherServiceImpl implements TeacherService {
 
             notification.setTitle(material.getType() + "被打回：[" + fileName + "]");
             notification.setMessage("您的提交已被教师打回重做，请尽快修改后重新提交。");
-            notification.setSenderName(teacher.getRealName()); // 【修改点】设置发送者姓名
+            notification.setSenderName(teacher.getRealName());
             notificationMapper.insert(notification);
         }
     }
 
-    // ★★★ RabbitMQ 生产者：异步发送群发通知 ★★★
     @Override
     public void sendNotification(String title, String content) {
         User teacher = getCurrentTeacher();
@@ -212,16 +429,13 @@ public class TeacherServiceImpl implements TeacherService {
         Map<String, Object> msg = new HashMap<>();
         msg.put("title", title);
         msg.put("content", content);
-        // 将教师的执教班级列表放入消息中，消费者会根据这个列表查找所有学生
         msg.put("teachingClasses", teacher.getTeachingClasses());
 
-        // 发送消息到 RabbitMQ 队列 "notification.queue"
         rabbitTemplate.convertAndSend("notification.queue", msg);
     }
 
     @Override
     public List<Map<String, Object>> getExamCheatingRecords(Long examId) {
-        // 1. 获取考试信息以确定班级
         Exam exam = examMapper.findExamById(examId);
         if (exam == null) return Collections.emptyList();
 
@@ -231,7 +445,6 @@ public class TeacherServiceImpl implements TeacherService {
 
         if (course == null || course.getClassId() == null) return Collections.emptyList();
 
-        // 2. 【优化】只查询该班级的学生
         List<User> students = userMapper.selectStudentsByClassIds(Collections.singletonList(course.getClassId()));
         Map<Long, User> studentMap = students.stream().collect(Collectors.toMap(User::getUserId, s -> s));
 
@@ -239,7 +452,6 @@ public class TeacherServiceImpl implements TeacherService {
         List<Map<String, Object>> result = new ArrayList<>();
 
         for (ExamRecord r : allRecords) {
-            // 筛选作弊且属于该班级的记录
             if (r.getCheatCount() != null && r.getCheatCount() > 0) {
                 User s = studentMap.get(r.getUserId());
                 if (s != null) {
@@ -254,18 +466,257 @@ public class TeacherServiceImpl implements TeacherService {
         }
         return result;
     }
-    // 【新增】获取教师的通知
+
     @Override
     public List<Notification> getMyNotifications() {
         return notificationMapper.selectByUserId(getCurrentTeacher().getUserId());
     }
 
-    // 【新增】教师回复通知
     @Override
     public void replyNotification(Long notificationId, String content) {
-        // 简单校验一下是否是该用户的通知（可选）
-        // notificationMapper.updateReply(notificationId, content);
-        // 这里假设 Mapper 已有 updateReply 方法 (上一步已添加)
         notificationMapper.updateReply(notificationId, content);
+    }
+
+    // ==========================================
+    // 【新增模块】课堂签到功能实现
+    // ==========================================
+
+    @Override
+    public String startCheckIn(Long courseId) {
+        String batchId = UUID.randomUUID().toString();
+        // 1. 设置课程正在签到状态 (key: course:checkin:active:{courseId}, value: batchId)
+        // 有效期 2 小时，防止老师忘关
+        redisTemplate.opsForValue().set("course:checkin:active:" + courseId, batchId, 2, TimeUnit.HOURS);
+
+        // 2. 初始化/清空该批次的签到人数集合
+        redisTemplate.delete("course:checkin:list:" + batchId);
+
+        return batchId;
+    }
+
+    @Override
+    public void stopCheckIn(Long courseId) {
+        // 删除活动状态 key 即可，学生无法再获取到 batchId 进行签到
+        redisTemplate.delete("course:checkin:active:" + courseId);
+    }
+
+    @Override
+    public Map<String, Object> getCheckInStatus(Long courseId) {
+        Map<String, Object> result = new HashMap<>();
+        String batchId = redisTemplate.opsForValue().get("course:checkin:active:" + courseId);
+
+        if (batchId == null) {
+            result.put("isActive", false);
+            return result;
+        }
+
+        // 获取已签到人数 (Set 大小)
+        Long count = redisTemplate.opsForSet().size("course:checkin:list:" + batchId);
+
+        // 获取课程总应到人数
+        Course course = courseMapper.selectAllCourses().stream()
+                .filter(c -> c.getId().equals(courseId)).findFirst().orElse(null);
+        long totalStudents = 0;
+        if (course != null && course.getClassId() != null) {
+            // 统计该班级的学生总数
+            totalStudents = userMapper.countStudentsByTeachingClasses(null, null, Collections.singletonList(String.valueOf(course.getClassId())));
+        }
+
+        result.put("isActive", true);
+        result.put("batchId", batchId);
+        result.put("checkedCount", count != null ? count : 0);
+        result.put("totalCount", totalStudents);
+
+        // 计算实时出勤率
+        double rate = totalStudents > 0 ? (double) (count != null ? count : 0) / totalStudents * 100 : 0;
+        result.put("rate", String.format("%.1f", rate));
+
+        return result;
+    }
+
+    // 【新增】获取当前教师的课程列表（含多班级与人数统计）
+    @Override
+    public List<Course> getMyCourses() {
+        User teacher = getCurrentTeacher();
+        String teacherName = teacher.getRealName() == null ? "" : teacher.getRealName().replaceAll("\\s+", "");
+        List<Course> all = courseMapper.selectAllCourses();
+        List<Course> mine = all.stream()
+                .filter(c -> c.getTeacher() != null && c.getTeacher().replaceAll("\\s+", "").contains(teacherName))
+                .collect(Collectors.toList());
+
+        List<Long> mineIds = mine.stream().map(Course::getId).filter(Objects::nonNull).collect(Collectors.toList());
+        Map<Long, List<Long>> courseClassMap = getCourseClassMap(mineIds);
+
+        mine.forEach(c -> {
+            List<Long> classList = new ArrayList<>(courseClassMap.getOrDefault(c.getId(), Collections.emptyList()));
+            if (classList.isEmpty() && c.getResponsibleClassIds() != null && !c.getResponsibleClassIds().trim().isEmpty()) {
+                for (String s : c.getResponsibleClassIds().split(",")) {
+                    s = s.trim();
+                    if (s.isEmpty()) continue;
+                    try { classList.add(Long.parseLong(s)); } catch (NumberFormatException ignored) {}
+                }
+            } else if (classList.isEmpty() && c.getClassId() != null) {
+                classList.add(c.getClassId());
+            }
+            if (!classList.isEmpty()) {
+                c.setStudentCount(userMapper.countStudentsByClassIds(classList));
+                c.setClassId(classList.get(0));
+                c.setResponsibleClassIds(classList.stream().map(String::valueOf).collect(Collectors.joining(",")));
+            } else {
+                c.setStudentCount(0L);
+            }
+        });
+
+        return mine;
+    }
+
+    @Override
+    @Transactional
+    public OnlineQuestion createOnlineQuestion(OnlineQuestion question) {
+        User teacher = getCurrentTeacher();
+        List<Course> myCourses = getMyCourses();
+        Set<Long> myCourseIds = myCourses.stream().map(Course::getId).collect(Collectors.toSet());
+        if (!myCourseIds.contains(question.getCourseId())) {
+            throw new RuntimeException("无权发布非本人课程的问题");
+        }
+        // 绑定班级（course_class > responsible_class_ids > class_id）
+        List<Long> classIds = new ArrayList<>(getCourseClassMap(Collections.singletonList(question.getCourseId()))
+                .getOrDefault(question.getCourseId(), Collections.emptyList()));
+        if (classIds.isEmpty()) {
+            Course course = myCourses.stream().filter(c -> c.getId().equals(question.getCourseId())).findFirst().orElse(null);
+            if (course != null && course.getResponsibleClassIds() != null) {
+                for (String s : course.getResponsibleClassIds().split(",")) {
+                    s = s.trim();
+                    if (s.isEmpty()) continue;
+                    try { classIds.add(Long.parseLong(s)); } catch (NumberFormatException ignored) {}
+                }
+            } else if (course != null && course.getClassId() != null) {
+                classIds.add(course.getClassId());
+            }
+        }
+        question.setTeacherId(teacher.getUserId());
+        question.setClassId(classIds.isEmpty() ? null : classIds.get(0));
+        // 将模式/描述编码进 content JSON，兼容旧表结构
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("mode", question.getMode() == null ? "broadcast" : question.getMode());
+        payload.put("description", question.getContent());
+        try {
+            question.setContent(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(payload));
+        } catch (Exception e) {
+            // fallback
+        }
+        onlineQuestionMapper.insert(question);
+        classroomEventPublisher.publish(new ClassroomEvent("question", question.getCourseId(), question.getId(), enrichQuestion(question)));
+        return question;
+    }
+
+    @Override
+    public List<OnlineQuestion> listOnlineQuestions(Long courseId) {
+        List<Course> myCourses = getMyCourses();
+        Set<Long> myCourseIds = myCourses.stream().map(Course::getId).collect(Collectors.toSet());
+        List<Long> targetIds = courseId != null ? Collections.singletonList(courseId) : new ArrayList<>(myCourseIds);
+        if (targetIds.isEmpty()) return Collections.emptyList();
+        targetIds = targetIds.stream().filter(myCourseIds::contains).collect(Collectors.toList());
+        if (targetIds.isEmpty()) return Collections.emptyList();
+        return onlineQuestionMapper.selectByCourseIds(targetIds).stream().map(this::enrichQuestion).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<OnlineAnswer> listOnlineAnswers(Long questionId) {
+        OnlineQuestion q = onlineQuestionMapper.selectById(questionId);
+        if (q == null) return Collections.emptyList();
+        // 权限校验
+        Set<Long> myCourseIds = getMyCourses().stream().map(Course::getId).collect(Collectors.toSet());
+        if (!myCourseIds.contains(q.getCourseId())) return Collections.emptyList();
+        return enrichAnswers(onlineAnswerMapper.selectByQuestionId(questionId));
+    }
+
+    @Override
+    public List<OnlineAnswer> listQueue(Long questionId) {
+        return listOnlineAnswers(questionId).stream()
+                .filter(a -> "hand".equals(a.getType()) || "race".equals(a.getType()))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public void callAnswer(Long answerId) {
+        OnlineAnswer answer = onlineAnswerMapper.selectById(answerId);
+        if (answer == null) return;
+        OnlineAnswer enriched = enrichAnswer(answer);
+        Map<String, Object> json = buildAnswerJson(
+                enriched.getType() == null ? "answer" : enriched.getType(),
+                enriched.getText(),
+                "called",
+                enriched.getStudentId());
+        try {
+            String text = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(json);
+            onlineAnswerMapper.updateAnswerTextById(answerId, text);
+        } catch (Exception ignored) {}
+        classroomEventPublisher.publish(new ClassroomEvent("call", answer.getQuestionId(), answer.getQuestionId(), Map.of("answerId", answerId)));
+    }
+
+    @Override
+    public List<CourseChat> listCourseChat(Long courseId, int limit) {
+        return courseChatMapper.selectByCourseId(courseId, limit <= 0 ? 200 : limit).stream()
+                .sorted(Comparator.comparing(CourseChat::getCreateTime))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public CourseChat sendCourseChat(Long courseId, String content) {
+        User teacher = getCurrentTeacher();
+        CourseChat chat = new CourseChat();
+        chat.setCourseId(courseId);
+        chat.setSenderId(teacher.getUserId());
+        chat.setSenderName(teacher.getRealName());
+        chat.setRole("teacher");
+        chat.setContent(content);
+        courseChatMapper.insert(chat);
+        classroomEventPublisher.publish(new ClassroomEvent("chat", courseId, null, chat));
+        return chat;
+    }
+
+    private OnlineQuestion enrichQuestion(OnlineQuestion q) {
+        if (q == null) return null;
+        q.setMode("broadcast");
+        q.setDescription(q.getContent());
+        if (q.getContent() != null && q.getContent().trim().startsWith("{")) {
+            try {
+                com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(q.getContent());
+                if (node.has("mode")) q.setMode(node.get("mode").asText());
+                if (node.has("description")) q.setDescription(node.get("description").asText());
+            } catch (Exception ignored) {}
+        }
+        return q;
+    }
+
+    private OnlineAnswer enrichAnswer(OnlineAnswer a) {
+        if (a == null) return null;
+        a.setType("answer");
+        a.setState("answered");
+        a.setText(a.getAnswerText());
+        if (a.getAnswerText() != null && a.getAnswerText().trim().startsWith("{")) {
+            try {
+                com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(a.getAnswerText());
+                if (node.has("type")) a.setType(node.get("type").asText());
+                if (node.has("state")) a.setState(node.get("state").asText());
+                if (node.has("text")) a.setText(node.get("text").asText());
+            } catch (Exception ignored) {}
+        }
+        return a;
+    }
+
+    private List<OnlineAnswer> enrichAnswers(List<OnlineAnswer> list) {
+        if (list == null) return Collections.emptyList();
+        return list.stream().map(this::enrichAnswer).collect(Collectors.toList());
+    }
+
+    private Map<String, Object> buildAnswerJson(String type, String text, String state, Long studentId) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("type", type);
+        map.put("text", text);
+        map.put("state", state);
+        map.put("studentId", studentId);
+        return map;
     }
 }

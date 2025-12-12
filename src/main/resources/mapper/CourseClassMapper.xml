@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.project.system.mapper.CourseClassMapper">
+
+    <resultMap id="CourseClassMap" type="com.project.system.entity.CourseClass">
+        <id column="course_id" property="courseId"/>
+        <result column="class_id" property="classId"/>
+    </resultMap>
+
+    <select id="selectByCourseIds" resultMap="CourseClassMap">
+        SELECT course_id, class_id
+        FROM course_class
+        WHERE course_id IN
+        <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+        ORDER BY course_id ASC, class_id ASC
+    </select>
+</mapper>

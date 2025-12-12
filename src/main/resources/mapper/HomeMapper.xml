@@ -26,13 +26,13 @@
     </resultMap>
 
     <select id="selectAllCourses" resultMap="CourseMap">
-        SELECT * FROM sys_course ORDER BY is_top DESC, id ASC
+        SELECT c.* FROM sys_course c ORDER BY c.is_top DESC, c.id ASC
     </select>
 
     <select id="selectCoursesByClassId" resultMap="CourseMap">
-        SELECT * FROM sys_course
-        WHERE class_id = #{classId}
-        ORDER BY is_top DESC, id ASC
+        SELECT c.* FROM sys_course c
+        WHERE c.class_id = #{classId}
+        ORDER BY c.is_top DESC, c.id ASC
     </select>
 
     <select id="selectAllTasks" resultMap="TaskMap">

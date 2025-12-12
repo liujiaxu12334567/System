@@ -18,4 +18,7 @@ public interface CourseMapper {
 
     // 【核心方法】根据课题组长姓名查询其负责的课程
     List<Course> selectCoursesByManagerName(@Param("managerName") String managerName);
+
+    // 新增：按课程ID列表查询
+    List<Course> selectCoursesByIds(@Param("ids") List<Long> ids);
 }

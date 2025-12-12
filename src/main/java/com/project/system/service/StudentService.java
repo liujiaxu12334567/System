@@ -11,7 +11,9 @@ public interface StudentService {
 
     // 【新增】标记通知为已读
     void markNotificationAsRead(Long id);
-
+    // ...
+    boolean doCheckIn(Long courseId);
+    boolean isCheckInActive(Long courseId);
     List<Map<String, Object>> getPendingTasks();
     Course getCourseInfo(Long courseId);
     List<Material> getCourseMaterials(Long courseId);
@@ -22,4 +24,15 @@ public interface StudentService {
     void submitExam(Long examId, Integer score, String userAnswers, Integer cheatCount);
     Object getExamRecord(Long examId);
     List<Map<String, Object>> getRecentActivities();
+
+    // 【新增】在线问答
+    List<OnlineQuestion> listOnlineQuestions(Long courseId);
+    OnlineAnswer answerOnlineQuestion(Long questionId, String answerText);
+    OnlineAnswer handRaise(Long questionId);
+    OnlineAnswer raceAnswer(Long questionId);
+    List<OnlineAnswer> listAnswers(Long questionId);
+
+    // 【新增】课堂聊天
+    List<CourseChat> listCourseChat(Long courseId, int limit);
+    CourseChat sendCourseChat(Long courseId, String content);
 }

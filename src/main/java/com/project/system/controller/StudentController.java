@@ -127,9 +127,79 @@ public class StudentController {
         notificationMapper.updateReply(id, reply);
         return ResponseEntity.ok("回复提交成功");
     }
+
+    @PostMapping("/checkin")
+    public ResponseEntity<?> checkIn(@RequestBody Map<String, Long> payload) {
+        boolean success = studentService.doCheckIn(payload.get("courseId"));
+        if (success) return ResponseEntity.ok("签到成功！");
+        return ResponseEntity.badRequest().body("签到失败：老师未开启或已结束");
+    }
+
+    @GetMapping("/checkin/status/{courseId}")
+    public ResponseEntity<?> getCheckInStatus(@PathVariable Long courseId) {
+        return ResponseEntity.ok(Map.of("active", studentService.isCheckInActive(courseId)));
+    }
     @PostMapping("/notification/read/{id}")
     public ResponseEntity<?> markNotificationAsRead(@PathVariable Long id) {
         studentService.markNotificationAsRead(id);
         return ResponseEntity.ok("标记已读成功");
+    }
+
+    // 【新增】在线问答列表（按课程）
+    @GetMapping("/online-questions")
+    public ResponseEntity<List<OnlineQuestion>> listOnlineQuestions(@RequestParam(required = false) Long courseId) {
+        return ResponseEntity.ok(studentService.listOnlineQuestions(courseId));
+    }
+
+    // 【新增】提交在线问题回答
+    @PostMapping("/online-question/{questionId}/answer")
+    public ResponseEntity<?> answerOnlineQuestion(@PathVariable Long questionId, @RequestBody Map<String, String> payload) {
+        try {
+            String text = payload.get("answerText");
+            return ResponseEntity.ok(studentService.answerOnlineQuestion(questionId, text));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // 【新增】举手
+    @PostMapping("/classroom/question/{questionId}/hand")
+    public ResponseEntity<?> handRaise(@PathVariable Long questionId) {
+        try {
+            return ResponseEntity.ok(studentService.handRaise(questionId));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // 【新增】抢答
+    @PostMapping("/classroom/question/{questionId}/race")
+    public ResponseEntity<?> race(@PathVariable Long questionId) {
+        try {
+            return ResponseEntity.ok(studentService.raceAnswer(questionId));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    // 【新增】查看回答/发言流
+    @GetMapping("/classroom/question/{questionId}/answers")
+    public ResponseEntity<List<OnlineAnswer>> listAnswers(@PathVariable Long questionId) {
+        return ResponseEntity.ok(studentService.listAnswers(questionId));
+    }
+
+    // 课堂聊天
+    @GetMapping("/classroom/{courseId}/chat")
+    public ResponseEntity<List<CourseChat>> listCourseChat(@PathVariable Long courseId, @RequestParam(defaultValue = "200") int limit) {
+        return ResponseEntity.ok(studentService.listCourseChat(courseId, limit));
+    }
+
+    @PostMapping("/classroom/{courseId}/chat")
+    public ResponseEntity<?> sendCourseChat(@PathVariable Long courseId, @RequestBody Map<String, String> payload) {
+        String content = payload.get("content");
+        if (content == null || content.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body("内容不能为空");
+        }
+        return ResponseEntity.ok(studentService.sendCourseChat(courseId, content.trim()));
     }
 }

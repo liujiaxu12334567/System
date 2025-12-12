@@ -487,28 +487,6 @@ public class LeaderServiceImpl implements LeaderService {
 
     // 辅助方法：更新教师执教班级 (保持不变)
     private void updateTeacherTeachingClasses(List<String> teacherNames, List<Long> classIds) {
-        List<User> allTeachers = new ArrayList<>();
-        allTeachers.addAll(userMapper.selectUsersByRole("2"));
-        allTeachers.addAll(userMapper.selectUsersByRole("3"));
-
-        for (String name : teacherNames) {
-            User u = allTeachers.stream().filter(t -> t.getRealName().equals(name.trim())).findFirst().orElse(null);
-            // 组长不更新班级
-            if (u != null && !"2".equals(u.getRoleType())) {
-                User dbUser = userMapper.findByUsername(u.getUsername());
-                Set<String> classes = new HashSet<>();
-                if (dbUser.getTeachingClasses() != null) {
-                    Collections.addAll(classes, dbUser.getTeachingClasses().split(","));
-                }
-                boolean changed = false;
-                for (Long cid : classIds) {
-                    if (classes.add(String.valueOf(cid))) changed = true;
-                }
-                if (changed) {
-                    dbUser.setTeachingClasses(String.join(",", classes));
-                    userMapper.updateUser(dbUser);
-                }
-            }
-        }
+        // 不再向 sys_user.teaching_classes 写入，改用 sys_course.responsible_class_ids 维护教师-班级关系
     }
 }

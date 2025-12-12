@@ -69,10 +69,47 @@ public class AdminController {
             @RequestParam("startUsername") String startUsername,
             @RequestParam("major") String major) {
         try {
-            String result = adminService.batchEnrollFromFile(file, Long.parseLong(targetClassId), Long.parseLong(startUsername), major);
+            // 增强参数验证
+            if (file.isEmpty()) {
+                return ResponseEntity.badRequest().body("请选择要上传的文件");
+            }
+            
+            if (targetClassId == null || targetClassId.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("目标班级ID不能为空");
+            }
+            
+            if (startUsername == null || startUsername.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("起始学号不能为空");
+            }
+            
+            if (major == null || major.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("专业不能为空");
+            }
+            
+            // 安全的数据类型转换
+            Long parsedTargetClassId;
+            Long parsedStartUsername;
+            
+            try {
+                parsedTargetClassId = Long.parseLong(targetClassId.trim());
+            } catch (NumberFormatException e) {
+                return ResponseEntity.badRequest().body("目标班级ID必须是有效的数字");
+            }
+            
+            try {
+                parsedStartUsername = Long.parseLong(startUsername.trim());
+            } catch (NumberFormatException e) {
+                return ResponseEntity.badRequest().body("起始学号必须是有效的数字");
+            }
+            
+            String result = adminService.batchEnrollFromFile(file, parsedTargetClassId, parsedStartUsername, major.trim());
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
+            // 增强异常处理，返回更友好的错误信息
+            String errorMessage = "文件上传失败: " + e.getMessage();
+            System.err.println("批量导入错误详情:");
+            e.printStackTrace();
+            return ResponseEntity.badRequest().body(errorMessage);
         }
     }
 

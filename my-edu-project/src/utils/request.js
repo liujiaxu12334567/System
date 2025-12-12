@@ -48,6 +48,12 @@ service.interceptors.response.use(
             } else if (error.response.data && error.response.data.message) {
                 message = error.response.data.message
             }
+            if (error.response.status === 401) {
+                localStorage.removeItem('token')
+                localStorage.removeItem('userInfo')
+                window.location.href = '/login'
+                return Promise.reject(error)
+            }
         }
 
         ElMessage.error(message)

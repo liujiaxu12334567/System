@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.project.system.mapper.OnlineAnswerMapper">
+
+    <resultMap id="AnswerMap" type="com.project.system.entity.OnlineAnswer">
+        <id column="id" property="id"/>
+        <result column="question_id" property="questionId"/>
+        <result column="student_id" property="studentId"/>
+        <result column="answer_text" property="answerText"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO online_answer (question_id, student_id, answer_text, create_time)
+        VALUES (#{questionId}, #{studentId}, #{answerText}, NOW())
+    </insert>
+
+    <select id="selectByQuestionId" resultMap="AnswerMap">
+        SELECT id, question_id, student_id, answer_text, create_time
+        FROM online_answer
+        WHERE question_id = #{questionId}
+        ORDER BY create_time ASC
+    </select>
+
+    <select id="countByCourseIds" resultType="long">
+        SELECT COUNT(*) FROM online_answer a
+        INNER JOIN online_question q ON a.question_id = q.id
+        WHERE q.course_id IN
+        <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+    </select>
+
+    <update id="updateAnswerTextById">
+        UPDATE online_answer SET answer_text = #{answerText} WHERE id = #{id}
+    </update>
+
+    <select id="selectByCourseIds" resultMap="AnswerMap">
+        SELECT a.id, a.question_id, a.student_id, a.answer_text, a.create_time
+        FROM online_answer a
+                 INNER JOIN online_question q ON a.question_id = q.id
+        WHERE q.course_id IN
+        <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+        ORDER BY a.create_time ASC
+    </select>
+
+    <select id="selectById" resultMap="AnswerMap">
+        SELECT id, question_id, student_id, answer_text, create_time
+        FROM online_answer
+        WHERE id = #{id}
+    </select>
+</mapper>

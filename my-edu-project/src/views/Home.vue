@@ -138,12 +138,36 @@
               <span class="enter-text" v-if="item.isTop === 1">置顶</span>
               <span class="enter-text" v-else></span>
               <span class="start-btn" @click="goToCourse(item.id)">开始学习</span>
+              <el-button size="small" type="primary" plain @click="goToClassroom(item.id)">进入在线课堂</el-button>
             </div>
           </div>
         </div>
       </section>
 
-      <div class="bottom-row">
+      <div class="content-block" style="margin-top: 20px;">
+        <div class="block-header">
+          <h3 class="title">在线问题 / 举手抢答</h3>
+          <el-link :underline="false" class="more-link" @click="courseList.length && fetchOnlineQuestions(courseList[0].id)">刷新</el-link>
+        </div>
+        <el-skeleton :rows="3" animated v-if="qaLoading" />
+        <div v-else>
+          <el-empty v-if="onlineQuestions.length === 0" description="暂无在线问题" />
+          <div class="qa-list-stu" v-else>
+            <div class="qa-card" v-for="q in onlineQuestions" :key="q.id">
+              <div class="qa-title">{{ q.title }}</div>
+              <div class="qa-desc">{{ q.content }}</div>
+              <div class="qa-meta">
+                <span>课程ID：{{ q.courseId }}</span>
+                <span class="sep">·</span>
+                <span>{{ formatTime(q.createTime) }}</span>
+              </div>
+              <el-button size="small" type="primary" plain @click="openAnswerDialog(q)">举手/抢答/回答</el-button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+  <div class="bottom-row">
         <section class="content-block half-block">
           <div class="block-header">
             <div class="header-left">
@@ -294,6 +318,12 @@ const loading = ref(true)
 const courseList = ref([])
 const notificationList = ref([])
 const pendingTasks = ref([])
+// 在线问答
+const onlineQuestions = ref([])
+const answerDialogVisible = ref(false)
+const selectedQuestion = ref(null)
+const answerText = ref('')
+const qaLoading = ref(false)
 
 // 通知详情状态
 const detailDialogVisible = ref(false)
@@ -331,6 +361,10 @@ const passwordRules = reactive({
 
 onMounted(() => {
   const storedUser = localStorage.getItem('userInfo')
+  if (!localStorage.getItem('token')) {
+    router.push('/login')
+    return
+  }
   if (storedUser) {
     try { userInfo.value = JSON.parse(storedUser) } catch(e) {}
   }
@@ -355,6 +389,11 @@ const fetchHomeData = async () => {
     const tasksRes = await request.get('/student/pending-tasks')
     pendingTasks.value = tasksRes || []
 
+    // 4. 默认拉取在线问题（取第一门课程）
+    if (courseList.value.length > 0) {
+      await fetchOnlineQuestions(courseList.value[0].id)
+    }
+
   } catch (error) {
     console.error(error)
   } finally {
@@ -373,6 +412,37 @@ const fetchNotifications = async () => {
     }))
   } catch(e) {
     console.error("获取通知失败", e)
+  }
+}
+
+// 在线问答
+const fetchOnlineQuestions = async (courseId) => {
+  qaLoading.value = true
+  try {
+    onlineQuestions.value = await request.get('/student/online-questions', { params: { courseId } }) || []
+  } catch (e) {
+    console.error(e)
+  } finally {
+    qaLoading.value = false
+  }
+}
+
+const openAnswerDialog = (q) => {
+  selectedQuestion.value = q
+  answerText.value = ''
+  answerDialogVisible.value = true
+}
+
+const submitAnswer = async () => {
+  if (!selectedQuestion.value || !answerText.value.trim()) return ElMessage.warning('请输入回答内容')
+  try {
+    await request.post(`/student/online-question/${selectedQuestion.value.id}/answer`, { answerText: answerText.value.trim() })
+    ElMessage.success('回答已提交')
+    answerDialogVisible.value = false
+    // 重新加载列表以便老师端可见
+    await fetchOnlineQuestions(selectedQuestion.value.courseId)
+  } catch (e) {
+    ElMessage.error(e.response?.data || '提交失败')
   }
 }
 
@@ -472,6 +542,9 @@ const submitPasswordChange = () => {
 
 const goToCourse = (courseId) => {
   router.push(`/course-study/${courseId}`)
+}
+const goToClassroom = (courseId) => {
+  router.push(`/student/classroom/${courseId}`)
 }
 
 const logout = () => {
@@ -656,13 +729,14 @@ $content-width: 90%;
     .course-code { font-size: 12px; opacity: 0.75; font-family: monospace; margin: 0; }
   }
 
-  .card-action {
-    display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px;
-    .enter-text { font-size: 12px; opacity: 0.8; cursor: pointer; }
-    .start-btn {
-      font-size: 12px; background: #fff; color: #333; padding: 2px 10px; border-radius: 12px; font-weight: 500;
-    }
+.card-action {
+  display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px;
+  .enter-text { font-size: 12px; opacity: 0.8; cursor: pointer; }
+  .start-btn {
+    font-size: 12px; background: #fff; color: #333; padding: 2px 10px; border-radius: 12px; font-weight: 500;
   }
+  .el-button { margin-left: 8px; }
+}
 }
 
 .empty-area {
@@ -693,6 +767,14 @@ $content-width: 90%;
     .action-btn { font-size: 12px; padding: 6px 15px; }
   }
 }
+
+/* 在线问题列表 */
+.qa-list-stu { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.qa-card { background: #fff; border: 1px solid #ebeef5; border-radius: 8px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
+.qa-card .qa-title { font-weight: 600; margin-bottom: 6px; color: #303133; }
+.qa-card .qa-desc { font-size: 13px; color: #606266; margin-bottom: 6px; }
+.qa-card .qa-meta { font-size: 12px; color: #909399; display:flex; gap:6px; align-items:center; }
+.qa-card .sep { opacity: 0.6; }
 
 /* 通知气泡 */
 .notify-box {

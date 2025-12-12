@@ -49,7 +49,7 @@
     </select>
 
     <select id="findExamById" resultMap="ExamResultMap">
-        SELECT * FROM sys_exam WHERE id = #{id}
+        SELECT e.* FROM sys_exam e WHERE e.id = #{id}
     </select>
 
     <insert id="insertExamRecord" useGeneratedKeys="true" keyProperty="id">

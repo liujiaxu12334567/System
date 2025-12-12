@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.project.system.mapper.AttendanceSummaryMapper">
+
+    <resultMap id="AttendanceSummaryMap" type="com.project.system.entity.AttendanceSummary">
+        <id column="id" property="id"/>
+        <result column="course_id" property="courseId"/>
+        <result column="class_id" property="classId"/>
+        <result column="date" property="date"/>
+        <result column="expected" property="expected"/>
+        <result column="present" property="present"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <select id="selectByCourseIds" resultMap="AttendanceSummaryMap">
+        SELECT id, course_id, class_id, date, expected, present, created_at
+        FROM attendance_summary
+        WHERE course_id IN
+        <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+        ORDER BY date ASC, id ASC
+    </select>
+</mapper>

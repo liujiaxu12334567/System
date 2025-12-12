@@ -7,9 +7,12 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.project.system.entity.*;
 import com.project.system.mapper.*;
 import com.project.system.service.StudentService;
+import com.project.system.websocket.ClassroomEvent;
+import com.project.system.websocket.ClassroomEventPublisher;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,13 +34,17 @@ import java.util.stream.Collectors;
 
 @Service
 public class StudentServiceImpl implements StudentService {
-
+    @Autowired private StringRedisTemplate redisTemplate;
     @Autowired private ExamMapper examMapper;
     @Autowired private MaterialMapper materialMapper;
     @Autowired private CourseMapper courseMapper;
     @Autowired private QuizRecordMapper quizRecordMapper;
     @Autowired private UserMapper userMapper;
     @Autowired private NotificationMapper notificationMapper;
+    @Autowired private OnlineQuestionMapper onlineQuestionMapper;
+    @Autowired private OnlineAnswerMapper onlineAnswerMapper;
+    @Autowired private ClassroomEventPublisher classroomEventPublisher;
+    @Autowired private CourseChatMapper courseChatMapper;
 
     @Value("${file.upload-dir:./uploads}")
     private String uploadDir;
@@ -78,7 +85,21 @@ public class StudentServiceImpl implements StudentService {
     public List<Material> getCourseMaterials(Long courseId) {
         return materialMapper.selectByCourseId(courseId);
     }
+    @Override
+    public boolean doCheckIn(Long courseId) {
+        String batchId = redisTemplate.opsForValue().get("course:checkin:active:" + courseId);
+        if (batchId == null) return false; // 签到未开启
 
+        User student = getCurrentUser();
+        // 将学生ID加入签到集合 (使用 Set 自动去重)
+        redisTemplate.opsForSet().add("course:checkin:list:" + batchId, student.getUserId().toString());
+        return true;
+    }
+
+    @Override
+    public boolean isCheckInActive(Long courseId) {
+        return redisTemplate.hasKey("course:checkin:active:" + courseId);
+    }
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void submitQuiz(Long materialId, Integer score, String userAnswers, String textAnswer, List<MultipartFile> files) {
@@ -301,6 +322,98 @@ public class StudentServiceImpl implements StudentService {
         return notificationMapper.selectByUserId(getCurrentUser().getUserId());
     }
 
+    @Override
+    public List<OnlineQuestion> listOnlineQuestions(Long courseId) {
+        List<Long> ids = new ArrayList<>();
+        if (courseId != null) {
+            ids.add(courseId);
+        } else {
+            ids = courseMapper.selectAllCourses().stream()
+                    .map(Course::getId)
+                    .collect(Collectors.toList());
+        }
+        if (ids.isEmpty()) return Collections.emptyList();
+        return onlineQuestionMapper.selectByCourseIds(ids).stream().map(this::enrichQuestion).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public OnlineAnswer answerOnlineQuestion(Long questionId, String answerText) {
+        User student = getCurrentUser();
+        if (answerText == null || answerText.trim().isEmpty()) {
+            throw new RuntimeException("回答内容不能为空");
+        }
+        OnlineQuestion question = onlineQuestionMapper.selectById(questionId);
+        if (question == null) {
+            throw new RuntimeException("问题不存在");
+        }
+        OnlineAnswer answer = new OnlineAnswer();
+        answer.setQuestionId(questionId);
+        answer.setStudentId(student.getUserId());
+        answer.setAnswerText(buildAnswerJson("answer", answerText.trim(), "answered", student.getUserId()));
+        onlineAnswerMapper.insert(answer);
+        OnlineAnswer enriched = enrichAnswer(answer);
+        classroomEventPublisher.publish(new ClassroomEvent("answer", question.getCourseId(), questionId, enriched));
+        return enriched;
+    }
+
+    @Override
+    @Transactional
+    public OnlineAnswer handRaise(Long questionId) {
+        User student = getCurrentUser();
+        OnlineAnswer answer = new OnlineAnswer();
+        answer.setQuestionId(questionId);
+        answer.setStudentId(student.getUserId());
+        answer.setAnswerText(buildAnswerJson("hand", "举手", "pending", student.getUserId()));
+        onlineAnswerMapper.insert(answer);
+        OnlineAnswer enriched = enrichAnswer(answer);
+        // 推送举手事件
+        OnlineQuestion q = onlineQuestionMapper.selectById(questionId);
+        if (q != null) classroomEventPublisher.publish(new ClassroomEvent("hand", q.getCourseId(), questionId, enriched));
+        return enriched;
+    }
+
+    @Override
+    @Transactional
+    public OnlineAnswer raceAnswer(Long questionId) {
+        User student = getCurrentUser();
+        OnlineAnswer answer = new OnlineAnswer();
+        answer.setQuestionId(questionId);
+        answer.setStudentId(student.getUserId());
+        answer.setAnswerText(buildAnswerJson("race", "抢答", "pending", student.getUserId()));
+        onlineAnswerMapper.insert(answer);
+        OnlineAnswer enriched = enrichAnswer(answer);
+        OnlineQuestion q = onlineQuestionMapper.selectById(questionId);
+        if (q != null) classroomEventPublisher.publish(new ClassroomEvent("race", q.getCourseId(), questionId, enriched));
+        return enriched;
+    }
+
+    @Override
+    public List<OnlineAnswer> listAnswers(Long questionId) {
+        return enrichAnswers(onlineAnswerMapper.selectByQuestionId(questionId));
+    }
+
+    @Override
+    public List<CourseChat> listCourseChat(Long courseId, int limit) {
+        return courseChatMapper.selectByCourseId(courseId, limit <= 0 ? 200 : limit).stream()
+                .sorted(Comparator.comparing(CourseChat::getCreateTime))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public CourseChat sendCourseChat(Long courseId, String content) {
+        User student = getCurrentUser();
+        CourseChat chat = new CourseChat();
+        chat.setCourseId(courseId);
+        chat.setSenderId(student.getUserId());
+        chat.setSenderName(student.getRealName());
+        chat.setRole("student");
+        chat.setContent(content);
+        courseChatMapper.insert(chat);
+        classroomEventPublisher.publish(new ClassroomEvent("chat", courseId, null, chat));
+        return chat;
+    }
+
     // 【新增】获取待办任务（逻辑：该学生所在班级的所有作业 - 该学生已提交的作业）
     @Override
     public List<Map<String, Object>> getPendingTasks() {
@@ -353,5 +466,54 @@ public class StudentServiceImpl implements StudentService {
                     return map;
                 })
                 .collect(Collectors.toList());
+    }
+
+    // ==== 辅助 ====
+    private OnlineQuestion enrichQuestion(OnlineQuestion q) {
+        if (q == null) return null;
+        q.setMode("broadcast");
+        q.setDescription(q.getContent());
+        if (q.getContent() != null && q.getContent().trim().startsWith("{")) {
+            try {
+                JsonNode node = new ObjectMapper().readTree(q.getContent());
+                if (node.has("mode")) q.setMode(node.get("mode").asText());
+                if (node.has("description")) q.setDescription(node.get("description").asText());
+            } catch (Exception ignored) {}
+        }
+        return q;
+    }
+
+    private String buildAnswerJson(String type, String text, String state, Long studentId) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("type", type);
+        map.put("text", text);
+        map.put("state", state);
+        map.put("studentId", studentId);
+        try {
+            return new ObjectMapper().writeValueAsString(map);
+        } catch (Exception e) {
+            return text;
+        }
+    }
+
+    private OnlineAnswer enrichAnswer(OnlineAnswer a) {
+        if (a == null) return null;
+        a.setType("answer");
+        a.setState("answered");
+        a.setText(a.getAnswerText());
+        if (a.getAnswerText() != null && a.getAnswerText().trim().startsWith("{")) {
+            try {
+                JsonNode node = new ObjectMapper().readTree(a.getAnswerText());
+                if (node.has("type")) a.setType(node.get("type").asText());
+                if (node.has("state")) a.setState(node.get("state").asText());
+                if (node.has("text")) a.setText(node.get("text").asText());
+            } catch (Exception ignored) {}
+        }
+        return a;
+    }
+
+    private List<OnlineAnswer> enrichAnswers(List<OnlineAnswer> list) {
+        if (list == null) return Collections.emptyList();
+        return list.stream().map(this::enrichAnswer).collect(Collectors.toList());
     }
 }

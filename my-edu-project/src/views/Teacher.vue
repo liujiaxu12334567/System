@@ -1,367 +1,395 @@
 <template>
-  <div class="teacher-container">
-    <el-aside width="220px" class="sidebar">
-      <div class="logo">教师工作台</div>
-      <el-menu :default-active="activeMenu" class="el-menu-vertical"
-               background-color="#304156" text-color="#fff" active-text-color="#409EFF"
+  <div class="teacher-container-light">
+    <el-aside width="220px" class="sidebar-light">
+      <div class="brand-area">
+        <div class="brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#409EFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 17L12 22L22 17" stroke="#409EFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 12L12 17L22 12" stroke="#409EFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span class="brand-text">智慧教学大脑</span>
+      </div>
+
+      <el-menu :default-active="activeMenu" class="el-menu-vertical-light"
+               background-color="#ffffff" text-color="#606266" active-text-color="#409EFF"
                @select="handleSelect">
-        <el-menu-item index="1"><el-icon><Reading /></el-icon>学生管理(执教班级)</el-menu-item>
-        <el-menu-item index="2"><el-icon><Document /></el-icon>我的申请记录</el-menu-item>
-        <el-menu-item index="3"><el-icon><DocumentChecked /></el-icon>课程资料与批改</el-menu-item>
-        <el-menu-item index="4"><el-icon><Tickets /></el-icon>学生考试记录</el-menu-item>
+        <el-menu-item index="1"><el-icon><DataAnalysis /></el-icon><span>班级学情分析</span></el-menu-item>
+        <el-menu-item index="6"><el-icon><Collection /></el-icon><span>我的课程 (上课)</span></el-menu-item>
+        <el-menu-item index="2"><el-icon><Document /></el-icon><span>申请审批中心</span></el-menu-item>
+        <el-menu-item index="3"><el-icon><Reading /></el-icon><span>资源与作业调度</span></el-menu-item>
+        <el-menu-item index="4"><el-icon><Monitor /></el-icon><span>考试全景监控</span></el-menu-item>
       </el-menu>
     </el-aside>
 
-    <el-main class="main-content">
-      <div class="header-bar">
-        <span>欢迎您，{{ teacherName }} 老师</span>
+    <el-main class="main-content-light">
+      <div class="dashboard-card header-bar-light">
+        <div class="header-left">
+          <div class="greeting-wrap">
+            <h2 class="greeting">早安，{{ teacherName }} 老师</h2>
+            <p class="date-badge">
+              <el-icon class="mr-1"><Calendar /></el-icon> {{ currentDate }} | 教学第 12 周
+            </p>
+          </div>
+        </div>
         <div class="header-actions">
-
-          <el-popover
-              placement="bottom"
-              :width="350"
-              trigger="click"
-              popper-class="notify-popover"
-          >
-            <template #reference>
-              <div class="icon-btn">
-                <el-badge :value="unreadCount" :hidden="unreadCount === 0" class="badge-dot">
-                  <el-icon :size="20"><Bell /></el-icon>
-                </el-badge>
-              </div>
+          <div class="action-item">
+            <el-badge :value="unreadCount" :hidden="unreadCount === 0" type="danger" class="badge-dot">
+              <el-button circle class="icon-btn" :icon="Bell" @click="fetchNotifications"></el-button>
+            </el-badge>
+          </div>
+          <el-dropdown trigger="click">
+            <div class="user-profile-area">
+              <el-avatar :size="36" style="background-color: #409EFF; color: #fff;">{{ teacherName.charAt(0) }}</el-avatar>
+              <span class="username">{{ teacherName }}</span>
+              <el-icon class="caret"><CaretBottom /></el-icon>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item>个人中心</el-dropdown-item>
+                <el-dropdown-item divided @click="logout" style="color: #F56C6C;">退出登录</el-dropdown-item>
+              </el-dropdown-menu>
             </template>
+          </el-dropdown>
+        </div>
+      </div>
 
-            <div class="notify-box">
-              <div class="notify-header">
-                <span>通知中心</span>
-                <el-button link type="primary" size="small" @click="fetchNotifications">刷新</el-button>
+      <!-- 在线课程问答抽屉 -->
+      <el-drawer v-model="coursePanelVisible" :title="activeCourse ? activeCourse.name + ' · 在线课堂' : '在线课堂'" size="50%" direction="rtl">
+        <div v-if="activeCourse">
+          <div class="qa-layout">
+            <div class="qa-left">
+              <div class="qa-form">
+                <el-form label-width="80px">
+                  <el-form-item label="提问方式">
+                    <el-select v-model="questionForm.mode" size="small" style="width:100%">
+                      <el-option v-for="m in modeOptions" :key="m.value" :label="m.label" :value="m.value"/>
+                    </el-select>
+                  </el-form-item>
+                  <el-form-item label="问题标题">
+                    <el-input v-model="questionForm.title" placeholder="如：今日知识点理解如何？" />
+                  </el-form-item>
+                  <el-form-item label="问题描述">
+                    <el-input v-model="questionForm.content" type="textarea" :rows="3" placeholder="可添加补充说明、点名学生、举手/抢答规则等" />
+                  </el-form-item>
+                  <el-form-item>
+                    <el-button type="primary" @click="publishQuestion" :disabled="!questionForm.title">发布问题</el-button>
+                  </el-form-item>
+                </el-form>
               </div>
-              <div class="notify-list" v-if="notificationList.length > 0">
-                <div v-for="(note, index) in notificationList" :key="index" class="notify-item">
-                  <div class="n-title">
-                    {{ note.title }}
-                    <el-tag v-if="note.isActionRequired" size="small" type="warning" effect="dark">需回复</el-tag>
-                  </div>
-                  <div class="n-desc">{{ note.message }}</div>
 
-                  <div v-if="note.isActionRequired" class="reply-area">
-                    <div v-if="note.userReply" class="replied-text">
-                      <el-icon><Check /></el-icon> 已回复: {{ note.userReply }}
-                    </div>
-                    <div v-else class="reply-input-box">
-                      <el-input v-model="note.tempReply" size="small" placeholder="请输入信息并回复..." />
-                      <el-button type="primary" size="small" @click="submitReply(note)">提交</el-button>
-                    </div>
+              <div class="qa-list">
+                <div class="qa-list-header">在线问题</div>
+                <el-empty v-if="onlineQuestions.length === 0" description="暂无问题" />
+                <el-scrollbar height="320" v-else>
+                  <div v-for="q in onlineQuestions" :key="q.id" class="qa-item" :class="{'is-active': selectedQuestion && selectedQuestion.id === q.id}" @click="loadAnswers(q)">
+                    <div class="qa-title">{{ q.title }}</div>
+                    <div class="qa-meta">发布 {{ formatTime(q.createTime) }}</div>
                   </div>
+                </el-scrollbar>
+              </div>
+            </div>
 
-                  <div class="n-time">{{ formatTime(note.createTime) }}</div>
+            <div class="qa-right">
+              <div class="qa-list-header">回答 / 学生发言</div>
+              <el-empty v-if="!selectedQuestion" description="请选择左侧问题" />
+              <el-scrollbar v-else height="500">
+                <div v-if="answers.length === 0" class="qa-empty">还没有回答，等待抢答或举手发言...</div>
+                <div v-for="a in answers" :key="a.id" class="qa-answer">
+                  <div class="qa-answer-user">学生ID: {{ a.studentId }}</div>
+                  <div class="qa-answer-text">{{ a.answerText }}</div>
+                  <div class="qa-meta">提交 {{ formatTime(a.createTime) }}</div>
+                </div>
+              </el-scrollbar>
+              <div class="qa-tip">提示：学生可在“在线问题”中举手/抢答，教师点名后引导回答。</div>
+            </div>
+          </div>
+        </div>
+      </el-drawer>
+
+      <div v-if="activeMenu === '1'" class="dashboard-wrapper-light fade-in">
+
+        <div class="metrics-row-light">
+          <div class="metric-card-pro bg-gradient-blue">
+            <div class="metric-content">
+              <div class="label">管理学生总数</div>
+              <div class="value-group">
+                <span class="number">{{ stats.studentCount }}</span><span class="unit">人</span>
+              </div>
+              <div class="trend">较上学期 +5% <el-icon><Top /></el-icon></div>
+            </div>
+            <div class="metric-icon-bg"><el-icon><UserFilled /></el-icon></div>
+          </div>
+
+          <div class="metric-card-pro bg-gradient-green">
+            <div class="metric-content">
+              <div class="label">平均出勤率</div>
+              <div class="value-group">
+                <span class="number">{{ stats.attendanceRate }}</span><span class="unit">%</span>
+              </div>
+              <div class="trend">保持稳定 <el-icon><Minus /></el-icon></div>
+            </div>
+            <div class="metric-icon-bg"><el-icon><Trophy /></el-icon></div>
+          </div>
+
+          <div class="metric-card-pro bg-gradient-orange">
+            <div class="metric-content">
+              <div class="label">课堂互动指数</div>
+              <div class="value-group">
+                <span class="number">{{ stats.interactionIndex }}</span><span class="unit">/10</span>
+              </div>
+              <div class="trend">活跃度高</div>
+            </div>
+            <div class="metric-icon-bg"><el-icon><ChatLineRound /></el-icon></div>
+          </div>
+
+          <div class="metric-card-pro bg-gradient-purple">
+            <div class="metric-content">
+              <div class="label">作业提交率</div>
+              <div class="value-group">
+                <span class="number">{{ stats.submissionRate }}</span><span class="unit">%</span>
+              </div>
+              <div class="trend">较上周 +2% <el-icon><Top /></el-icon></div>
+            </div>
+            <div class="metric-icon-bg"><el-icon><TrendCharts /></el-icon></div>
+          </div>
+        </div>
+
+        <div class="charts-row-light">
+          <el-row :gutter="20">
+            <el-col :span="8">
+              <div class="dashboard-card chart-card-light">
+                <div class="card-header-light">
+                  <div class="header-title-group">
+                    <span class="deco-bar bg-blue"></span>
+                    <span class="title">师生发言时长占比</span>
+                  </div>
+                </div>
+                <div ref="pieChartRef" class="chart-box-light"></div>
+              </div>
+            </el-col>
+            <el-col :span="10">
+              <div class="dashboard-card chart-card-light">
+                <div class="card-header-light">
+                  <div class="header-title-group">
+                    <span class="deco-bar bg-purple"></span>
+                    <span class="title">课堂专注度趋势</span>
+                  </div>
+                </div>
+                <div ref="lineChartRef" class="chart-box-light"></div>
+              </div>
+            </el-col>
+            <el-col :span="6">
+              <div class="dashboard-card chart-card-light">
+                <div class="card-header-light">
+                  <div class="header-title-group">
+                    <span class="deco-bar bg-green"></span>
+                    <span class="title">班级能力雷达</span>
+                  </div>
+                </div>
+                <div ref="radarChartRef" class="chart-box-light"></div>
+              </div>
+            </el-col>
+          </el-row>
+        </div>
+
+        <div class="dashboard-card table-section-light">
+          <div class="section-header-light">
+            <h3 class="title">学生名单管理</h3>
+            <div class="filters-light">
+              <el-select v-model="classFilter" placeholder="选择班级" clearable @change="fetchStudents" style="width: 140px;">
+                <el-option v-for="id in teachingClassIds" :key="id" :label="id+'班'" :value="id" />
+              </el-select>
+              <el-input v-model="keyword" placeholder="搜索姓名/学号" style="width: 200px;" @input="fetchStudents" clearable>
+                <template #prefix><el-icon><Search /></el-icon></template>
+              </el-input>
+              <el-button type="primary" :icon="Plus" @click="openApplyDialog('ADD', null)">新增学生</el-button>
+            </div>
+          </div>
+
+          <el-table :data="studentList" border style="width: 100%" height="400" header-cell-class-name="light-table-header" v-loading="loading">
+            <el-table-column prop="username" label="学号" width="140" />
+            <el-table-column prop="realName" label="姓名" width="120" font-weight="bold"/>
+            <el-table-column prop="classId" label="班级" width="100" align="center">
+              <template #default="scope"><el-tag effect="light">{{ scope.row.classId }}班</el-tag></template>
+            </el-table-column>
+            <el-table-column label="AI综合画像" width="150" align="center">
+              <template #default>
+                <el-progress :percentage="Number((Math.random() * (98 - 80) + 80).toFixed(0))" :status="Math.random()>0.5?'success':''"></el-progress>
+              </template>
+            </el-table-column>
+            <el-table-column prop="createTime" label="入学时间" min-width="160" />
+            <el-table-column label="操作" width="180" fixed="right" align="center">
+              <template #default="scope">
+                <el-button link type="primary" size="small" @click="openApplyDialog('RESET_PWD', scope.row)">重置</el-button>
+                <el-popconfirm title="确定要发起删除申请吗？" @confirm="submitApplication">
+                  <template #reference>
+                    <el-button link type="danger" size="small" @click="openApplyDialog('DELETE', scope.row, false)">删除</el-button>
+                  </template>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div class="pagination-box-light">
+            <el-pagination background @size-change="handleSizeChange" @current-change="handleCurrentChange" :current-page="pageNum" :page-sizes="[10, 20, 50]" :page-size="pageSize" layout="total, sizes, prev, pager, next, jumper" :total="total" />
+          </div>
+        </div>
+      </div>
+
+      <div v-if="activeMenu === '6'" class="dashboard-wrapper-light fade-in">
+        <div class="dashboard-card content-block-light">
+          <div class="block-header-light">
+            <div class="header-title-group">
+              <span class="deco-bar bg-blue"></span>
+              <h3 class="title">我的授课列表 (上课/签到)</h3>
+            </div>
+            <el-button type="primary" plain @click="fetchMyCourses" :icon="Refresh">刷新列表</el-button>
+          </div>
+
+          <div class="course-grid">
+            <div v-for="course in myCourseList" :key="course.id" class="course-card-pro">
+              <div class="c-header">
+                <span class="c-name">{{ course.name }}</span>
+                <el-tag size="small" effect="dark">{{ course.classId }}班</el-tag>
+              </div>
+              <div class="c-body">
+                <div class="info-row"><el-icon><User /></el-icon> 应到人数：<span class="bold">{{ course.studentCount || '统计中...' }}</span></div>
+                <div class="info-row"><el-icon><Clock /></el-icon> {{ course.semester }}</div>
+
+                <div class="checkin-control" v-if="checkInStatus[course.id]?.isActive">
+                  <div class="active-badge">
+                    <span class="pulse-dot"></span> 正在签到中
+                  </div>
+                  <div class="stats-num">
+                    <span class="big">{{ checkInStatus[course.id]?.checkedCount || 0 }}</span>
+                    <span class="small">/ {{ checkInStatus[course.id]?.totalCount || 0 }} 已签</span>
+                  </div>
+                  <div class="rate-bar" v-if="checkInStatus[course.id]?.rate">
+                    实时出勤率: <span style="color:#67C23A;font-weight:bold;">{{ checkInStatus[course.id]?.rate }}%</span>
+                  </div>
+                  <el-button type="primary" plain @click="openCoursePanel(course)" style="margin-top:10px; width:100%">进入课程</el-button>
+                  <el-button type="danger" round @click="stopClass(course.id)" style="margin-top:10px; width:100%">结束上课/签到</el-button>
+                </div>
+
+                <div class="start-control" v-else>
+                  <el-button type="primary" size="large" round @click="startClass(course.id)" class="start-btn">
+                    <el-icon style="margin-right:5px"><VideoPlay /></el-icon> 开始上课
+                  </el-button>
+                  <el-button type="default" size="large" round @click="openClassroom(course.id)" style="margin-top:12px; width:100%">
+                    进入课程
+                  </el-button>
                 </div>
               </div>
-              <div v-else class="notify-empty">暂无通知</div>
             </div>
-          </el-popover>
-
-          <el-button type="warning" plain @click="openNotificationDialog">
-            <el-icon style="margin-right: 5px;"><Promotion /></el-icon> 下发通知(给学生)
-          </el-button>
-          <el-button link type="primary" @click="logout">退出</el-button>
-        </div>
-      </div>
-
-      <div v-if="activeMenu === '1'" class="content-block">
-        <div class="panel-header">
-          <h3>我执教班级的学生名单</h3>
-          <el-button type="primary" @click="openApplyDialog('ADD', null)">+ 申请新增学生</el-button>
-        </div>
-
-        <el-card shadow="never" class="filter-card">
-          <div class="filter-controls">
-
-            <el-select
-                v-model="classFilter"
-                placeholder="按班级ID筛选"
-                clearable
-                @change="fetchStudents"
-                style="width: 150px; margin-right: 15px"
-            >
-              <el-option
-                  v-for="id in teachingClassIds"
-                  :key="id"
-                  :label="id"
-                  :value="id"
-              />
-            </el-select>
-
-            <el-input
-                v-model="keyword"
-                placeholder="🔍 搜索姓名/学号"
-                style="width: 250px;"
-                @input="fetchStudents"
-                clearable
-            />
+            <div v-if="myCourseList.length === 0" class="empty-course">
+              <el-empty description="暂无关联课程，请确认您是否被分配为任课教师" />
+            </div>
           </div>
-        </el-card>
-        <el-table :data="studentList" border stripe style="width: 100%; margin-top: 15px;">
-          <el-table-column prop="username" label="学号" width="150" />
-          <el-table-column prop="realName" label="姓名" width="120" />
-          <el-table-column prop="classId" label="班级ID" width="100" />
-          <el-table-column prop="createTime" label="入学时间" />
-          <el-table-column label="操作" width="250">
-            <template #default="scope">
-              <el-button size="small" type="warning" plain @click="openApplyDialog('RESET_PWD', scope.row)">重置密码</el-button>
-              <el-button size="small" type="danger" plain @click="openApplyDialog('DELETE', scope.row)">申请删除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-
-        <div class="pagination-container">
-          <el-pagination
-              @size-change="handleSizeChange"
-              @current-change="handleCurrentChange"
-              :current-page="pageNum"
-              :page-sizes="[10, 20, 50]"
-              :page-size="pageSize"
-              layout="total, sizes, prev, pager, next, jumper"
-              :total="total"
-          />
         </div>
       </div>
 
-      <div v-if="activeMenu === '2'" class="content-block">
-        <h3>我的申请历史</h3>
-        <el-table :data="applicationList" border style="width: 100%">
+      <div v-if="activeMenu === '2'" class="dashboard-card content-block-light fade-in">
+        <div class="block-header-light"><h3 class="title">我的申请记录</h3></div>
+        <el-table :data="applicationList" border style="width: 100%" header-cell-class-name="light-table-header">
           <el-table-column prop="type" label="类型" width="120">
-            <template #default="scope">
-              <el-tag>{{ formatType(scope.row.type) }}</el-tag>
-            </template>
+            <template #default="scope"><el-tag effect="plain">{{ formatType(scope.row.type) }}</el-tag></template>
           </el-table-column>
-          <el-table-column prop="content" label="申请内容" />
-          <el-table-column prop="reason" label="理由" show-overflow-tooltip />
+          <el-table-column prop="content" label="申请内容" show-overflow-tooltip/>
           <el-table-column prop="status" label="状态" width="100">
-            <template #default="scope">
-              <el-tag :type="getStatusType(scope.row.status)">{{ formatStatus(scope.row.status) }}</el-tag>
-            </template>
+            <template #default="scope"><el-tag :type="getStatusType(scope.row.status)">{{ formatStatus(scope.row.status) }}</el-tag></template>
           </el-table-column>
-          <el-table-column prop="createTime" label="提交时间" width="180" />
-        </el-table>
-      </div>
-
-      <div v-if="activeMenu === '3'" class="content-block">
-        <h3>执教班级资料与学生提交情况</h3>
-
-        <el-table :data="teachingMaterials" border stripe style="width: 100%">
-          <el-table-column prop="fileName" label="资料名称 (含课程名)" min-width="250" show-overflow-tooltip />
-          <el-table-column prop="type" label="类型" width="100">
-            <template #default="scope">
-              <el-tag :type="getMaterialTypeTag(scope.row.type)">{{ scope.row.type }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="content" label="截止时间" width="180">
-            <template #default="scope">
-              {{ parseDeadline(scope.row.content) || '未设置' }}
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="280">
-            <template #default="scope">
-              <el-button size="small" type="primary" plain @click="openSubmissionDialog(scope.row)">查看提交</el-button>
-              <el-button v-if="isLeader" size="small" type="success" @click="openDeadlineDialog(scope.row, true)">直接延长</el-button>
-              <el-button v-else size="small" type="warning" @click="openDeadlineDialog(scope.row, false)">申请延长</el-button>
-            </template>
+          <el-table-column prop="createTime" label="提交时间" width="180">
+            <template #default="scope">{{ formatTime(scope.row.createTime) }}</template>
           </el-table-column>
         </el-table>
       </div>
 
-      <div v-if="activeMenu === '4'" class="content-block">
-        <h3>执教班级考试作弊记录</h3>
-        <p class="exam-tip">此处仅显示作弊次数 > 0 的记录，完整记录请查看课程资料列表。</p>
-
-        <el-select v-model="selectedExamId" placeholder="选择考试ID" clearable @change="fetchCheatingRecords" style="width: 200px; margin-bottom: 20px;">
-          <el-option
-              v-for="exam in availableExams"
-              :key="exam.id"
-              :label="exam.title"
-              :value="exam.id"
-          />
-        </el-select>
-
-        <el-table :data="cheatingRecords" border stripe style="width: 100%">
-          <el-table-column prop="studentUsername" label="学号" width="120" />
-          <el-table-column prop="studentName" label="姓名" width="100" />
-          <el-table-column prop="classId" label="班级ID" width="100" />
-          <el-table-column prop="record.cheatCount" label="作弊次数" width="100">
-            <template #default="scope">
-              <el-tag type="danger">{{ scope.row.record.cheatCount }} 次</el-tag>
+      <div v-if="activeMenu === '3'" class="dashboard-card content-block-light fade-in">
+        <div class="block-header-light">
+          <h3 class="title">课程资料与作业批改</h3>
+          <el-button type="primary" :icon="Upload">上传新资料</el-button>
+        </div>
+        <el-table :data="teachingMaterials" border style="width: 100%" header-cell-class-name="light-table-header">
+          <el-table-column prop="fileName" label="资料名称" min-width="250" show-overflow-tooltip>
+            <template #default="{row}">
+              <div class="material-name">
+                <el-icon v-if="row.type==='作业'" color="#409EFF" class="mr-2"><EditPen /></el-icon>
+                <el-icon v-else-if="row.type==='测验'" color="#E6A23C" class="mr-2"><Stopwatch /></el-icon>
+                <el-icon v-else color="#909399" class="mr-2"><Document /></el-icon>
+                <span>{{ row.fileName }}</span>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column prop="record.submitTime" label="提交时间" width="180" />
-          <el-table-column label="得分" width="80">
-            <template #default="scope">
-              <span :style="{ color: scope.row.record.score > 60 ? '#67C23A' : '#E6A23C' }">{{ scope.row.record.score }}</span>
-            </template>
+          <el-table-column prop="type" label="类型" width="100" align="center">
+            <template #default="scope"><el-tag :type="getMaterialTypeTag(scope.row.type)" effect="light">{{ scope.row.type }}</el-tag></template>
           </el-table-column>
-          <el-table-column label="操作" width="100">
+          <el-table-column label="操作" width="220" align="center">
             <template #default="scope">
-              <el-button size="small" link type="primary" @click="viewCheatingDetail(scope.row)">详情</el-button>
+              <el-button size="small" type="primary" link @click="openSubmissionDialog(scope.row)">批改作业</el-button>
+              <el-divider direction="vertical" />
+              <el-button v-if="!isLeader" size="small" type="warning" link @click="openApplyDialog('DEADLINE_EXTENSION', scope.row)">申请延期</el-button>
             </template>
           </el-table-column>
         </el-table>
       </div>
 
+      <div v-if="activeMenu === '4'" class="dashboard-card content-block-light fade-in">
+        <div class="block-header-light">
+          <h3 class="title">考试监控与作弊记录</h3>
+          <el-select v-model="selectedExamId" placeholder="选择考试场次" clearable style="width: 240px;" @change="fetchCheatingRecords">
+            <el-option v-for="exam in availableExams" :key="exam.id" :label="exam.title" :value="exam.id" />
+          </el-select>
+        </div>
+        <el-table :data="cheatingRecords" border style="width: 100%" header-cell-class-name="light-table-header">
+          <el-table-column prop="studentName" label="姓名" width="120" />
+          <el-table-column prop="record.cheatCount" label="切屏/违规次数" width="150" align="center">
+            <template #default="scope">
+              <el-badge :value="scope.row.record.cheatCount" class="item" type="danger" />
+            </template>
+          </el-table-column>
+          <el-table-column label="风险等级" width="120" align="center">
+            <template #default="scope">
+              <el-tag type="danger" v-if="scope.row.record.cheatCount > 5">高风险</el-tag>
+              <el-tag type="warning" v-else>中风险</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" align="center">
+            <template #default="scope"><el-button link type="primary" :icon="View">查看抓拍日志</el-button></template>
+          </el-table-column>
+        </el-table>
+      </div>
 
-      <el-dialog v-model="dialogVisible" :title="dialogTitle" width="500px">
-        <el-form :model="applyForm" label-width="80px">
+      <el-dialog v-model="dialogVisible" :title="dialogTitle" width="500px" destroy-on-close>
+        <el-form :model="applyForm" label-width="80px" class="dialog-form-light">
           <template v-if="applyForm.type === 'ADD'">
-            <el-form-item label="学生学号">
-              <el-input v-model="applyForm.newUsername" placeholder="请输入学号" />
-            </el-form-item>
-            <el-form-item label="学生姓名">
-              <el-input v-model="applyForm.newRealName" placeholder="请输入姓名" />
-            </el-form-item>
-            <el-form-item label="所属班级">
-              <el-input v-model="applyForm.newClassId" placeholder="请输入所属班级ID" type="number" />
-            </el-form-item>
-          </template>
-          <template v-else>
-            <el-form-item label="目标学生">
-              <el-input :value="currentRow.realName + ' (' + currentRow.username + ')'" disabled />
-            </el-form-item>
+            <el-form-item label="学号"><el-input v-model="applyForm.newUsername" /></el-form-item>
+            <el-form-item label="姓名"><el-input v-model="applyForm.newRealName" /></el-form-item>
+            <el-form-item label="班级ID"><el-input v-model="applyForm.newClassId" type="number" /></el-form-item>
           </template>
           <el-form-item label="申请理由">
-            <el-input type="textarea" v-model="applyForm.reason" placeholder="请详细说明理由，如：学生退学、忘记密码等" />
+            <el-input type="textarea" v-model="applyForm.reason" rows="4" />
           </el-form-item>
         </el-form>
-        <template #footer>
-          <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="submitApplication">提交审核</el-button>
-        </template>
+        <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" @click="submitApplication">提交申请</el-button></template>
       </el-dialog>
 
-      <el-dialog v-model="submissionDialogVisible" :title="`[${currentMaterial.type}] 提交记录 - ${currentMaterial.fileName}`" width="70%" top="5vh">
-
-        <el-table :data="submissions" border stripe height="400" style="width: 100%; margin-top: 10px;">
-          <el-table-column prop="studentUsername" label="学号" width="120" />
-          <el-table-column prop="studentName" label="姓名" width="100" />
-          <el-table-column prop="classId" label="班级ID" width="100" />
-          <el-table-column prop="record.submitTime" label="提交时间" width="180" />
-
-          <el-table-column label="分数" width="150" align="center">
-            <template #default="scope">
-              <el-input-number
-                  v-if="scope.row.record.score === 0 || scope.row.record.score === null"
-                  v-model.number="scope.row.gradeForm.score"
-                  :min="0"
-                  :max="100"
-                  size="small"
-              />
-              <el-tag v-else :type="scope.row.record.score >= 60 ? 'success' : 'danger'">
-                {{ scope.row.record.score }} 分
-              </el-tag>
-            </template>
+      <el-dialog v-model="submissionDialogVisible" title="作业批改" width="80%" top="5vh">
+        <el-table :data="submissions" border height="500" header-cell-class-name="light-table-header">
+          <el-table-column prop="studentName" label="姓名" width="120" font-weight="bold"/>
+          <el-table-column label="内容预览" min-width="300">
+            <template #default="{row}"><div class="answer-text-light">{{ row.answerText }}</div></template>
           </el-table-column>
-
-          <el-table-column label="操作" width="280" fixed="right">
-            <template #default="scope">
-              <el-button size="small" type="primary" link @click="openSubmissionDetail(scope.row)">查看详情</el-button>
-
-              <el-button
-                  v-if="scope.row.record.score === 0 || scope.row.record.score === null"
-                  size="small"
-                  type="success"
-                  @click="submitGrade(scope.row)"
-              >
-                批改
-              </el-button>
-              <el-tag v-else type="info" size="small" style="margin-right: 5px;">已批改</el-tag>
-
-              <el-button
-                  size="small"
-                  type="danger"
-                  plain
-                  @click="handleReject(scope.row.record.id, scope.row.studentName)"
-              >
-                打回重做
-              </el-button>
+          <el-table-column label="评分" width="220" align="center" fixed="right">
+            <template #default="{row}">
+              <div style="display:flex; align-items:center; justify-content:center;">
+                <el-input-number v-model="row.gradeForm.score" :min="0" :max="100" size="small" style="width: 100px; margin-right: 10px;" />
+                <el-button type="success" size="small" @click="submitGrade(row)">确认</el-button>
+              </div>
             </template>
           </el-table-column>
         </el-table>
-      </el-dialog>
-
-      <el-dialog v-model="detailDialogVisible" :title="`作业详情 - ${currentSubmission.studentName}`" width="600px" destroy-on-close>
-        <el-form label-width="80px">
-          <el-form-item label="分数">
-            <el-input-number v-model.number="currentSubmission.gradeForm.score" :min="0" :max="100" />
-          </el-form-item>
-          <el-form-item label="学生作答">
-            <el-input type="textarea" :value="currentSubmission.answerText" :rows="10" readonly />
-            <div v-if="currentSubmission.files && currentSubmission.files.length > 0">
-              <p>附件:</p>
-              <div v-for="(file, i) in currentSubmission.files" :key="i" style="margin-top: 5px;">
-                <el-button link type="primary" @click="downloadFile(file, '学生作业附件'+i)">下载附件 {{ i + 1 }}</el-button>
-              </div>
-            </div>
-          </el-form-item>
-          <el-form-item label="评语/反馈">
-            <el-input type="textarea" v-model="currentSubmission.gradeForm.aiFeedback" :rows="5" placeholder="请输入评语或反馈" />
-          </el-form-item>
-        </el-form>
-        <template #footer>
-          <el-button @click="detailDialogVisible = false">取消</el-button>
-          <el-button type="success" @click="submitGrade(currentSubmission)">确认批改</el-button>
-        </template>
-      </el-dialog>
-
-      <el-dialog v-model="deadlineDialogVisible" :title="deadlineDialogTitle" width="400px" destroy-on-close>
-        <el-form label-width="100px">
-          <el-form-item label="当前截止">
-            <el-tag type="info">{{ currentDeadlineInfo }}</el-tag>
-          </el-form-item>
-          <el-form-item label="新截止时间">
-            <el-date-picker
-                v-model="newDeadline"
-                type="datetime"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                placeholder="选择新的截止时间"
-                style="width: 100%"
-            />
-          </el-form-item>
-          <el-form-item v-if="!isLeaderDeadline" label="申请理由">
-            <el-input type="textarea" v-model="applyForm.reason" placeholder="申请延长的理由" />
-          </el-form-item>
-        </el-form>
-        <template #footer>
-          <el-button @click="deadlineDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="submitDeadlineRequest">
-            {{ isLeaderDeadline ? '直接修改' : '提交延长申请' }}
-          </el-button>
-        </template>
-      </el-dialog>
-
-      <el-dialog v-model="notificationDialogVisible" title="下发班级通知" width="500px">
-        <el-form label-width="80px">
-          <el-form-item label="标题">
-            <el-input v-model="notificationForm.title" />
-          </el-form-item>
-          <el-form-item label="内容">
-            <el-input type="textarea" v-model="notificationForm.content" :rows="4" />
-          </el-form-item>
-        </el-form>
-        <template #footer>
-          <el-button @click="notificationDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="submitNotification">发送通知</el-button>
-        </template>
-      </el-dialog>
-
-      <el-dialog v-model="cheatingDetailDialogVisible" :title="`作弊详情 - ${currentCheatingRecord.studentName}`" width="400px">
-        <el-descriptions :column="1" border>
-          <el-descriptions-item label="作弊次数">
-            <el-tag type="danger">{{ currentCheatingRecord.record.cheatCount }} 次</el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="考试得分">
-            <span :style="{ color: currentCheatingRecord.record.score > 60 ? '#67C23A' : '#E6A23C' }">{{ currentCheatingRecord.record.score }}</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="提交时间">{{ currentCheatingRecord.record.submitTime }}</el-descriptions-item>
-          <el-descriptions-item label="处理建议">请联系教务处或课题组长进行后续处理。</el-descriptions-item>
-        </el-descriptions>
       </el-dialog>
 
     </el-main>
@@ -369,13 +397,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive, computed } from 'vue'
+import { ref, onMounted, reactive, computed, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { Reading, User, Document, DocumentChecked, Tickets, Bell, Close, Promotion, Check } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
-
-// ★★★ 引入 Day.js ★★★
+import * as echarts from 'echarts'
+import {
+  DataAnalysis, Document, Reading, Monitor, Bell, UserFilled, Trophy, ChatLineRound, TrendCharts, Search, EditPen, Stopwatch,
+  CaretBottom, Top, Bottom, Minus, Plus, Upload, View, Check, Calendar, Collection, VideoPlay, User, Clock, Refresh
+} from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
@@ -383,22 +413,37 @@ dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
 
 const router = useRouter()
-const teacherInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-const teacherName = ref(teacherInfo.realName)
-const isLeader = teacherInfo.role === '2'; // 判断是否为课题组长
-
+const teacherInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
+const teacherName = ref(teacherInfo.realName || '教师')
+const isLeader = teacherInfo.role === '2'
 const activeMenu = ref('1')
+const currentDate = dayjs().format('YYYY年MM月DD日 dddd')
+const loading = ref(false)
+
+// 数据状态
+const stats = ref({ studentCount: 0, attendanceRate: 0, interactionIndex: 0, submissionRate: 0 })
 const studentList = ref([])
 const applicationList = ref([])
-const teachingClassIds = ref([]) // 存储教师的执教班级ID列表
-const teachingMaterials = ref([]) // 教师执教班级的资料列表
-const availableExams = ref([]) // 所有考试列表
-const cheatingRecords = ref([]) // 作弊记录列表
-
-// ★★★ 新增：通知列表 ★★★
+const teachingMaterials = ref([])
+const cheatingRecords = ref([])
 const notificationList = ref([])
+const teachingClassIds = ref([])
+const availableExams = ref([])
+const unreadCount = computed(() => notificationList.value.filter(n => !n.isRead).length)
 
-// 分页和筛选状态
+// 签到相关
+const myCourseList = ref([])
+const checkInStatus = reactive({})
+let statusTimer = null
+
+// 在线问答
+const coursePanelVisible = ref(false)
+const activeCourse = ref(null)
+const onlineQuestions = ref([])
+const selectedQuestion = ref(null)
+const questionForm = ref({ title: '', content: '', mode: 'broadcast' })
+const answers = ref([])
+
 const keyword = ref('')
 const classFilter = ref(null)
 const pageNum = ref(1)
@@ -406,448 +451,473 @@ const pageSize = ref(10)
 const total = ref(0)
 const selectedExamId = ref(null)
 
-// 弹窗状态 and Forms
 const dialogVisible = ref(false)
 const submissionDialogVisible = ref(false)
-const detailDialogVisible = ref(false)
-const deadlineDialogVisible = ref(false)
-const notificationDialogVisible = ref(false)
-const cheatingDetailDialogVisible = ref(false)
-
 const dialogTitle = ref('')
-const currentRow = ref({})
-const currentMaterial = ref({})
-const currentSubmission = ref({ gradeForm: {} })
-const currentCheatingRecord = ref({ record: {} }) // 初始化防止空指针
+const applyForm = ref({ type: '', reason: '', newUsername: '', newRealName: '', newClassId: null })
 const submissions = ref([])
+const currentMaterial = ref({})
 
-const applyForm = ref({ type: '', reason: '', newUsername: '', newRealName: '', newClassId: null, materialId: null })
-const notificationForm = reactive({ title: '', content: '' })
-const isLeaderDeadline = ref(false)
-const newDeadline = ref(null)
-const currentDeadlineInfo = ref('')
-const deadlineDialogTitle = computed(() => isLeaderDeadline.value ? '直接修改资料截止时间' : '申请延长资料截止时间');
-
+const pieChartRef = ref(null)
+const lineChartRef = ref(null)
+const radarChartRef = ref(null)
+let charts = []
 
 onMounted(() => {
-  initializeTeachingClasses()
+  if(teacherInfo.teachingClasses) {
+    teachingClassIds.value = teacherInfo.teachingClasses.split(/[,，]/).map(s=>s.trim()).filter(s=>s)
+    if(teachingClassIds.value.length > 0) classFilter.value = teachingClassIds.value[0]
+  }
   fetchStudents()
+  fetchApplications()
   fetchMaterials()
-  fetchAvailableExams()
-  // ★★★ 加载通知 ★★★
   fetchNotifications()
+  fetchDashboardData()
+  fetchExams()
+
+  // 确保“我的课程”在刷新页面时也能加载
+  fetchMyCourses()
 })
 
-const initializeTeachingClasses = () => {
-  if (teacherInfo && teacherInfo.teachingClasses) {
-    teachingClassIds.value = teacherInfo.teachingClasses
-        .split(',')
-        .map(s => s.trim())
-        .filter(s => s.length > 0);
-  }
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', resizeCharts)
+  charts.forEach(c => c.dispose())
+  if(statusTimer) clearInterval(statusTimer)
+})
+
+const handleSelect = (idx) => {
+  activeMenu.value = idx
+  if (idx === '1') {
+    fetchStudents()
+    fetchDashboardData()
+  } else if (idx === '6') {
+    fetchMyCourses()
+  } else if (idx === '2') fetchApplications()
+  else if (idx === '3') fetchMaterials()
+  else if (idx === '4') fetchExams()
 }
 
-// ★★★ 新增：获取通知逻辑 ★★★
-const fetchNotifications = async () => {
+// --- 签到业务逻辑 ---
+const fetchMyCourses = async () => {
   try {
-    const res = await request.get('/teacher/notifications')
-    notificationList.value = res || []
-  } catch(e) {}
-}
-
-const unreadCount = computed(() => notificationList.value.filter(n => !n.isRead).length)
-
-// ★★★ 新增：回复通知逻辑 ★★★
-const submitReply = async (note) => {
-  if (!note.tempReply) return ElMessage.warning('请输入内容');
-  try {
-    await request.post('/teacher/notification/reply', { id: note.id, reply: note.tempReply });
-    ElMessage.success('提交成功');
-    note.userReply = note.tempReply;
-    note.isRead = true; // 本地更新已读状态
-  } catch(e) { ElMessage.error('失败'); }
-}
-
-const formatTime = (timeString) => {
-  if (!timeString) return ''
-  return dayjs(timeString).fromNow()
-}
-
-const fetchAvailableExams = async () => {
-  try {
-    const coursesRes = await request.get(`/home/data`);
-    const courseList = coursesRes.courses || [];
-
-    let allExams = [];
-    for (const course of courseList) {
-      if (course.id) {
-        const exams = await request.get(`/student/course/${course.id}/exams`);
-        exams.forEach(e => e.title = course.name + ' - ' + e.title);
-        allExams.push(...exams);
-      }
+    console.log("【调试】开始获取课程，当前教师:", teacherName.value);
+    const res = await request.get('/teacher/courses')
+    const list = Array.isArray(res) ? res : []
+    if (list.length === 0) {
+      const all = await request.get('/admin/course/list')
+      const myName = (teacherName.value || '').replace(/\s+/g, '');
+      myCourseList.value = (all || []).filter(c => (c.teacher || '').replace(/\s+/g, '').includes(myName));
+    } else {
+      myCourseList.value = list;
     }
-    availableExams.value = allExams;
-  } catch (e) {
-    ElMessage.error('加载考试列表失败');
+
+    console.log("【调试】筛选后的课程:", myCourseList.value);
+
+    // 刷新每个课程的状态
+    myCourseList.value.forEach(c => refreshStatus(c.id))
+
+    // 启动轮询
+    if(!statusTimer) statusTimer = setInterval(refreshAllStatus, 3000)
+  } catch(e){
+    console.error("获取课程失败", e);
   }
+}
+
+const startClass = async (courseId) => {
+  try {
+    await request.post('/teacher/checkin/start', { courseId })
+    ElMessage.success('上课开始！签到已开启')
+    refreshStatus(courseId)
+  } catch(e){ ElMessage.error('开启失败') }
+}
+
+const stopClass = async (courseId) => {
+  try {
+    await request.post('/teacher/checkin/stop', { courseId })
+    ElMessage.success('签到已结束')
+    refreshStatus(courseId)
+  } catch(e){}
+}
+
+const refreshStatus = async (courseId) => {
+  try {
+    const res = await request.get(`/teacher/checkin/status/${courseId}`)
+    checkInStatus[courseId] = res
+  } catch(e){}
+}
+
+const refreshAllStatus = () => {
+  if(activeMenu.value !== '6') return
+  myCourseList.value.forEach(c => {
+    if(checkInStatus[c.id]?.isActive) refreshStatus(c.id)
+  })
+}
+
+const openClassroom = (courseId) => {
+  router.push({ path: `/teacher/classroom/${courseId}` })
+}
+
+// --- 在线问答 ---
+const openCoursePanel = async (course) => {
+  activeCourse.value = course
+  coursePanelVisible.value = true
+  await fetchOnlineQuestions(course.id)
+}
+
+const fetchOnlineQuestions = async (courseId) => {
+  try {
+    onlineQuestions.value = await request.get('/teacher/online-questions', { params: { courseId } }) || []
+    if (onlineQuestions.value.length) {
+      await loadAnswers(onlineQuestions.value[0])
+    } else {
+      answers.value = []
+      selectedQuestion.value = null
+    }
+  } catch (e) { ElMessage.error('加载问题失败') }
+}
+
+const publishQuestion = async () => {
+  if (!questionForm.value.title) return ElMessage.warning('请输入问题标题')
+  try {
+    const payload = {
+      courseId: activeCourse.value.id,
+      title: questionForm.value.title,
+      content: `[${modeLabel(questionForm.value.mode)}] ${questionForm.value.content || ''}`
+    }
+    await request.post('/teacher/online-question', payload)
+    ElMessage.success('已发布在线问题')
+    questionForm.value = { title: '', content: '', mode: 'broadcast' }
+    await fetchOnlineQuestions(activeCourse.value.id)
+  } catch (e) { ElMessage.error('发布失败') }
+}
+
+const loadAnswers = async (q) => {
+  try {
+    selectedQuestion.value = q
+    answers.value = await request.get(`/teacher/online-question/${q.id}/answers`) || []
+  } catch (e) { ElMessage.error('加载回答失败') }
+}
+
+const modeOptions = [
+  { value: 'broadcast', label: '广播提问' },
+  { value: 'assign', label: '点名提问' },
+  { value: 'race', label: '抢答模式' },
+  { value: 'hand', label: '学生举手' }
+]
+const modeLabel = (v) => (modeOptions.find(m => m.value === v)?.label) || v
+
+// --- 初始化图表 ---
+const initCharts = (chartData) => {
+  const commonGrid = { top: '15%', left: '3%', right: '4%', bottom: '5%', containLabel: true }
+  const textStyle = { color: '#606266' }
+
+  if (pieChartRef.value && chartData.pieChart) {
+    const pieChart = echarts.init(pieChartRef.value)
+    pieChart.setOption({
+      tooltip: { trigger: 'item' },
+      legend: { bottom: '0%', left: 'center', icon: 'circle', textStyle },
+      color: ['#409EFF', '#67C23A', '#E6A23C', '#909399'],
+      series: [{
+        name: '发言时长', type: 'pie', radius: ['50%', '75%'], center: ['50%', '45%'],
+        avoidLabelOverlap: false, itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 3 },
+        label: { show: false, position: 'center' },
+        emphasis: { label: { show: true, fontSize: 16, fontWeight: 'bold' } },
+        data: chartData.pieChart
+      }]
+    })
+    charts.push(pieChart)
+  }
+
+  if (lineChartRef.value && chartData.lineChart) {
+    const lineChart = echarts.init(lineChartRef.value)
+    lineChart.setOption({
+      tooltip: { trigger: 'axis' },
+      grid: commonGrid,
+      xAxis: { type: 'category', boundaryGap: false, data: ['08:00', '08:15', '08:30', '08:45', '09:00', '09:15', '09:30'] },
+      yAxis: { type: 'value', min: 60, max: 100 },
+      series: [{
+        name: '专注度', type: 'line', smooth: true, symbolSize: 6,
+        lineStyle: { width: 3, color: '#409EFF' },
+        areaStyle: { color: new echarts.graphic.LinearGradient(0,0,0,1, [{offset:0,color:'rgba(64,158,255,0.3)'}, {offset:1,color:'rgba(64,158,255,0.02)'}]) },
+        data: chartData.lineChart
+      }]
+    })
+    charts.push(lineChart)
+  }
+
+  if (radarChartRef.value && chartData.radarChart) {
+    const radarChart = echarts.init(radarChartRef.value)
+    radarChart.setOption({
+      tooltip: { trigger: 'item' },
+      radar: {
+        indicator: [
+          { name: '出勤', max: 100 }, { name: '作业', max: 100 }, { name: '互动', max: 100 },
+          { name: '测验', max: 100 }, { name: '创新', max: 100 }
+        ],
+        radius: '65%', center: ['50%', '55%']
+      },
+      series: [{
+        type: 'radar',
+        data: [
+          { value: chartData.radarChart, name: '本班平均', itemStyle: { color: '#67C23A' }, areaStyle: { color: 'rgba(103, 194, 58, 0.2)' } }
+        ]
+      }]
+    })
+    charts.push(radarChart)
+  }
+}
+const resizeCharts = () => charts.forEach(c => c.resize())
+
+// --- API Calls ---
+const fetchStudents = async () => {
+  loading.value = true
+  try {
+    const res = await request.get('/teacher/students', { params: {
+        keyword: keyword.value, classId: classFilter.value, pageNum: pageNum.value, pageSize: pageSize.value
+      }})
+    studentList.value = res.list || []
+    total.value = res.total || 0
+  } catch(e) { ElMessage.error('加载学生失败') }
+  finally { loading.value = false }
+}
+
+const fetchDashboardData = async () => {
+  try {
+    const res = await request.get('/teacher/dashboard')
+    if (res) {
+      stats.value = res
+      nextTick(() => initCharts(res))
+    }
+  } catch(e) { console.error(e) }
+}
+
+const fetchApplications = async () => {
+  try { applicationList.value = await request.get('/teacher/my-applications') || [] } catch(e){}
+}
+
+const fetchMaterials = async () => {
+  try { teachingMaterials.value = await request.get('/teacher/materials') || [] } catch(e){}
+}
+
+const fetchNotifications = async () => {
+  try { notificationList.value = await request.get('/teacher/notifications') || [] } catch(e){}
+}
+
+const fetchExams = async () => {
+  try { availableExams.value = await request.get('/teacher/exams') || [] } catch(e){}
 }
 
 const fetchCheatingRecords = async () => {
-  if (!selectedExamId.value) {
-    cheatingRecords.value = [];
-    return;
-  }
-  try {
-    const res = await request.get(`/teacher/exam/${selectedExamId.value}/cheating-records`);
-    cheatingRecords.value = res || [];
-  } catch (e) {
-    ElMessage.error('加载作弊记录失败');
-  }
+  if(!selectedExamId.value) return;
+  try { cheatingRecords.value = await request.get(`/teacher/exam/${selectedExamId.value}/cheating-records`) || [] } catch(e){}
 }
 
-
-const fetchMaterials = async () => {
-  try {
-    const res = await request.get('/teacher/materials');
-    teachingMaterials.value = res || [];
-  } catch (e) {
-    ElMessage.error('加载资料失败');
-  }
+// 业务逻辑
+const openApplyDialog = (type, row, autoSubmit = false) => {
+  applyForm.value = { type, reason: '', newUsername: '', newRealName: '', newClassId: null, targetId: row?.userId }
+  dialogTitle.value = type === 'ADD' ? '新增学生申请' : '操作确认'
+  dialogVisible.value = true
 }
 
-
-const handleSelect = (index) => {
-  activeMenu.value = index
-  if (index === '1') fetchStudents()
-  if (index === '2') fetchApplications()
-  if (index === '3') fetchMaterials()
-  if (index === '4') fetchAvailableExams()
-}
-
-// 分页处理函数
-const handleSizeChange = (val) => {
-  pageSize.value = val;
-  pageNum.value = 1;
-  fetchStudents();
-}
-
-const handleCurrentChange = (val) => {
-  pageNum.value = val;
-  fetchStudents();
-}
-
-// 获取学生列表
-const fetchStudents = async () => {
-  try {
-    const params = {
-      keyword: keyword.value,
-      classId: classFilter.value,
-      pageNum: pageNum.value,
-      pageSize: pageSize.value
-    };
-
-    const res = await request.get('/teacher/students', { params });
-
-    studentList.value = res.list || [];
-    total.value = res.total || 0;
-    pageNum.value = res.pageNum || 1;
-    pageSize.value = res.pageSize || 10;
-
-  } catch (e) {
-    console.error(e);
-    ElMessage.error('加载学生名单失败，请检查后端配置');
-  }
-}
-
-// 获取申请记录
-const fetchApplications = async () => {
-  try {
-    const res = await request.get('/teacher/my-applications');
-    applicationList.value = res || [];
-  } catch (e) {}
-}
-
-// 打开增/删/改弹窗
-const openApplyDialog = (type, row) => {
-  applyForm.value = { type, reason: '', newUsername: '', newRealName: '', newClassId: null, materialId: null };
-  currentRow.value = row || {};
-
-  if (type === 'ADD') dialogTitle.value = '申请：新增学生';
-  else if (type === 'DELETE') dialogTitle.value = '申请：删除学生';
-  else if (type === 'RESET_PWD') dialogTitle.value = '申请：重置密码';
-
-  dialogVisible.value = true;
-}
-
-// 提交申请 (增/删/改/延期)
 const submitApplication = async () => {
-  if (!applyForm.value.reason) return ElMessage.warning('请填写申请理由');
+  if(!applyForm.value.reason) return ElMessage.warning('请填写理由')
+  let content = applyForm.value.type === 'ADD'
+      ? `新增学生: ${applyForm.value.newRealName} (${applyForm.value.newUsername}) 到班级 ${applyForm.value.newClassId}`
+      : `对学生ID ${applyForm.value.targetId} 进行 ${applyForm.value.type} 操作`
 
-  let content = '';
-  let targetId = currentRow.value.userId || 0;
-
-  if (applyForm.value.type === 'ADD') {
-    if (!applyForm.value.newUsername || !applyForm.value.newClassId) return ElMessage.warning('请填写学生学号和班级ID');
-    content = `新增学生：${applyForm.value.newRealName || '未命名'} (${applyForm.value.newUsername}), 班级ID: ${applyForm.value.newClassId}`;
-  } else if (applyForm.value.type === 'DEADLINE_EXTENSION') {
-    if (!newDeadline.value) return ElMessage.warning('请选择新的截止时间');
-    content = `请求将资料 [${currentMaterial.value.fileName}] 的截止时间延长至: ${newDeadline.value}`;
-    targetId = currentMaterial.value.id;
-  } else {
-    const action = applyForm.value.type === 'DELETE' ? '删除' : '重置密码';
-    content = `${action}：${currentRow.value.realName} (${currentRow.value.username})`;
-  }
-
-  const payload = {
-    type: applyForm.value.type,
-    targetId: targetId,
-    reason: applyForm.value.reason,
-    content: content,
-  }
-
-  try {
-    await request.post('/teacher/apply', payload);
-    ElMessage.success('学生管理/资料修改申请已提交，请等待组长/管理员审核。');
-    dialogVisible.value = false;
-    deadlineDialogVisible.value = false;
-    if (activeMenu.value === '2') fetchApplications();
-  } catch (e) {
-    ElMessage.error(e.response?.data || '提交失败');
-  }
+  await request.post('/teacher/apply', { ...applyForm.value, content })
+  ElMessage.success('申请已提交')
+  dialogVisible.value = false
+  fetchApplications()
 }
 
-const openNotificationDialog = () => {
-  notificationForm.title = '';
-  notificationForm.content = '';
-  notificationDialogVisible.value = true;
-}
-
-const submitNotification = async () => {
-  if (!notificationForm.title || !notificationForm.content) return ElMessage.warning('请填写标题和内容');
-  try {
-    await request.post('/teacher/notification/send', notificationForm);
-    ElMessage.success('班级通知已发送');
-    notificationDialogVisible.value = false;
-  } catch (e) {
-    ElMessage.error(e.response?.data || '发送失败');
-  }
-}
-
-// === 批改功能 ===
 const openSubmissionDialog = async (material) => {
-  currentMaterial.value = material;
-  try {
-    const res = await request.get(`/teacher/material/${material.id}/submissions`);
-    // 为每个提交记录添加一个临时的批改表单状态
-    submissions.value = res.map(item => ({
-      ...item,
-      // 解析作业文本和附件路径
-      ...parseSubmissionContent(item.record.userAnswers),
-      gradeForm: reactive({
-        score: item.record.score || 0,
-        aiFeedback: item.record.aiFeedback || ''
-      })
-    }));
-    submissionDialogVisible.value = true;
-  } catch (e) {
-    ElMessage.error(e.response?.data || '加载提交记录失败');
-  }
+  currentMaterial.value = material
+  const res = await request.get(`/teacher/material/${material.id}/submissions`)
+  submissions.value = res.map(s => ({
+    ...s, answerText: JSON.parse(s.record.userAnswers).text, gradeForm: { score: s.record.score || 0 }
+  }))
+  submissionDialogVisible.value = true
 }
 
-const openSubmissionDetail = (submission) => {
-  currentSubmission.value = submission;
-  detailDialogVisible.value = true;
+const submitGrade = async (row) => {
+  await request.post('/teacher/grade', { id: row.record.id, score: row.gradeForm.score })
+  ElMessage.success('评分完成')
+  row.record.score = row.gradeForm.score
 }
 
-const submitGrade = async (submission) => {
-  try {
-    const payload = {
-      id: submission.record.id,
-      score: submission.gradeForm.score,
-      aiFeedback: submission.gradeForm.aiFeedback
-    };
-
-    await request.post('/teacher/grade', payload);
-    ElMessage.success('批改成功！');
-    detailDialogVisible.value = false;
-    // 重新加载提交列表
-    openSubmissionDialog(currentMaterial.value);
-  } catch (e) {
-    ElMessage.error(e.response?.data || '批改失败');
-  }
-}
-
-// === 新增：打回功能 ===
-const handleReject = async (recordId, studentName) => {
-  try {
-    await ElMessageBox.confirm(
-        `确定要打回 ${studentName} 的提交记录吗？打回后学生可以重新提交。`,
-        '确认打回',
-        {
-          confirmButtonText: '确定打回',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }
-    );
-
-    await request.post(`/teacher/reject-submission/${recordId}`);
-    ElMessage.success('提交记录已成功打回，学生可以重新提交。');
-    // 刷新提交列表
-    openSubmissionDialog(currentMaterial.value);
-  } catch (e) {
-    if (e === 'cancel') return;
-    ElMessage.error(e.response?.data || '打回失败');
-  }
-}
-
-
-// === 延长截止时间 ===
-const openDeadlineDialog = (material, isLeaderAction) => {
-  currentMaterial.value = material;
-  isLeaderDeadline.value = isLeaderAction;
-
-  const currentDeadline = parseDeadline(material.content);
-  currentDeadlineInfo.value = currentDeadline || '未设置';
-  newDeadline.value = null;
-  applyForm.value.reason = '';
-
-  deadlineDialogVisible.value = true;
-}
-
-const submitDeadlineRequest = async () => {
-  if (!newDeadline.value) return ElMessage.warning('请选择新的截止时间');
-
-  if (isLeaderDeadline.value) {
-    // 组长直接修改
-    try {
-      const payload = {
-        materialId: currentMaterial.value.id,
-        newDeadline: newDeadline.value
-      };
-      await request.post('/leader/material/update-deadline', payload);
-      ElMessage.success('截止时间已直接更新！');
-      deadlineDialogVisible.value = false;
-      fetchMaterials(); // 刷新列表
-    } catch (e) {
-      ElMessage.error(e.response?.data || '更新失败');
-    }
-
-  } else {
-    // 教师提交申请
-    applyForm.value.type = 'DEADLINE_EXTENSION';
-    applyForm.value.materialId = currentMaterial.value.id;
-    await submitApplication();
-  }
-}
-
-const viewCheatingDetail = (record) => {
-  currentCheatingRecord.value = record;
-  cheatingDetailDialogVisible.value = true;
-}
-
-const logout = () => {
-  localStorage.clear();
-  router.push('/login');
-}
-
-// === 辅助工具函数 ===
-const parseDeadline = (content) => {
-  try {
-    const json = JSON.parse(content);
-    return json.deadline;
-  } catch (e) {
-    return null;
-  }
-}
-
-const parseSubmissionContent = (userAnswers) => {
-  try {
-    const json = JSON.parse(userAnswers);
-    return {
-      answerText: json.text || '(无文本作答)',
-      files: json.files || []
-    };
-  } catch (e) {
-    return {
-      answerText: userAnswers || '(无内容)',
-      files: []
-    };
-  }
-}
-
-const downloadFile = (path, name) => {
-  if (!path) return
-  const realName = path.split(/[\\/]/).pop()
-  const url = `http://localhost:8080/uploads/${realName}`
-  const link = document.createElement('a')
-  link.href = url
-  link.setAttribute('download', name || realName)
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-}
-
-const formatType = (type) => {
-  const map = { ADD: '新增学生', DELETE: '删除学生', RESET_PWD: '重置密码', DEADLINE_EXTENSION: '延期申请' };
-  return map[type] || type;
-}
-const formatStatus = (status) => {
-  const map = { PENDING: '待审核', APPROVED: '已通过', REJECTED: '已驳回' };
-  return map[status] || status;
-}
-const getStatusType = (status) => {
-  if (status === 'APPROVED') return 'success';
-  if (status === 'REJECTED') return 'danger';
-  return 'warning';
-}
-const getMaterialTypeTag = (type) => {
-  const map = { '测验': 'warning', '作业': 'primary', '项目': 'success' };
-  return map[type] || 'info';
-}
+const formatTime = (t) => t ? dayjs(t).fromNow() : ''
+const formatType = (t) => ({ADD:'新增',DELETE:'删除',RESET_PWD:'重置',DEADLINE_EXTENSION:'延期'}[t]||t)
+const formatStatus = (s) => ({PENDING:'审核中',APPROVED:'通过',REJECTED:'驳回'}[s]||s)
+const getStatusType = (s) => ({APPROVED:'success',REJECTED:'danger',PENDING:'warning'}[s]||'info')
+const getMaterialTypeTag = (t) => ({'作业':'primary','测验':'warning'}[t]||'info')
+const handleSizeChange = (v) => { pageSize.value = v; fetchStudents() }
+const handleCurrentChange = (v) => { pageNum.value = v; fetchStudents() }
+const logout = () => { localStorage.clear(); router.push('/login') }
 </script>
 
-<style scoped>
-/* 样式部分保持不变 */
-.teacher-container { display: flex; height: 100vh; background-color: #f5f7fa; }
-.sidebar { background-color: #304156; color: white; flex-shrink: 0; }
-.logo { height: 60px; line-height: 60px; text-align: center; font-size: 18px; font-weight: bold; background-color: #2b3649; }
-.el-menu-vertical { border-right: none; }
-.main-content { padding: 20px; flex: 1; display: flex; flex-direction: column; }
-.header-bar { background: #fff; padding: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-.header-actions { display: flex; align-items: center; gap: 10px; }
-.icon-btn { cursor: pointer; display: flex; align-items: center; padding: 0 10px; }
-.content-block { background: #fff; padding: 20px; border-radius: 4px; flex: 1; min-height: 400px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-.panel-header { display: flex; justify-content: space-between; margin-bottom: 20px; align-items: center; }
-h3 { margin: 0 0 10px; border-left: 4px solid #409EFF; padding-left: 10px; }
-.exam-tip { font-size: 13px; color: #E6A23C; margin-bottom: 15px; }
+<style scoped lang="scss">
+/* ====== 全局定义 ====== */
+$light-bg: #f5f7fa;
+$white: #ffffff;
+$primary: #409EFF;
+$success: #67C23A;
+$warning: #E6A23C;
+$danger: #F56C6C;
+$card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 
-/* 筛选和分页样式 */
-.filter-card {
-  margin-bottom: 20px;
-  padding: 15px;
-  background: #f9f9f9;
-}
-.filter-controls {
-  display: flex;
-  align-items: center;
-}
-.pagination-container {
-  margin-top: 20px;
-  padding: 15px;
-  background: #fff;
-  border-radius: 4px;
-  display: flex;
-  justify-content: flex-end;
+.teacher-container-light {
+  display: flex; height: 100vh; background-color: $light-bg;
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #303133;
 }
 
-/* 通知气泡样式 (复用 Home.vue 样式) */
-.notify-box {
-  .notify-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #eee; margin-bottom: 10px; font-weight: bold; }
-  .notify-list { max-height: 300px; overflow-y: auto; }
-  .notify-item { padding: 10px 0; border-bottom: 1px solid #f5f5f5; &:last-child { border-bottom: none; } .n-title { font-size: 14px; font-weight: 500; color: #333; margin-bottom: 4px; } .n-desc { font-size: 12px; color: #666; line-height: 1.4; margin-bottom: 4px; } .n-time { font-size: 11px; color: #999; text-align: right; } }
-  .reply-area { margin-top: 8px; background: #f9f9f9; padding: 8px; border-radius: 4px; }
-  .reply-input-box { display: flex; gap: 5px; }
-  .replied-text { color: #67C23A; font-size: 12px; }
-  .notify-empty { text-align: center; color: #999; padding: 20px 0; }
+.dashboard-card {
+  background: $white; border-radius: 12px; box-shadow: $card-shadow; transition: all 0.3s;
+  &:hover { box-shadow: 0 6px 16px rgba(0,0,0,0.08); }
 }
+
+/* ====== 侧边栏 ====== */
+.sidebar-light {
+  background: $white; border-right: 1px solid #e6e6e6; z-index: 10;
+  .brand-area {
+    height: 64px; display: flex; align-items: center; justify-content: center; gap: 10px; border-bottom: 1px solid #f0f0f0;
+    .brand-icon { width: 32px; height: 32px; background: rgba(64, 158, 255, 0.1); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+    .brand-text { font-size: 18px; font-weight: bold; }
+  }
+  .el-menu-vertical-light { border-right: none; padding-top: 15px; }
+  :deep(.el-menu-item) {
+    margin: 6px 12px; border-radius: 8px; height: 48px; font-weight: 500;
+    &:hover { background-color: #ecf5ff; color: $primary; }
+    &.is-active { background-color: #ecf5ff; color: $primary; font-weight: bold; border-left: 4px solid $primary; padding-left: 16px; }
+    .el-icon { font-size: 18px; margin-right: 10px; }
+  }
+}
+
+/* ====== 主内容区 ====== */
+.main-content-light { padding: 24px; flex: 1; overflow-y: auto; background-color: $light-bg; }
+
+.header-bar-light {
+  padding: 20px 30px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center;
+  .greeting { font-size: 20px; font-weight: bold; margin: 0 0 8px 0; }
+  .date-badge { font-size: 13px; color: #909399; }
+  .header-actions {
+    display: flex; align-items: center; gap: 25px;
+    .icon-btn { font-size: 18px; &:hover { color: $primary; background: #ecf5ff; } }
+    .user-profile-area { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  }
+}
+
+/* ====== 仪表盘 ====== */
+.metrics-row-light {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-bottom: 24px;
+  .metric-card-pro {
+    padding: 24px; display: flex; align-items: center; gap: 20px; border-radius: 12px; color: #fff;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1); position: relative; overflow: hidden;
+
+    &.bg-gradient-blue { background: linear-gradient(135deg, #409EFF, #79bbff); }
+    &.bg-gradient-green { background: linear-gradient(135deg, #67C23A, #95d475); }
+    &.bg-gradient-orange { background: linear-gradient(135deg, #E6A23C, #f3d19e); }
+    &.bg-gradient-purple { background: linear-gradient(135deg, #909399, #b1b3b8); }
+
+    .metric-icon-bg {
+      position: absolute; right: -10px; bottom: -15px; font-size: 90px; color: rgba(255,255,255,0.2); transform: rotate(-15deg);
+    }
+    .metric-content {
+      position: relative; z-index: 2; flex: 1;
+      .label { font-size: 14px; opacity: 0.9; margin-bottom: 8px; font-weight: 500; }
+      .value-group { display: flex; align-items: baseline; .number { font-size: 32px; font-weight: 800; line-height: 1; } .unit { margin-left: 6px; font-size: 14px; opacity: 0.9; } }
+      .trend { margin-top: 10px; font-size: 13px; display: flex; align-items: center; gap: 4px; opacity: 0.95; }
+    }
+  }
+}
+
+.charts-row-light {
+  margin-bottom: 24px;
+  .chart-card-light {
+    padding: 20px;
+    .card-header-light {
+      margin-bottom: 20px;
+      .icon-title { font-size: 16px; font-weight: bold; border-left: 4px solid $primary; padding-left: 12px; }
+      .header-title-group { display: flex; align-items: center; }
+      .deco-bar { width: 4px; height: 16px; border-radius: 2px; margin-right: 10px; }
+      .bg-blue { background-color: $primary; }
+      .bg-green { background-color: $success; }
+      .bg-purple { background-color: #909399; }
+    }
+    .chart-box-light { height: 280px; width: 100%; }
+  }
+}
+
+.table-section-light {
+  padding: 24px;
+  .section-header-light {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
+    .title { font-size: 18px; font-weight: bold; margin: 0; }
+    .filters-light { display: flex; gap: 12px; }
+  }
+  .pagination-box-light { margin-top: 20px; display: flex; justify-content: flex-end; }
+}
+
+.content-block-light {
+  padding: 24px;
+  .block-header-light {
+    margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;
+    .header-title-group { display: flex; align-items: center; }
+    .deco-bar { width: 4px; height: 18px; background-color: $primary; margin-right: 10px; border-radius: 2px; }
+    .title { font-size: 18px; font-weight: bold; margin: 0; }
+  }
+}
+
+/* 课程卡片 (新) */
+.course-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.course-card-pro {
+  background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: all 0.3s; border: 1px solid #ebeef5;
+  &:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); border-color: $primary; }
+}
+.c-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #f0f0f0; padding-bottom: 15px; }
+.c-name { font-size: 18px; font-weight: bold; color: #303133; }
+.c-body { text-align: center; }
+.info-row { color: #606266; margin-bottom: 8px; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; .bold { font-weight: bold; color: $primary; } }
+.checkin-control { margin-top: 25px; background: #ecf5ff; padding: 20px; border-radius: 8px; border: 1px dashed #409EFF; }
+.active-badge { color: #67C23A; font-weight: bold; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.pulse-dot { width: 8px; height: 8px; background: #67C23A; border-radius: 50%; animation: pulse 1.5s infinite; }
+.stats-num { margin: 15px 0; }
+.stats-num .big { font-size: 32px; font-weight: 800; color: #409EFF; }
+.stats-num .small { font-size: 14px; color: #909399; margin-left: 5px; }
+.rate-bar { font-size: 13px; color: #606266; margin-bottom: 10px; }
+.start-control { margin-top: 40px; }
+.start-btn { width: 100%; height: 45px; font-size: 16px; box-shadow: 0 4px 10px rgba(64,158,255,0.3); }
+.empty-course { text-align: center; padding: 40px; }
+
+/* 在线课程问答 */
+.qa-layout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
+.qa-form { background: #f7f9fc; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+.qa-list { background: #fff; border: 1px solid #ebeef5; border-radius: 8px; padding: 12px; }
+.qa-list-header { font-weight: 600; margin-bottom: 8px; color: #303133; }
+.qa-item { padding: 10px; border: 1px solid #ebeef5; border-radius: 6px; margin-bottom: 8px; cursor: pointer; transition: all .2s; }
+.qa-item:hover { border-color: $primary; background: #f5faff; }
+.qa-item.is-active { border-color: $primary; box-shadow: 0 4px 10px rgba(64,158,255,0.15); }
+.qa-title { font-weight: 600; color: #303133; margin-bottom: 4px; }
+.qa-meta { font-size: 12px; color: #909399; }
+.qa-right { background: #fff; border: 1px solid #ebeef5; border-radius: 8px; padding: 12px; min-height: 300px; display: flex; flex-direction: column; gap: 12px; }
+.qa-answer { padding: 10px; border: 1px solid #ebeef5; border-radius: 6px; margin-bottom: 8px; background: #f9fafc; }
+.qa-answer-user { font-weight: 600; margin-bottom: 6px; color: #409EFF; }
+.qa-answer-text { color: #303133; font-size: 14px; margin-bottom: 4px; }
+.qa-empty { color: #909399; padding: 20px 0; text-align: center; }
+.qa-tip { font-size: 13px; color: #909399; }
+
+@keyframes pulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(103, 194, 58, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(103, 194, 58, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(103, 194, 58, 0); }
+}
+
+:deep(.light-table-header) th { background-color: #f5f7fa !important; color: #606266; font-weight: 600; }
+.mr-1 { margin-right: 4px; }
+.mr-2 { margin-right: 8px; }
+.material-name { display: flex; align-items: center; font-weight: 500; }
+.answer-text-light { background: #f5f7fa; padding: 10px; border-radius: 4px; color: #606266; font-size: 13px; line-height: 1.5; max-height: 80px; overflow-y: auto; }
+.dialog-form-light { padding: 0 10px; }
+.fade-in { animation: fadeIn 0.5s ease-in-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>

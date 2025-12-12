@@ -12,16 +12,17 @@
         <result column="color" property="color"/>
         <result column="is_top" property="isTop"/>
         <result column="class_id" property="classId"/>
+        <result column="responsible_class_ids" property="responsibleClassIds"/>
         <result column="manager_name" property="managerName"/> </resultMap>
 
 
     <insert id="insertCourse">
-        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top, class_id, manager_name)
-        VALUES (#{name}, #{semester}, #{teacher}, #{code}, #{status}, #{color}, 0, #{classId}, #{managerName})
+        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top, class_id, responsible_class_ids, manager_name)
+        VALUES (#{name}, #{semester}, #{teacher}, #{code}, #{status}, #{color}, 0, #{classId}, #{responsibleClassIds}, #{managerName})
     </insert>
 
     <insert id="insertBatchCourses" parameterType="java.util.List">
-        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top, class_id, manager_name)
+        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top, class_id, responsible_class_ids, manager_name)
         VALUES
         <foreach collection="list" item="item" separator=",">
             (
@@ -33,13 +34,14 @@
             #{item.color},
             0,
             #{item.classId},
+            #{item.responsibleClassIds},
             #{item.managerName}
             )
         </foreach>
     </insert>
 
     <select id="selectAllCourses" resultMap="CourseResultMap">
-        SELECT * FROM sys_course ORDER BY id DESC
+        SELECT c.* FROM sys_course c ORDER BY c.id DESC
     </select>
 
     <update id="updateCourse">
@@ -48,6 +50,7 @@
             <if test="teacher != null">teacher = #{teacher},</if>
             <if test="status != null">status = #{status},</if>
             <if test="classId != null">class_id = #{classId},</if>
+            <if test="responsibleClassIds != null">responsible_class_ids = #{responsibleClassIds},</if>
             <if test="managerName != null">manager_name = #{managerName},</if> </set>
         WHERE id = #{id}
     </update>
@@ -60,5 +63,14 @@
         SELECT * FROM sys_course
         WHERE manager_name = #{managerName}
         ORDER BY id DESC
+    </select>
+
+    <select id="selectCoursesByIds" resultMap="CourseResultMap">
+        SELECT c.* FROM sys_course c
+        WHERE c.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        ORDER BY c.id DESC
     </select>
 </mapper>
