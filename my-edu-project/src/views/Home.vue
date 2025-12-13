@@ -67,7 +67,7 @@
 
           <el-dropdown trigger="click">
             <div class="user-info">
-              <el-avatar :size="32" src="[https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png](https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png)" />
+              <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
               <span class="username">{{ userInfo.realName || '同学' }}</span>
               <el-icon class="el-icon--right"><ArrowDown /></el-icon>
             </div>
@@ -138,7 +138,9 @@
               <span class="enter-text" v-if="item.isTop === 1">置顶</span>
               <span class="enter-text" v-else></span>
               <span class="start-btn" @click="goToCourse(item.id)">开始学习</span>
-              <el-button size="small" type="primary" plain @click="goToClassroom(item.id)">进入在线课堂</el-button>
+              <el-button size="small" type="primary" plain @click="goToClassroom(item.id)" :loading="enteringClassroom === item.id">
+                进入在线课堂
+              </el-button>
             </div>
           </div>
         </div>
@@ -161,13 +163,13 @@
                 <span class="sep">·</span>
                 <span>{{ formatTime(q.createTime) }}</span>
               </div>
-              <el-button size="small" type="primary" plain @click="openAnswerDialog(q)">举手/抢答/回答</el-button>
+              <el-button size="small" type="primary" plain @click="goToClassroom(q.courseId)">进入课堂互动</el-button>
             </div>
           </div>
         </div>
       </div>
 
-  <div class="bottom-row">
+      <div class="bottom-row">
         <section class="content-block half-block">
           <div class="block-header">
             <div class="header-left">
@@ -324,6 +326,7 @@ const answerDialogVisible = ref(false)
 const selectedQuestion = ref(null)
 const answerText = ref('')
 const qaLoading = ref(false)
+const enteringClassroom = ref(null) // 控制进入课堂的 loading
 
 // 通知详情状态
 const detailDialogVisible = ref(false)
@@ -433,19 +436,6 @@ const openAnswerDialog = (q) => {
   answerDialogVisible.value = true
 }
 
-const submitAnswer = async () => {
-  if (!selectedQuestion.value || !answerText.value.trim()) return ElMessage.warning('请输入回答内容')
-  try {
-    await request.post(`/student/online-question/${selectedQuestion.value.id}/answer`, { answerText: answerText.value.trim() })
-    ElMessage.success('回答已提交')
-    answerDialogVisible.value = false
-    // 重新加载列表以便老师端可见
-    await fetchOnlineQuestions(selectedQuestion.value.courseId)
-  } catch (e) {
-    ElMessage.error(e.response?.data || '提交失败')
-  }
-}
-
 const openDetailDialog = async (note) => {
   // Deep clone the note for binding to the dialog
   currentNotification.value = { ...note };
@@ -543,8 +533,41 @@ const submitPasswordChange = () => {
 const goToCourse = (courseId) => {
   router.push(`/course-study/${courseId}`)
 }
-const goToClassroom = (courseId) => {
-  router.push(`/student/classroom/${courseId}`)
+
+// 【关键修改】进入课堂前的状态检查
+const parseActive = (res) => Boolean(res?.active ?? res?.isActive)
+
+// 课堂激活探测：先走学生接口，失败或未激活则兜底教师接口
+const checkClassActive = async (courseId) => {
+  try {
+    const res = await request.get(`/student/checkin/status/${courseId}`)
+    if (parseActive(res)) return true
+  } catch (e) {
+    console.warn('学生课堂状态接口失败，尝试教师接口', e)
+  }
+  try {
+    const res = await request.get(`/teacher/checkin/status/${courseId}`)
+    if (parseActive(res)) return true
+  } catch (e) {
+    console.warn('教师课堂状态接口也失败', e)
+  }
+  return false
+}
+
+const goToClassroom = async (courseId) => {
+  enteringClassroom.value = courseId // 开启 loading
+  try {
+    const isActive = await checkClassActive(courseId)
+    if (isActive) {
+      router.push(`/student/classroom/${courseId}`)
+    } else {
+      ElMessage.info('老师尚未开启在线课堂，请稍候再试')
+    }
+  } catch (error) {
+    ElMessage.error('无法获取课程状态，请检查网络')
+  } finally {
+    enteringClassroom.value = null // 关闭 loading
+  }
 }
 
 const logout = () => {
@@ -729,14 +752,14 @@ $content-width: 90%;
     .course-code { font-size: 12px; opacity: 0.75; font-family: monospace; margin: 0; }
   }
 
-.card-action {
-  display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px;
-  .enter-text { font-size: 12px; opacity: 0.8; cursor: pointer; }
-  .start-btn {
-    font-size: 12px; background: #fff; color: #333; padding: 2px 10px; border-radius: 12px; font-weight: 500;
+  .card-action {
+    display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px;
+    .enter-text { font-size: 12px; opacity: 0.8; cursor: pointer; }
+    .start-btn {
+      font-size: 12px; background: #fff; color: #333; padding: 2px 10px; border-radius: 12px; font-weight: 500;
+    }
+    .el-button { margin-left: 8px; }
   }
-  .el-button { margin-left: 8px; }
-}
 }
 
 .empty-area {

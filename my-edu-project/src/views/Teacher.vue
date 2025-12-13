@@ -55,7 +55,6 @@
         </div>
       </div>
 
-      <!-- 在线课程问答抽屉 -->
       <el-drawer v-model="coursePanelVisible" :title="activeCourse ? activeCourse.name + ' · 在线课堂' : '在线课堂'" size="50%" direction="rtl">
         <div v-if="activeCourse">
           <div class="qa-layout">
@@ -258,7 +257,7 @@
                 <div class="info-row"><el-icon><User /></el-icon> 应到人数：<span class="bold">{{ course.studentCount || '统计中...' }}</span></div>
                 <div class="info-row"><el-icon><Clock /></el-icon> {{ course.semester }}</div>
 
-                <div class="checkin-control" v-if="checkInStatus[course.id]?.isActive">
+                <div class="checkin-control" v-if="isCourseActive(course.id)">
                   <div class="active-badge">
                     <span class="pulse-dot"></span> 正在签到中
                   </div>
@@ -269,7 +268,8 @@
                   <div class="rate-bar" v-if="checkInStatus[course.id]?.rate">
                     实时出勤率: <span style="color:#67C23A;font-weight:bold;">{{ checkInStatus[course.id]?.rate }}%</span>
                   </div>
-                  <el-button type="primary" plain @click="openCoursePanel(course)" style="margin-top:10px; width:100%">进入课程</el-button>
+                  <el-button type="primary" plain @click="openClassroom(course.id)" style="margin-top:10px; width:100%">进入课堂</el-button>
+                  <el-button type="default" plain @click="openCoursePanel(course)" style="margin-top:10px; width:100%">课堂互动面板</el-button>
                   <el-button type="danger" round @click="stopClass(course.id)" style="margin-top:10px; width:100%">结束上课/签到</el-button>
                 </div>
 
@@ -277,9 +277,7 @@
                   <el-button type="primary" size="large" round @click="startClass(course.id)" class="start-btn">
                     <el-icon style="margin-right:5px"><VideoPlay /></el-icon> 开始上课
                   </el-button>
-                  <el-button type="default" size="large" round @click="openClassroom(course.id)" style="margin-top:12px; width:100%">
-                    进入课程
-                  </el-button>
+                  <div class="start-hint">开启后将显示课堂入口并同步提醒学生</div>
                 </div>
               </div>
             </div>
@@ -435,6 +433,7 @@ const unreadCount = computed(() => notificationList.value.filter(n => !n.isRead)
 const myCourseList = ref([])
 const checkInStatus = reactive({})
 let statusTimer = null
+const isCourseActive = (courseId) => Boolean(checkInStatus[courseId]?.isActive ?? checkInStatus[courseId]?.active)
 
 // 在线问答
 const coursePanelVisible = ref(false)
@@ -528,6 +527,7 @@ const startClass = async (courseId) => {
     await request.post('/teacher/checkin/start', { courseId })
     ElMessage.success('上课开始！签到已开启')
     refreshStatus(courseId)
+    await sendClassStartNotification(courseId)
   } catch(e){ ElMessage.error('开启失败') }
 }
 
@@ -549,8 +549,23 @@ const refreshStatus = async (courseId) => {
 const refreshAllStatus = () => {
   if(activeMenu.value !== '6') return
   myCourseList.value.forEach(c => {
-    if(checkInStatus[c.id]?.isActive) refreshStatus(c.id)
+    if(isCourseActive(c.id)) refreshStatus(c.id)
   })
+}
+
+const sendClassStartNotification = async (courseId) => {
+  const course = myCourseList.value.find(c => c.id === courseId)
+  const courseName = course?.name || `课程${courseId}`
+  const classInfo = course?.classId ? `（${course.classId}班）` : ''
+  try {
+    await request.post('/teacher/notification/send', {
+      title: `${courseName}${classInfo}已开始`,
+      content: `老师已开启${courseName}${classInfo}，请尽快进入课堂。`
+    })
+  } catch (e) {
+    console.error('开课通知发送失败', e)
+    ElMessage.warning('开课已开始，但通知发送失败')
+  }
 }
 
 const openClassroom = (courseId) => {
@@ -630,13 +645,16 @@ const initCharts = (chartData) => {
 
   if (lineChartRef.value && chartData.lineChart) {
     const lineChart = echarts.init(lineChartRef.value)
+    const lineLabels = (chartData.lineChartLabels && chartData.lineChartLabels.length)
+        ? chartData.lineChartLabels
+        : ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
     lineChart.setOption({
       tooltip: { trigger: 'axis' },
       grid: commonGrid,
-      xAxis: { type: 'category', boundaryGap: false, data: ['08:00', '08:15', '08:30', '08:45', '09:00', '09:15', '09:30'] },
-      yAxis: { type: 'value', min: 60, max: 100 },
+      xAxis: { type: 'category', boundaryGap: false, data: lineLabels },
+      yAxis: { type: 'value', min: 0, max: 100 },
       series: [{
-        name: '专注度', type: 'line', smooth: true, symbolSize: 6,
+        name: '出勤率', type: 'line', smooth: true, symbolSize: 6,
         lineStyle: { width: 3, color: '#409EFF' },
         areaStyle: { color: new echarts.graphic.LinearGradient(0,0,0,1, [{offset:0,color:'rgba(64,158,255,0.3)'}, {offset:1,color:'rgba(64,158,255,0.02)'}]) },
         data: chartData.lineChart
@@ -887,6 +905,7 @@ $card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 .rate-bar { font-size: 13px; color: #606266; margin-bottom: 10px; }
 .start-control { margin-top: 40px; }
 .start-btn { width: 100%; height: 45px; font-size: 16px; box-shadow: 0 4px 10px rgba(64,158,255,0.3); }
+.start-hint { margin-top: 12px; color: #909399; font-size: 12px; text-align: center; }
 .empty-course { text-align: center; padding: 40px; }
 
 /* 在线课程问答 */

@@ -256,11 +256,18 @@ public class TeacherServiceImpl implements TeacherService {
         }
         double attendanceRate = expectedSum > 0 ? roundToOne((double) presentSum * 100 / expectedSum) : 0d;
 
-        List<Double> lineChart = attendanceByDate.values().stream()
-                .map(v -> v[1] > 0 ? roundToOne((double) v[0] * 100 / v[1]) : 0d)
+        List<LocalDate> dateKeys = new ArrayList<>(attendanceByDate.keySet());
+        List<Double> lineChart = dateKeys.stream()
+                .map(d -> {
+                    long[] v = attendanceByDate.getOrDefault(d, new long[]{0, 0});
+                    return v[1] > 0 ? roundToOne((double) v[0] * 100 / v[1]) : 0d;
+                })
                 .collect(Collectors.toList());
+
+        List<String> lineChartLabels = dateKeys.stream().map(LocalDate::toString).collect(Collectors.toList());
         if (lineChart.size() > 7) {
             lineChart = lineChart.subList(lineChart.size() - 7, lineChart.size());
+            lineChartLabels = lineChartLabels.subList(lineChartLabels.size() - 7, lineChartLabels.size());
         }
 
         // 作业提交统计
@@ -333,6 +340,7 @@ public class TeacherServiceImpl implements TeacherService {
         stats.put("submissionRate", submissionRate);
         stats.put("pieChart", pieChart);
         stats.put("lineChart", lineChart);
+        stats.put("lineChartLabels", lineChartLabels);
         stats.put("radarChart", radarChart);
         stats.put("courses", myCourses);
         return stats;
