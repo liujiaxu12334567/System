@@ -18,4 +18,5 @@ public class OnlineQuestion {
     // 非持久化字段：模式/描述解析
     private String mode;       // broadcast/hand/race/assign
     private String description;
+    private Long assignStudentId; // mode=assign 时有效
 }

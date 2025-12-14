@@ -88,6 +88,11 @@ public interface TeacherService {
     java.util.List<com.project.system.entity.CourseChat> listCourseChat(Long courseId, int limit);
     com.project.system.entity.CourseChat sendCourseChat(Long courseId, String content);
 
+    // 【新增】课堂会话控制：开课/下课/状态
+    java.util.Map<String, Object> startClassroom(Long courseId);
+    java.util.Map<String, Object> endClassroom(Long courseId);
+    java.util.Map<String, Object> getClassroomStatus(Long courseId);
+
     // 【新增】重置课堂（清空聊天、在线提问与回答）
     void resetClassroom(Long courseId);
 

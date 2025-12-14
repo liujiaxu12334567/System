@@ -20,6 +20,8 @@ public interface StudentService {
     Map<String, Object> getCheckInStatus(Long courseId);
 
     boolean isCheckInActive(Long courseId);
+
+    Map<String, Object> getClassroomStatus(Long courseId);
     List<Map<String, Object>> getPendingTasks();
     Course getCourseInfo(Long courseId);
     List<Material> getCourseMaterials(Long courseId);

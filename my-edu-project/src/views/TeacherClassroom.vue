@@ -13,6 +13,14 @@
         </div>
       </div>
       <div class="header-right">
+        <el-button type="danger" plain round @click="endClassroom" style="margin-right: 10px;">
+          结束课堂
+        </el-button>
+
+        <el-button type="info" plain round @click="showAnalysis" style="margin-right: 10px;">
+          <el-icon style="margin-right: 4px"><DataAnalysis /></el-icon> 分析结果
+        </el-button>
+
         <el-button type="warning" plain round @click="showPerformance" style="margin-right: 10px;">
           <el-icon style="margin-right: 4px"><DataLine /></el-icon> 课堂表现
         </el-button>
@@ -42,6 +50,9 @@
               <el-form-item label="补充描述">
                 <el-input v-model="questionForm.content" type="textarea" :rows="2" placeholder="规则说明或补充..." resize="none" />
               </el-form-item>
+              <el-form-item v-if="questionForm.mode === 'assign'" label="点名学生ID（userId）">
+                <el-input v-model="questionForm.assignStudentId" placeholder="请输入学生 userId" />
+              </el-form-item>
             </el-form>
           </div>
         </section>
@@ -54,7 +65,7 @@
                   <div class="item-title">{{ q.title }}</div>
                   <div class="item-meta">
                     <span class="time">{{ formatTimeShort(q.createTime) }}</span>
-                    <el-tag size="small" effect="plain">{{ q.mode }}</el-tag>
+                    <el-tag size="small" effect="plain">{{ getModeLabel(q.mode) }}</el-tag>
                   </div>
                 </div>
               </el-scrollbar>
@@ -156,6 +167,59 @@
       </section>
     </main>
 
+    <el-dialog v-model="analysisVisible" title="在线课堂分析（最新）" width="1000px" center destroy-on-close>
+      <div v-loading="analysisLoading">
+        <el-empty v-if="!analysisResult" description="暂无分析结果" />
+
+        <div v-else>
+          <el-descriptions :column="3" border>
+            <el-descriptions-item label="Metric">{{ analysisResult.metric }}</el-descriptions-item>
+            <el-descriptions-item label="GeneratedAt">{{ formatDateTime(analysisResult.generatedAt) }}</el-descriptions-item>
+            <el-descriptions-item label="EventId">{{ analysisResult.eventId || '-' }}</el-descriptions-item>
+          </el-descriptions>
+
+          <el-divider content-position="left">班级概览</el-divider>
+          <el-table v-if="analysisClasses.length > 0" :data="analysisClasses" stripe style="width: 100%">
+            <el-table-column type="expand">
+              <template #default="{ row }">
+                <el-table :data="row.students || []" size="small" stripe style="width: 100%">
+                  <el-table-column prop="name" label="姓名" width="120" />
+                  <el-table-column prop="username" label="学号" width="140" />
+                  <el-table-column prop="hand" label="举手" width="80" align="center" />
+                  <el-table-column prop="race" label="抢答" width="80" align="center" />
+                  <el-table-column prop="answer" label="回答" width="80" align="center" />
+                  <el-table-column prop="total" label="总互动" width="90" align="center" />
+                  <el-table-column prop="lastTime" label="最近时间" min-width="160" />
+                </el-table>
+              </template>
+            </el-table-column>
+            <el-table-column prop="className" label="班级" min-width="180" />
+            <el-table-column prop="studentCount" label="总人数" width="100" align="center" />
+            <el-table-column prop="activeCount" label="活跃人数" width="110" align="center" />
+            <el-table-column prop="score" label="活跃指数" width="110" align="center" />
+          </el-table>
+          <el-alert v-else type="info" show-icon :closable="false" title="结果结构非班级列表，可直接查看 value/valueJson" />
+
+          <el-divider content-position="left">历史记录</el-divider>
+          <el-table :data="analysisHistory" size="small" stripe style="width: 100%" empty-text="暂无历史记录">
+            <el-table-column prop="generatedAt" label="GeneratedAt" width="190">
+              <template #default="{ row }">{{ formatDateTime(row.generatedAt) }}</template>
+            </el-table-column>
+            <el-table-column prop="eventId" label="EventId" min-width="220" />
+            <el-table-column label="操作" width="110" align="center">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" link @click="selectAnalysisHistory(row)">查看</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="analysisVisible = false">关闭</el-button>
+        <el-button type="primary" @click="fetchAnalysisData">刷新</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="performanceVisible" title="课堂表现（当前会话）" width="900px" center destroy-on-close>
       <div v-loading="performanceLoading" class="perf-container">
 
@@ -249,10 +313,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { ArrowLeft, Promotion, Refresh, DataLine, ArrowRight } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowLeft, Promotion, Refresh, DataLine, ArrowRight, DataAnalysis } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import dayjs from 'dayjs'
 
@@ -262,10 +326,9 @@ const courseId = Number(route.params.courseId)
 const courseTitle = ref(`课程 ${courseId}`)
 const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
 
-const questionForm = ref({ title: '', content: '', mode: 'broadcast' })
+const questionForm = ref({ title: '', content: '', mode: 'broadcast', assignStudentId: '' })
 const modeOptions = [
   { value: 'broadcast', label: '广播' },
-  { value: 'hand', label: '举手' },
   { value: 'race', label: '抢答' },
   { value: 'assign', label: '点名' }
 ]
@@ -285,14 +348,48 @@ const performanceData = ref([])
 const viewMode = ref('class') // 'class' | 'student'
 const currentClassStats = ref(null)
 
+const analysisVisible = ref(false)
+const analysisLoading = ref(false)
+const analysisMetric = ref('classroom_online_performance')
+const analysisResult = ref(null)
+const analysisHistory = ref([])
+const analysisClasses = computed(() => {
+  const students = analysisResult.value?.value?.students
+  return Array.isArray(students) ? students : []
+})
+
 let timer = null
 let ws = null
+
+const startClassroom = async () => {
+  try {
+    await request.post(`/teacher/classroom/${courseId}/start`)
+  } catch (e) {
+    ElMessage.error('开课失败')
+  }
+}
+
+const endClassroom = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '结束本节课堂将清空本节聊天与在线测试数据，并生成分析结果（可在“分析结果”中查看）。是否继续？',
+      '确认结束课堂',
+      { type: 'warning', confirmButtonText: '结束课堂', cancelButtonText: '取消' }
+    )
+    await request.post(`/teacher/classroom/${courseId}/end`)
+    ElMessage.success('已结束课堂')
+    showAnalysis()
+  } catch (e) {
+    // cancel or error
+  }
+}
 
 onMounted(async () => {
   if (!localStorage.getItem('token')) {
     router.push('/login')
     return
   }
+  await startClassroom()
   await fetchQuestions()
   startPolling()
   connectWs()
@@ -306,6 +403,11 @@ onBeforeUnmount(() => {
 
 const formatTime = (t) => t ? dayjs(t).format('HH:mm') : ''
 const formatTimeShort = (t) => t ? dayjs(t).format('MM-DD HH:mm') : ''
+const formatDateTime = (t) => t ? dayjs(t).format('YYYY-MM-DD HH:mm:ss') : ''
+const getModeLabel = (mode) => {
+  const map = { broadcast: '全体', race: '抢答', assign: '点名', hand: '举手' }
+  return map[mode] || mode || '-'
+}
 const isMe = (senderId) => senderId == userInfo.id
 const avatarInitial = (name) => name ? name.toString().trim().substring(0, 1).toUpperCase() : 'T'
 const avatarColor = (role) => role === 'teacher' ? '#F56C6C' : '#409EFF'
@@ -343,6 +445,34 @@ const showPerformance = () => {
   viewMode.value = 'class'
   performanceVisible.value = true
   fetchPerformanceData()
+}
+
+const fetchAnalysisData = async () => {
+  analysisLoading.value = true
+  try {
+    const latest = await request.get('/analysis/result', {
+      params: { courseId, metric: analysisMetric.value }
+    })
+    analysisResult.value = latest || null
+
+    const list = await request.get('/analysis/results', {
+      params: { courseId, metric: analysisMetric.value, limit: 10 }
+    })
+    analysisHistory.value = Array.isArray(list) ? list : []
+  } catch (e) {
+    ElMessage.error('获取分析结果失败')
+  } finally {
+    analysisLoading.value = false
+  }
+}
+
+const showAnalysis = () => {
+  analysisVisible.value = true
+  fetchAnalysisData()
+}
+
+const selectAnalysisHistory = (row) => {
+  analysisResult.value = row || null
 }
 
 const enterClassDetail = (classStats) => {
@@ -397,11 +527,16 @@ const sendChat = async () => {
 
 const publishQuestion = async () => {
   if (!questionForm.value.title) return ElMessage.warning('请输入标题')
+  if (questionForm.value.mode === 'assign' && !String(questionForm.value.assignStudentId || '').trim()) {
+    return ElMessage.warning('点名模式需要填写学生ID')
+  }
   try {
     const payload = { ...questionForm.value, courseId }
     await request.post('/teacher/classroom/question', payload)
     ElMessage.success('已发布')
-    questionForm.value.title = '' // Reset
+    questionForm.value.title = ''
+    questionForm.value.content = ''
+    questionForm.value.assignStudentId = ''
     await fetchQuestions()
   } catch (e) { ElMessage.error('发布失败') }
 }

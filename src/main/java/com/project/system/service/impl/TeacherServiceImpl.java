@@ -685,8 +685,15 @@ public class TeacherServiceImpl implements TeacherService {
         question.setTeacherId(teacher.getUserId());
         question.setClassId(classIds.isEmpty() ? null : classIds.get(0));
         Map<String, Object> payload = new HashMap<>();
-        payload.put("mode", question.getMode() == null ? "broadcast" : question.getMode());
+        String mode = question.getMode() == null ? "broadcast" : question.getMode();
+        payload.put("mode", mode);
         payload.put("description", question.getContent());
+        if ("assign".equals(mode)) {
+            if (question.getAssignStudentId() == null) {
+                throw new RuntimeException("点名模式需要指定学生");
+            }
+            payload.put("assignStudentId", question.getAssignStudentId());
+        }
         try {
             question.setContent(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(payload));
         } catch (Exception e) {
@@ -704,7 +711,7 @@ public class TeacherServiceImpl implements TeacherService {
         if (targetIds.isEmpty()) return Collections.emptyList();
         targetIds = targetIds.stream().filter(myCourseIds::contains).collect(Collectors.toList());
         if (targetIds.isEmpty()) return Collections.emptyList();
-        LocalDateTime sessionStart = getSessionStart(courseId, false);
+        LocalDateTime sessionStart = courseId == null ? null : getSessionStart(courseId, true);
         return onlineQuestionMapper.selectByCourseIds(targetIds).stream()
                 .filter(q -> sessionStart == null || (q.getCreateTime() != null && q.getCreateTime().isAfter(sessionStart)))
                 .map(this::enrichQuestion)
@@ -749,12 +756,16 @@ public class TeacherServiceImpl implements TeacherService {
 
     @Override
     public List<CourseChat> listCourseChat(Long courseId, int limit) {
-        return classroomMemoryStore.listChats(courseId, limit <= 0 ? 200 : limit);
+        LocalDateTime sessionStart = courseId == null ? null : getSessionStart(courseId, true);
+        return classroomMemoryStore.listChats(courseId, limit <= 0 ? 200 : limit).stream()
+                .filter(c -> sessionStart == null || c.getCreateTime() == null || c.getCreateTime().isAfter(sessionStart))
+                .collect(Collectors.toList());
     }
 
     @Override
     public CourseChat sendCourseChat(Long courseId, String content) {
         User teacher = getCurrentTeacher();
+        getSessionStart(courseId, true);
         CourseChat chat = new CourseChat();
         chat.setCourseId(courseId);
         chat.setSenderId(teacher.getUserId());
@@ -764,6 +775,46 @@ public class TeacherServiceImpl implements TeacherService {
         CourseChat stored = classroomMemoryStore.appendChat(chat);
         classroomEventPublisher.publish(new ClassroomEvent("chat", courseId, null, stored));
         return stored;
+    }
+
+    @Override
+    public Map<String, Object> startClassroom(Long courseId) {
+        if (courseId == null) throw new RuntimeException("courseId 不能为空");
+        Set<Long> myCourseIds = getMyCourses().stream().map(Course::getId).collect(Collectors.toSet());
+        if (!myCourseIds.contains(courseId)) throw new RuntimeException("无权操作该课程");
+
+        String activeKey = "classroom:active:" + courseId;
+        boolean alreadyActive = Boolean.TRUE.equals(redisTemplate.hasKey(activeKey));
+        LocalDateTime existingStart = getSessionStart(courseId, false);
+        if (alreadyActive && existingStart != null) {
+            return Map.of("active", true, "sessionStart", existingStart.toString());
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        redisTemplate.opsForValue().set(activeKey, "1");
+        setSessionStart(courseId, now);
+        classroomEventPublisher.publish(new ClassroomEvent("start", courseId, null, Map.of("courseId", courseId, "sessionStart", now.toString())));
+        return Map.of("active", true, "sessionStart", now.toString());
+    }
+
+    @Override
+    public Map<String, Object> endClassroom(Long courseId) {
+        if (courseId == null) throw new RuntimeException("courseId 不能为空");
+        Set<Long> myCourseIds = getMyCourses().stream().map(Course::getId).collect(Collectors.toSet());
+        if (!myCourseIds.contains(courseId)) throw new RuntimeException("无权操作该课程");
+
+        resetClassroom(courseId);
+        redisTemplate.delete("classroom:active:" + courseId);
+        classroomEventPublisher.publish(new ClassroomEvent("end", courseId, null, Map.of("courseId", courseId)));
+        return Map.of("active", false);
+    }
+
+    @Override
+    public Map<String, Object> getClassroomStatus(Long courseId) {
+        if (courseId == null) return Map.of("active", false, "sessionStart", null);
+        boolean active = Boolean.TRUE.equals(redisTemplate.hasKey("classroom:active:" + courseId));
+        LocalDateTime sessionStart = getSessionStart(courseId, false);
+        return Map.of("active", active, "sessionStart", sessionStart == null ? null : sessionStart.toString());
     }
 
     @Override
@@ -781,6 +832,7 @@ public class TeacherServiceImpl implements TeacherService {
                 ar.setCourseId(courseId);
                 ar.setMetric("classroom_online_performance");
                 ar.setEventId("classroom_perf_" + courseId + "_" + System.currentTimeMillis());
+                ar.setGeneratedAt(new java.sql.Timestamp(System.currentTimeMillis()));
                 ar.setValueJson(objectMapper.writeValueAsString(payload));
                 analysisResultMapper.insert(ar);
             }
@@ -926,6 +978,9 @@ public class TeacherServiceImpl implements TeacherService {
                 JsonNode node = objectMapper.readTree(q.getContent());
                 if (node.has("mode")) q.setMode(node.get("mode").asText());
                 if (node.has("description")) q.setDescription(node.get("description").asText());
+                if (node.has("assignStudentId") && !node.get("assignStudentId").isNull()) {
+                    q.setAssignStudentId(node.get("assignStudentId").asLong());
+                }
             } catch (Exception ignored) {}
         }
         return q;

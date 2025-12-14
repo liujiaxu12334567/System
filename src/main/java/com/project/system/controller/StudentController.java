@@ -137,7 +137,12 @@ public class StudentController {
 
     @GetMapping("/checkin/status/{courseId}")
     public ResponseEntity<?> getCheckInStatus(@PathVariable Long courseId) {
-        return ResponseEntity.ok(Map.of("active", studentService.isCheckInActive(courseId)));
+        return ResponseEntity.ok(studentService.getCheckInStatus(courseId));
+    }
+
+    @GetMapping("/classroom/status/{courseId}")
+    public ResponseEntity<?> getClassroomStatus(@PathVariable Long courseId) {
+        return ResponseEntity.ok(studentService.getClassroomStatus(courseId));
     }
     @PostMapping("/notification/read/{id}")
     public ResponseEntity<?> markNotificationAsRead(@PathVariable Long id) {

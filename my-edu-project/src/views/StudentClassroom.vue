@@ -37,7 +37,7 @@
                   <div class="q-desc" v-if="q.description">{{ q.description }}</div>
                 </div>
                 <div class="q-side">
-                  <el-tag size="small" :type="getModeTag(q.mode)">{{ q.mode }}</el-tag>
+                  <el-tag size="small" :type="getModeTag(q.mode)">{{ getModeLabel(q.mode) }}</el-tag>
                   <span class="q-time">{{ formatTimeShort(q.createTime) }}</span>
                 </div>
               </div>
@@ -51,13 +51,13 @@
           </div>
           <div class="action-area">
             <div class="btn-group">
-              <el-button type="primary" class="action-btn" @click="handRaise" :disabled="!currentQuestion">
+              <el-button type="primary" class="action-btn" @click="handRaise" :disabled="!canHand">
                 <el-icon><Pointer /></el-icon> 举手
               </el-button>
-              <el-button type="warning" class="action-btn" @click="raceAnswer" :disabled="!currentQuestion">
+              <el-button type="warning" class="action-btn" @click="raceAnswer" :disabled="!canRace">
                 <el-icon><Timer /></el-icon> 抢答
               </el-button>
-              <el-button type="success" class="action-btn" @click="openAnswerDialog" :disabled="!currentQuestion">
+              <el-button type="success" class="action-btn" @click="openAnswerDialog" :disabled="!canAnswer">
                 <el-icon><EditPen /></el-icon> 回答
               </el-button>
             </div>
@@ -152,7 +152,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Pointer, Timer, EditPen, Promotion, ChatDotRound } from '@element-plus/icons-vue'
@@ -174,6 +174,9 @@ const chats = ref([])
 const chatInput = ref('')
 const chatScrollRef = ref(null)
 const wsStatus = ref(false)
+const canHand = computed(() => currentQuestion.value && currentQuestion.value.mode === 'hand')
+const canRace = computed(() => currentQuestion.value && currentQuestion.value.mode === 'race')
+const canAnswer = computed(() => Boolean(currentQuestion.value))
 
 let timer = null
 let ws = null
@@ -181,16 +184,10 @@ const parseActive = (res) => Boolean(res?.active ?? res?.isActive)
 
 const checkClassActive = async () => {
   try {
-    const res = await request.get(`/student/checkin/status/${courseId}`)
+    const res = await request.get(`/student/classroom/status/${courseId}`)
     if (parseActive(res)) return true
   } catch (e) {
-    console.warn('学生课堂状态接口失败，尝试教师接口', e)
-  }
-  try {
-    const res = await request.get(`/teacher/checkin/status/${courseId}`)
-    if (parseActive(res)) return true
-  } catch (e) {
-    console.warn('教师课堂状态接口也失败', e)
+    console.warn('课堂状态接口失败', e)
   }
   return false
 }
@@ -199,7 +196,7 @@ const ensureClassStarted = async () => {
   try {
     const active = await checkClassActive()
     if (!active) {
-      ElMessage.info('老师尚未开启课堂，请稍后从课程入口进入')
+      ElMessage.info('老师尚未开启课堂，请稍后再进入')
       router.push('/home')
       return false
     }
@@ -237,6 +234,10 @@ const isMe = (senderId) => senderId == userInfo.id
 const getModeTag = (mode) => {
   const map = { broadcast: 'info', hand: 'warning', race: 'danger', assign: 'success' }
   return map[mode] || 'info'
+}
+const getModeLabel = (mode) => {
+  const map = { broadcast: '全体', hand: '举手', race: '抢答', assign: '点名' }
+  return map[mode] || mode || '-'
 }
 
 const avatarInitial = (name) => {

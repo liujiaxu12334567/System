@@ -333,6 +333,29 @@ public class TeacherController {
     }
 
     // ================= 在线课堂 =================
+    @PostMapping("/classroom/{courseId}/start")
+    public ResponseEntity<?> startClassroom(@PathVariable Long courseId) {
+        try {
+            return ResponseEntity.ok(teacherService.startClassroom(courseId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("开课失败: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/classroom/{courseId}/end")
+    public ResponseEntity<?> endClassroom(@PathVariable Long courseId) {
+        try {
+            return ResponseEntity.ok(teacherService.endClassroom(courseId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("下课失败: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/classroom/{courseId}/status")
+    public ResponseEntity<?> classroomStatus(@PathVariable Long courseId) {
+        return ResponseEntity.ok(teacherService.getClassroomStatus(courseId));
+    }
+
     @PostMapping("/classroom/question")
     public ResponseEntity<?> createClassroomQuestion(@RequestBody Map<String, Object> payload) {
         try {
@@ -341,6 +364,9 @@ public class TeacherController {
             q.setTitle((String) payload.getOrDefault("title", ""));
             q.setContent((String) payload.getOrDefault("content", ""));
             q.setMode((String) payload.getOrDefault("mode", "broadcast"));
+            if (payload.get("assignStudentId") != null && !payload.get("assignStudentId").toString().isEmpty()) {
+                q.setAssignStudentId(Long.valueOf(payload.get("assignStudentId").toString()));
+            }
             if (payload.get("deadline") != null && !payload.get("deadline").toString().isEmpty()) {
                 q.setDeadline(java.time.LocalDateTime.parse(payload.get("deadline").toString().replace(" ", "T")));
             }
@@ -374,6 +400,10 @@ public class TeacherController {
             q.setCourseId(Long.valueOf(payload.get("courseId").toString()));
             q.setTitle((String) payload.getOrDefault("title", ""));
             q.setContent((String) payload.getOrDefault("content", ""));
+            q.setMode((String) payload.getOrDefault("mode", "broadcast"));
+            if (payload.get("assignStudentId") != null && !payload.get("assignStudentId").toString().isEmpty()) {
+                q.setAssignStudentId(Long.valueOf(payload.get("assignStudentId").toString()));
+            }
             if (payload.get("deadline") != null && !payload.get("deadline").toString().isEmpty()) {
                 q.setDeadline(java.time.LocalDateTime.parse(payload.get("deadline").toString().replace(" ", "T")));
             }

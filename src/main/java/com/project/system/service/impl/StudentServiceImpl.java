@@ -10,7 +10,7 @@ import com.project.system.mq.AnalysisEventPublisher;
 import com.project.system.service.StudentService;
 import com.project.system.service.support.ClassroomMemoryStore;
 import com.project.system.websocket.ClassroomEvent;
-import com.project.system.websocket.ClassroomEventPublisher;
+import com.project.system.websocket.ClassroomEventBus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
@@ -45,7 +45,7 @@ public class StudentServiceImpl implements StudentService {
     @Autowired private NotificationMapper notificationMapper;
     @Autowired private OnlineQuestionMapper onlineQuestionMapper;
     @Autowired private OnlineAnswerMapper onlineAnswerMapper;
-    @Autowired private ClassroomEventPublisher classroomEventPublisher;
+    @Autowired private ClassroomEventBus classroomEventBus;
     @Autowired private CourseChatMapper courseChatMapper;
     @Autowired private AnalysisEventPublisher analysisEventPublisher;
     @Autowired private ClassroomMemoryStore classroomMemoryStore;
@@ -125,6 +125,14 @@ public class StudentServiceImpl implements StudentService {
     @Override
     public boolean isCheckInActive(Long courseId) {
         return redisTemplate.hasKey("course:checkin:active:" + courseId);
+    }
+
+    @Override
+    public Map<String, Object> getClassroomStatus(Long courseId) {
+        if (courseId == null) return Map.of("active", false, "sessionStart", null);
+        boolean active = Boolean.TRUE.equals(redisTemplate.hasKey("classroom:active:" + courseId));
+        java.time.LocalDateTime sessionStart = getSessionStart(courseId, false);
+        return Map.of("active", active, "sessionStart", sessionStart == null ? null : sessionStart.toString());
     }
 
     @Override
@@ -362,6 +370,9 @@ public class StudentServiceImpl implements StudentService {
 
     @Override
     public List<OnlineQuestion> listOnlineQuestions(Long courseId) {
+        User user = getCurrentUser();
+        if (user == null) return Collections.emptyList();
+
         List<Long> ids = new ArrayList<>();
         if (courseId != null) {
             ids.add(courseId);
@@ -371,10 +382,11 @@ public class StudentServiceImpl implements StudentService {
                     .collect(Collectors.toList());
         }
         if (ids.isEmpty()) return Collections.emptyList();
-        java.time.LocalDateTime sessionStart = getSessionStart(courseId, false);
+        java.time.LocalDateTime sessionStart = courseId == null ? null : getSessionStart(courseId, true);
         return onlineQuestionMapper.selectByCourseIds(ids).stream()
                 .filter(q -> sessionStart == null || (q.getCreateTime() != null && q.getCreateTime().isAfter(sessionStart)))
                 .map(this::enrichQuestion)
+                .filter(q -> !"assign".equals(q.getMode()) || (q.getAssignStudentId() != null && q.getAssignStudentId().equals(user.getUserId())))
                 .collect(Collectors.toList());
     }
 
@@ -385,7 +397,7 @@ public class StudentServiceImpl implements StudentService {
         if (answerText == null || answerText.trim().isEmpty()) {
             throw new RuntimeException("回答内容不能为空");
         }
-        OnlineQuestion question = onlineQuestionMapper.selectById(questionId);
+        OnlineQuestion question = enrichQuestion(onlineQuestionMapper.selectById(questionId));
         if (question == null) {
             throw new RuntimeException("问题不存在");
         }
@@ -393,13 +405,16 @@ public class StudentServiceImpl implements StudentService {
         if (sessionStart != null && question.getCreateTime() != null && !question.getCreateTime().isAfter(sessionStart)) {
             throw new RuntimeException("该问题已不在当前课堂会话中");
         }
+        if ("assign".equals(question.getMode()) && (question.getAssignStudentId() == null || !question.getAssignStudentId().equals(student.getUserId()))) {
+            throw new RuntimeException("该题为点名题，当前学生无权回答");
+        }
         OnlineAnswer answer = new OnlineAnswer();
         answer.setQuestionId(questionId);
         answer.setStudentId(student.getUserId());
         answer.setAnswerText(buildAnswerJson("answer", answerText.trim(), "answered", student.getUserId()));
         onlineAnswerMapper.insert(answer);
         OnlineAnswer enriched = enrichAnswer(answer);
-        classroomEventPublisher.publish(new ClassroomEvent("answer", question.getCourseId(), questionId, enriched));
+        classroomEventBus.publish(new ClassroomEvent("answer", question.getCourseId(), questionId, enriched));
         return enriched;
     }
 
@@ -407,14 +422,22 @@ public class StudentServiceImpl implements StudentService {
     @Transactional
     public OnlineAnswer handRaise(Long questionId) {
         User student = getCurrentUser();
+        OnlineQuestion q = enrichQuestion(onlineQuestionMapper.selectById(questionId));
+        if (q == null) throw new RuntimeException("问题不存在");
+        java.time.LocalDateTime sessionStart = getSessionStart(q.getCourseId(), false);
+        if (sessionStart != null && q.getCreateTime() != null && !q.getCreateTime().isAfter(sessionStart)) {
+            throw new RuntimeException("该问题已不在当前课堂会话中");
+        }
+        if (!"hand".equals(q.getMode())) {
+            throw new RuntimeException("该问题不是举手模式");
+        }
         OnlineAnswer answer = new OnlineAnswer();
         answer.setQuestionId(questionId);
         answer.setStudentId(student.getUserId());
         answer.setAnswerText(buildAnswerJson("hand", "举手", "pending", student.getUserId()));
         onlineAnswerMapper.insert(answer);
         OnlineAnswer enriched = enrichAnswer(answer);
-        OnlineQuestion q = onlineQuestionMapper.selectById(questionId);
-        if (q != null) classroomEventPublisher.publish(new ClassroomEvent("hand", q.getCourseId(), questionId, enriched));
+        if (q != null) classroomEventBus.publish(new ClassroomEvent("hand", q.getCourseId(), questionId, enriched));
         return enriched;
     }
 
@@ -422,14 +445,22 @@ public class StudentServiceImpl implements StudentService {
     @Transactional
     public OnlineAnswer raceAnswer(Long questionId) {
         User student = getCurrentUser();
+        OnlineQuestion q = enrichQuestion(onlineQuestionMapper.selectById(questionId));
+        if (q == null) throw new RuntimeException("问题不存在");
+        java.time.LocalDateTime sessionStart = getSessionStart(q.getCourseId(), false);
+        if (sessionStart != null && q.getCreateTime() != null && !q.getCreateTime().isAfter(sessionStart)) {
+            throw new RuntimeException("该问题已不在当前课堂会话中");
+        }
+        if (!"race".equals(q.getMode())) {
+            throw new RuntimeException("该问题不是抢答模式");
+        }
         OnlineAnswer answer = new OnlineAnswer();
         answer.setQuestionId(questionId);
         answer.setStudentId(student.getUserId());
         answer.setAnswerText(buildAnswerJson("race", "抢答", "pending", student.getUserId()));
         onlineAnswerMapper.insert(answer);
         OnlineAnswer enriched = enrichAnswer(answer);
-        OnlineQuestion q = onlineQuestionMapper.selectById(questionId);
-        if (q != null) classroomEventPublisher.publish(new ClassroomEvent("race", q.getCourseId(), questionId, enriched));
+        if (q != null) classroomEventBus.publish(new ClassroomEvent("race", q.getCourseId(), questionId, enriched));
         return enriched;
     }
 
@@ -445,21 +476,27 @@ public class StudentServiceImpl implements StudentService {
 
     @Override
     public List<CourseChat> listCourseChat(Long courseId, int limit) {
-        return classroomMemoryStore.listChats(courseId, limit <= 0 ? 200 : limit);
+        java.time.LocalDateTime sessionStart = courseId == null ? null : getSessionStart(courseId, true);
+        return classroomMemoryStore.listChats(courseId, limit <= 0 ? 200 : limit).stream()
+                .filter(c -> sessionStart == null || c.getCreateTime() == null || c.getCreateTime().isAfter(sessionStart))
+                .collect(Collectors.toList());
     }
 
     @Override
     public CourseChat sendCourseChat(Long courseId, String content) {
         User student = getCurrentUser();
+        getSessionStart(courseId, true);
+        Long chatId = redisTemplate.opsForValue().increment("classroom:chat:seq:" + courseId);
         CourseChat chat = new CourseChat();
+        chat.setId(chatId);
         chat.setCourseId(courseId);
         chat.setSenderId(student.getUserId());
         chat.setSenderName(student.getRealName());
         chat.setRole("student");
         chat.setContent(content);
-        CourseChat stored = classroomMemoryStore.appendChat(chat);
-        classroomEventPublisher.publish(new ClassroomEvent("chat", courseId, null, stored));
-        return stored;
+        chat.setCreateTime(LocalDateTime.now());
+        classroomEventBus.publish(new ClassroomEvent("chat", courseId, null, chat));
+        return chat;
     }
 
     private java.time.LocalDateTime getSessionStart(Long courseId, boolean createIfAbsent) {
@@ -533,6 +570,9 @@ public class StudentServiceImpl implements StudentService {
                 JsonNode node = new ObjectMapper().readTree(q.getContent());
                 if (node.has("mode")) q.setMode(node.get("mode").asText());
                 if (node.has("description")) q.setDescription(node.get("description").asText());
+                if (node.has("assignStudentId") && !node.get("assignStudentId").isNull()) {
+                    q.setAssignStudentId(node.get("assignStudentId").asLong());
+                }
             } catch (Exception ignored) {}
         }
         return q;
