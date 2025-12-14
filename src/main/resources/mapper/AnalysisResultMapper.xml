@@ -31,6 +31,22 @@
             LIMIT 1
     </select>
 
+    <select id="selectLatestByCourseIdsAndMetric" resultMap="AnalysisResultMap">
+        SELECT id, course_id, metric, value_json, generated_at, event_id
+        FROM (
+            SELECT
+                ar.*,
+                ROW_NUMBER() OVER (PARTITION BY ar.course_id ORDER BY ar.generated_at DESC, ar.id DESC) AS rn
+            FROM analysis_result ar
+            WHERE ar.metric = #{metric}
+              AND ar.course_id IN
+              <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+                  #{cid}
+              </foreach>
+        ) t
+        WHERE t.rn = 1
+    </select>
+
     <select id="selectByCourseIdAndMetricLimit" resultMap="AnalysisResultMap">
         SELECT id, course_id, metric, value_json, generated_at, event_id
         FROM analysis_result

@@ -3,6 +3,7 @@ package com.project.system.service.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.project.system.dto.TeacherAnalysisResponse;
 import com.project.system.entity.*;
 import com.project.system.entity.Class;
 import com.project.system.mapper.*;
@@ -10,6 +11,8 @@ import com.project.system.service.LeaderService;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +31,8 @@ public class LeaderServiceImpl implements LeaderService {
 
     @Autowired private UserMapper userMapper;
     @Autowired private CourseMapper courseMapper;
+    @Autowired private CourseGroupMapper courseGroupMapper;
+    @Autowired private AnalysisResultMapper analysisResultMapper;
     @Autowired private ClassMapper classMapper;
     @Autowired private MaterialMapper materialMapper;
     @Autowired private ExamMapper examMapper;
@@ -100,74 +105,48 @@ public class LeaderServiceImpl implements LeaderService {
     }
 
     @Override
+    @Cacheable(cacheNames = "leader_teacher_list", key = "T(org.springframework.security.core.context.SecurityContextHolder).getContext().getAuthentication().getName()")
     public List<Object> listMyTeamMembers() {
         User currentLeader = getCurrentLeader();
         if (currentLeader == null) return Collections.emptyList();
 
-        // 1. 获取组长负责的所有课程名 (teacherRank)
-        Set<String> leaderManagedCourses = new HashSet<>();
-        if (currentLeader.getTeacherRank() != null && !currentLeader.getTeacherRank().isEmpty()) {
-            Arrays.stream(currentLeader.getTeacherRank().replace("，", ",").split(","))
-                    .map(String::trim)
-                    .forEach(leaderManagedCourses::add);
-        }
-
-        if (leaderManagedCourses.isEmpty()) {
-            // 如果组长没有负责任何课程，则只返回他自己
+        // 新模型：组长负责课程来自 sys_course_group（按 leader_id），不再依赖 sys_user.teacherRank
+        List<CourseGroup> managedGroups = courseGroupMapper.selectByLeaderId(currentLeader.getUserId());
+        if (managedGroups == null || managedGroups.isEmpty()) {
             return Collections.singletonList(currentLeader);
         }
 
-        // 2. 查找所有教师 (包括其他组长和普通教师)
-        List<User> allTeachers = userMapper.selectUsersByRole("3"); // 普通教师
-        allTeachers.addAll(userMapper.selectUsersByRole("2")); // 其他组长
+        Set<Long> managedGroupIds = managedGroups.stream()
+                .map(CourseGroup::getGroupId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
 
-        Set<Long> teamMemberIds = new HashSet<>();
-        teamMemberIds.add(currentLeader.getUserId()); // 首先加入组长自己
+        Set<Long> memberIds = new HashSet<>();
+        memberIds.add(currentLeader.getUserId());
 
-        // 3. 筛选出教授了组长负责课程的教师
-        List<User> filteredMembers = allTeachers.stream()
-                .filter(user -> {
-                    // 如果是当前组长自己，跳过（已经在集合里）
-                    if (user.getUserId().equals(currentLeader.getUserId())) {
-                        return false;
-                    }
-
-                    // 教师的教授范围 (teachingClasses) 或其负责的科目 (teacherRank)
-                    String teacherCourses = user.getTeacherRank();
-
-                    if (teacherCourses != null) {
-                        // 检查该教师的负责科目（通常是组长）是否与本组长的负责科目有交集
-                        Set<String> memberCourses = Arrays.stream(teacherCourses.replace("，", ",").split(","))
-                                .map(String::trim)
-                                .collect(Collectors.toSet());
-
-                        // 如果两个 Set 有交集，则该教师是相关成员
-                        memberCourses.retainAll(leaderManagedCourses);
-                        return !memberCourses.isEmpty();
-                    }
-
-                    // 默认情况下，普通教师不应被筛选进来，除非他们被明确分配为组长负责的课程的老师
-                    // 但由于我们没有直接根据 classId 反查教师负责课程的便捷方法，
-                    // 且题意要求只根据“负责科目”筛选，所以对于普通教师，我们依赖 Admin/Leader 设置其 teacherRank（尽管通常是空的）。
-                    // 为了严格遵循“只显示负责该科目的老师”，我们只检查 teacherRank。
-                    return false;
-                })
-                .collect(Collectors.toList());
-
-        // 4. 将筛选出的成员加入结果列表
-        List<Object> result = new ArrayList<>();
-        result.add(currentLeader);
-
-        for (User member : filteredMembers) {
-            if (teamMemberIds.add(member.getUserId())) {
-                result.add(member);
-            }
+        for (Course c : courseMapper.selectAllCourses()) {
+            if (c.getGroupId() == null) continue;
+            if (!managedGroupIds.contains(c.getGroupId())) continue;
+            if (c.getTeacherId() != null) memberIds.add(c.getTeacherId());
         }
 
+        List<User> allTeachers = new ArrayList<>();
+        allTeachers.addAll(userMapper.selectUsersByRole("3"));
+        allTeachers.addAll(userMapper.selectUsersByRole("2"));
+
+        List<Object> result = new ArrayList<>();
+        for (User u : allTeachers) {
+            if (u != null && u.getUserId() != null && memberIds.contains(u.getUserId())) {
+                result.add(u);
+            }
+        }
+        result.removeIf(o -> (o instanceof User) && ((User) o).getUserId().equals(currentLeader.getUserId()));
+        result.add(0, currentLeader);
         return result;
     }
 
     @Override
+    @Cacheable(cacheNames = "leader_course_list", key = "T(org.springframework.security.core.context.SecurityContextHolder).getContext().getAuthentication().getName()")
     public List<Course> listMyCourses() {
         User currentLeader = getCurrentLeader();
         List<Course> allCourses = courseMapper.selectAllCourses();
@@ -185,6 +164,89 @@ public class LeaderServiceImpl implements LeaderService {
             if (isManager || isNameMatch) myCourses.add(c);
         }
         return myCourses;
+    }
+
+    @Override
+    public List<TeacherAnalysisResponse> listTeacherAnalysis(String metric) {
+        User currentLeader = getCurrentLeader();
+        if (currentLeader == null) return Collections.emptyList();
+
+        String m = metric == null ? "" : metric.trim();
+        if (m.isEmpty()) m = "classroom_online_performance";
+
+        List<CourseGroup> managedGroups = courseGroupMapper.selectByLeaderId(currentLeader.getUserId());
+        if (managedGroups == null || managedGroups.isEmpty()) return Collections.emptyList();
+
+        Set<Long> managedGroupIds = managedGroups.stream()
+                .map(CourseGroup::getGroupId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        List<Course> managedCourses = courseMapper.selectAllCourses().stream()
+                .filter(c -> c.getGroupId() != null && managedGroupIds.contains(c.getGroupId()))
+                .collect(Collectors.toList());
+
+        if (managedCourses.isEmpty()) return Collections.emptyList();
+
+        Map<Long, List<Course>> coursesByTeacherId = managedCourses.stream()
+                .filter(c -> c.getTeacherId() != null)
+                .collect(Collectors.groupingBy(Course::getTeacherId));
+
+        List<Long> courseIds = managedCourses.stream().map(Course::getId).filter(Objects::nonNull).toList();
+        Map<Long, AnalysisResult> latestByCourseId = new HashMap<>();
+        if (!courseIds.isEmpty()) {
+            for (AnalysisResult ar : analysisResultMapper.selectLatestByCourseIdsAndMetric(courseIds, m)) {
+                if (ar != null && ar.getCourseId() != null) {
+                    latestByCourseId.put(ar.getCourseId(), ar);
+                }
+            }
+        }
+
+        List<TeacherAnalysisResponse> result = new ArrayList<>();
+        for (Map.Entry<Long, List<Course>> entry : coursesByTeacherId.entrySet()) {
+            Long teacherId = entry.getKey();
+            User teacher = userMapper.selectById(teacherId);
+            String teacherName = teacher != null ? teacher.getRealName() : String.valueOf(teacherId);
+
+            List<TeacherAnalysisResponse.CourseAnalysisItem> items = new ArrayList<>();
+            TeacherAnalysisResponse.CourseAnalysisItem latestItem = null;
+
+            for (Course c : entry.getValue()) {
+                TeacherAnalysisResponse.CourseAnalysisItem item = new TeacherAnalysisResponse.CourseAnalysisItem();
+                item.setCourseId(c.getId());
+                item.setCourseName(c.getName());
+                item.setSemester(c.getSemester());
+                item.setClassId(c.getClassId());
+                item.setMetric(m);
+
+                AnalysisResult ar = c.getId() == null ? null : latestByCourseId.get(c.getId());
+                if (ar != null) {
+                    item.setValueJson(ar.getValueJson());
+                    item.setGeneratedAt(ar.getGeneratedAt());
+
+                    if (latestItem == null) {
+                        latestItem = item;
+                    } else if (latestItem.getGeneratedAt() == null) {
+                        latestItem = item;
+                    } else if (item.getGeneratedAt() != null && item.getGeneratedAt().after(latestItem.getGeneratedAt())) {
+                        latestItem = item;
+                    }
+                }
+
+                items.add(item);
+            }
+
+            TeacherAnalysisResponse tr = new TeacherAnalysisResponse();
+            tr.setTeacherId(teacherId);
+            tr.setTeacherName(teacherName);
+            tr.setCourseCount(items.size());
+            tr.setLatest(latestItem);
+            tr.setCourses(items);
+            result.add(tr);
+        }
+
+        result.sort(Comparator.comparing(TeacherAnalysisResponse::getTeacherName, Comparator.nullsLast(String::compareTo)));
+        return result;
     }
 
     @Override
@@ -259,6 +321,7 @@ public class LeaderServiceImpl implements LeaderService {
     }
 
     @Override
+    @CacheEvict(cacheNames = {"course_info", "leader_course_list"}, allEntries = true)
     @Transactional
     public void updateCourse(Course course) {
         courseMapper.updateCourse(course);
@@ -270,11 +333,13 @@ public class LeaderServiceImpl implements LeaderService {
     }
 
     @Override
+    @CacheEvict(cacheNames = {"course_info", "leader_course_list"}, allEntries = true)
     public void deleteCourse(Long id) {
         courseMapper.deleteCourseById(id);
     }
 
     @Override
+    @CacheEvict(cacheNames = {"course_info", "leader_course_list"}, allEntries = true)
     @Transactional
     public void batchAssignCourse(String name, String semester, List<String> teacherNames, List<Object> rawClassIds) {
         User currentUser = getCurrentLeader();

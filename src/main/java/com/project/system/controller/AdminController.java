@@ -1,6 +1,10 @@
 package com.project.system.controller;
 
 import com.project.system.dto.BatchEnrollmentRequest;
+import com.project.system.dto.CourseAssignRequest;
+import com.project.system.dto.CourseBatchAssignRequest;
+import com.project.system.dto.CourseGroupCreateRequest;
+import com.project.system.dto.CourseGroupUpdateLeaderRequest;
 import com.project.system.entity.Course;
 import com.project.system.entity.User;
 import com.project.system.service.AdminService;
@@ -125,20 +129,58 @@ public class AdminController {
     }
 
     @PostMapping("/course/batch-assign")
-    public ResponseEntity<?> batchAssignCourse(@RequestBody Map<String, Object> request) {
-        adminService.batchAssignCourse(
-                (String) request.get("name"),
-                (String) request.get("semester"),
-                (List<String>) request.get("teacherNames"),
-                (List<Object>) request.get("classIds")
-        );
-        return ResponseEntity.ok("批量分配成功");
+    public ResponseEntity<?> batchAssignCourse(@RequestBody CourseBatchAssignRequest request) {
+        try {
+            adminService.batchAssignCourse(request);
+            return ResponseEntity.ok("批量分配成功");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/course/assign")
+    public ResponseEntity<?> assignCourse(@RequestBody CourseAssignRequest request) {
+        try {
+            adminService.assignCourse(request);
+            return ResponseEntity.ok("分配成功");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @GetMapping("/course-group/list")
+    public ResponseEntity<?> listCourseGroups(@RequestParam(required = false) String semester) {
+        return ResponseEntity.ok(adminService.listCourseGroups(semester));
+    }
+
+    @PostMapping("/course-group/create")
+    public ResponseEntity<?> createCourseGroup(@RequestBody CourseGroupCreateRequest request) {
+        try {
+            adminService.createCourseGroup(request);
+            return ResponseEntity.ok("创建成功");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/course-group/update-leader")
+    public ResponseEntity<?> updateCourseGroupLeader(@RequestBody CourseGroupUpdateLeaderRequest request) {
+        try {
+            adminService.updateCourseGroupLeader(request);
+            return ResponseEntity.ok("更新成功");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     @PostMapping("/course/update")
     public ResponseEntity<?> updateCourse(@RequestBody Course course) {
-        adminService.updateCourse(course);
-        return ResponseEntity.ok("更新成功");
+        try {
+            adminService.updateCourse(course);
+            return ResponseEntity.ok("更新成功");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     @PostMapping("/course/delete/{id}")

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.project.system.mapper.CourseGroupMapper">
+
+    <resultMap id="CourseGroupMap" type="com.project.system.entity.CourseGroup">
+        <id column="group_id" property="groupId"/>
+        <result column="name" property="name"/>
+        <result column="semester" property="semester"/>
+        <result column="leader_id" property="leaderId"/>
+        <result column="leader_name" property="leaderName"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <select id="selectByNameAndSemester" resultMap="CourseGroupMap">
+        SELECT group_id, name, semester, leader_id, leader_name, create_time
+        FROM sys_course_group
+        WHERE name = #{name} AND semester = #{semester}
+        LIMIT 1
+    </select>
+
+    <select id="selectById" resultMap="CourseGroupMap">
+        SELECT group_id, name, semester, leader_id, leader_name, create_time
+        FROM sys_course_group
+        WHERE group_id = #{groupId}
+        LIMIT 1
+    </select>
+
+    <select id="selectAll" resultMap="CourseGroupMap">
+        SELECT group_id, name, semester, leader_id, leader_name, create_time
+        FROM sys_course_group
+        <where>
+            <if test="semester != null and semester != ''">
+                semester = #{semester}
+            </if>
+        </where>
+        ORDER BY create_time DESC, group_id DESC
+    </select>
+
+    <select id="selectByLeaderId" resultMap="CourseGroupMap">
+        SELECT group_id, name, semester, leader_id, leader_name, create_time
+        FROM sys_course_group
+        WHERE leader_id = #{leaderId}
+        ORDER BY create_time DESC, group_id DESC
+    </select>
+
+    <insert id="insert" parameterType="com.project.system.entity.CourseGroup" useGeneratedKeys="true" keyProperty="groupId">
+        INSERT INTO sys_course_group (name, semester, leader_id, leader_name)
+        VALUES (#{name}, #{semester}, #{leaderId}, #{leaderName})
+    </insert>
+
+    <update id="updateLeader">
+        UPDATE sys_course_group
+        SET leader_id = #{leaderId}, leader_name = #{leaderName}
+        WHERE group_id = #{groupId}
+    </update>
+
+    <select id="countByLeaderId" resultType="int">
+        SELECT COUNT(1)
+        FROM sys_course_group
+        WHERE leader_id = #{leaderId}
+    </select>
+</mapper>

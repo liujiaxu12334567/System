@@ -46,6 +46,21 @@
         LIMIT 1
     </select>
 
+    <select id="findByRealNameAndRoleType" resultMap="UserResultMap">
+        SELECT *
+        FROM sys_user
+        WHERE real_name = #{realName}
+          AND role_type = #{roleType}
+        LIMIT 1
+    </select>
+
+    <select id="selectById" resultMap="UserResultMap">
+        SELECT *
+        FROM sys_user
+        WHERE user_id = #{userId}
+        LIMIT 1
+    </select>
+
     <select id="selectAllUsers" resultMap="UserResultMap">
         SELECT * FROM sys_user
         <include refid="FilterWhereClause"/>

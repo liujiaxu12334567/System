@@ -8,7 +8,7 @@ import com.project.system.entity.*;
 import com.project.system.mapper.*;
 import com.project.system.mq.AnalysisEventPublisher;
 import com.project.system.service.StudentService;
-import com.project.system.service.support.ClassroomMemoryStore;
+import com.project.system.service.support.ClassroomChatStore;
 import com.project.system.websocket.ClassroomEvent;
 import com.project.system.websocket.ClassroomEventBus;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,10 +46,8 @@ public class StudentServiceImpl implements StudentService {
     @Autowired private OnlineQuestionMapper onlineQuestionMapper;
     @Autowired private OnlineAnswerMapper onlineAnswerMapper;
     @Autowired private ClassroomEventBus classroomEventBus;
-    @Autowired private CourseChatMapper courseChatMapper;
     @Autowired private AnalysisEventPublisher analysisEventPublisher;
-    @Autowired private ClassroomMemoryStore classroomMemoryStore;
-    // 已删除重复的 classroomMemoryStore 注入
+    @Autowired private ClassroomChatStore classroomChatStore;
 
     @Value("${file.upload-dir:./uploads}")
     private String uploadDir;
@@ -74,8 +72,7 @@ public class StudentServiceImpl implements StudentService {
     @Override
     @Cacheable(value = "course_info", key = "#courseId")
     public Course getCourseInfo(Long courseId) {
-        List<Course> all = courseMapper.selectAllCourses();
-        return all.stream().filter(c -> c.getId().equals(courseId)).findFirst().orElse(null);
+        return courseMapper.selectCourseById(courseId);
     }
 
     @Override
@@ -477,7 +474,7 @@ public class StudentServiceImpl implements StudentService {
     @Override
     public List<CourseChat> listCourseChat(Long courseId, int limit) {
         java.time.LocalDateTime sessionStart = courseId == null ? null : getSessionStart(courseId, true);
-        return classroomMemoryStore.listChats(courseId, limit <= 0 ? 200 : limit).stream()
+        return classroomChatStore.list(courseId, limit <= 0 ? 200 : limit).stream()
                 .filter(c -> sessionStart == null || c.getCreateTime() == null || c.getCreateTime().isAfter(sessionStart))
                 .collect(Collectors.toList());
     }

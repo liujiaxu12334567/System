@@ -41,3 +41,15 @@
   - `GET /api/analysis/results` 拉取历史（默认 10 条）
 - 将 `value.students` 渲染为班级表格，支持展开查看学生明细
 
+## Python 侧指标（组长/管理员可用）
+
+仓库内提供了 RabbitMQ 消费者：`docs/python_analysis_consumer.py`，会在收到 `analysis.*` 事件或定时扫描聊天表时，从 MySQL 聚合计算并写入 `analysis_result`。
+
+推荐在组长页的 “教师数据分析” 输入框里使用以下 `metric`：
+- `course_online_rate`：到课/在线率（来源：`attendance_summary`）
+- `homework_submission_rate`：作业提交率（来源：`assignment_summary`）
+- `interaction_score`：互动度评分（来源：`teacher_interaction` + `online_question/online_answer`）
+- `chat_activity`：聊天活跃度（来源：`course_chat`）
+
+运行示例（按需替换连接串）：
+- Windows PowerShell：`$env:RABBITMQ_URL='amqp://guest:guest@localhost:5672/'; $env:MYSQL_URL='mysql+pymysql://root:password@localhost:3306/system?charset=utf8mb4'; python docs/python_analysis_consumer.py`

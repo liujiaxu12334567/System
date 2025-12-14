@@ -1,6 +1,7 @@
 package com.project.system.controller;
 
 import com.project.system.entity.Course;
+import com.project.system.dto.TeacherAnalysisResponse;
 import com.project.system.service.LeaderService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -30,6 +31,17 @@ public class LeaderController {
     @GetMapping("/teacher/list")
     public ResponseEntity<?> listMyTeamMembers() {
         return ResponseEntity.ok(leaderService.listMyTeamMembers());
+    }
+
+    @GetMapping("/teacher/analysis")
+    public ResponseEntity<?> listTeacherAnalysis(
+            @RequestParam(required = false, defaultValue = "classroom_online_performance") String metric) {
+        try {
+            List<TeacherAnalysisResponse> result = leaderService.listTeacherAnalysis(metric);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     @GetMapping("/course/list")

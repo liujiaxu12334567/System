@@ -106,6 +106,43 @@
             </template>
           </el-table-column>
         </el-table>
+
+        <el-divider style="margin: 24px 0;" />
+
+        <div class="panel-header" style="margin-top: 0;">
+          <h3>教师数据分析</h3>
+          <div style="display:flex; gap: 10px; align-items:center;">
+            <el-input v-model="analysisMetric" placeholder="指标metric（默认 classroom_online_performance）" style="width: 320px;" />
+            <el-button type="primary" :loading="analysisLoading" @click="fetchTeacherAnalysis">刷新</el-button>
+          </div>
+        </div>
+
+        <el-table :data="teacherAnalysisList" border stripe style="width: 100%">
+          <el-table-column prop="teacherName" label="教师" width="140" />
+          <el-table-column prop="courseCount" label="课程数" width="90" align="center" />
+          <el-table-column label="最新分析时间" width="170">
+            <template #default="scope">
+              <span>{{ formatTs(scope.row.latest?.generatedAt) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="最新分析课程" min-width="180" show-overflow-tooltip>
+            <template #default="scope">
+              <span v-if="scope.row.latest?.courseName">{{ scope.row.latest.courseName }}（{{ scope.row.latest.classId }}）</span>
+              <span v-else class="text-gray">暂无</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="最新分析摘要" min-width="260" show-overflow-tooltip>
+            <template #default="scope">
+              <span v-if="scope.row.latest?.valueJson">{{ previewJson(scope.row.latest.valueJson) }}</span>
+              <span v-else class="text-gray">暂无</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="120" align="center">
+            <template #default="scope">
+              <el-button size="small" plain @click="openTeacherAnalysisDetail(scope.row)">查看详情</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
       </div>
 
       <div v-if="activeMenu === '3'" class="content-panel">
@@ -299,6 +336,32 @@
           <el-button type="success" :loading="uploading" @click="submitCourseMaterial">
             {{ getSubmitButtonText() }}
           </el-button>
+        </template>
+      </el-dialog>
+
+      <el-dialog v-model="analysisDialogVisible" title="教师数据分析详情" width="900px">
+        <div v-if="currentTeacherAnalysis" style="margin-bottom: 10px;">
+          <div style="font-weight: 600; margin-bottom: 6px;">
+            教师：{{ currentTeacherAnalysis.teacherName }}（课程数：{{ currentTeacherAnalysis.courseCount }}）
+          </div>
+          <div class="text-gray">metric：{{ analysisMetric || 'classroom_online_performance' }}</div>
+        </div>
+        <el-table v-if="currentTeacherAnalysis" :data="currentTeacherAnalysis.courses || []" border stripe height="520">
+          <el-table-column prop="courseName" label="课程" min-width="180" />
+          <el-table-column prop="classId" label="班级" width="100" align="center" />
+          <el-table-column prop="semester" label="学期" width="140" />
+          <el-table-column label="生成时间" width="170">
+            <template #default="scope">{{ formatTs(scope.row.generatedAt) }}</template>
+          </el-table-column>
+          <el-table-column label="分析JSON" min-width="320" show-overflow-tooltip>
+            <template #default="scope">
+              <span v-if="scope.row.valueJson">{{ previewJson(scope.row.valueJson) }}</span>
+              <span v-else class="text-gray">暂无</span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <template #footer>
+          <el-button @click="analysisDialogVisible = false">关闭</el-button>
         </template>
       </el-dialog>
 
@@ -647,10 +710,15 @@ import dayjs from 'dayjs'
 
 const router = useRouter()
 const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
-const activeMenu = ref('1')
-const courseList = ref([])
-const teacherList = ref([])
-const applicationList = ref([])
+  const activeMenu = ref('1')
+  const courseList = ref([])
+  const teacherList = ref([])
+  const teacherAnalysisList = ref([])
+  const analysisMetric = ref('classroom_online_performance')
+  const analysisLoading = ref(false)
+  const analysisDialogVisible = ref(false)
+  const currentTeacherAnalysis = ref(null)
+  const applicationList = ref([])
 
 // 弹窗状态
 const contentDialogVisible = ref(false)
@@ -738,15 +806,29 @@ const removeCatalogNode = (n,d) => { const p=n.parent, c=p.data.children||p.data
 const clearCatalog = () => catalogData.value = []
 
 
-onMounted(() => { fetchData(); fetchPendingApplications(); window.addEventListener('resize', resizeChart) })
-onBeforeUnmount(() => { window.removeEventListener('resize', resizeChart); if(myChart) myChart.dispose() })
+  onMounted(() => { fetchData(); fetchPendingApplications(); window.addEventListener('resize', resizeChart) })
+  onBeforeUnmount(() => { window.removeEventListener('resize', resizeChart); if(myChart) myChart.dispose() })
 
-const fetchData = async () => {
-  try {
-    courseList.value = await request.get('/leader/course/list') || []
-    teacherList.value = await request.get('/leader/teacher/list') || []
-  } catch(e){}
-}
+  const fetchData = async () => {
+    try {
+      courseList.value = await request.get('/leader/course/list') || []
+      teacherList.value = await request.get('/leader/teacher/list') || []
+      if (activeMenu.value === '2') {
+        await fetchTeacherAnalysis()
+      }
+    } catch(e){}
+  }
+
+  const fetchTeacherAnalysis = async () => {
+    analysisLoading.value = true
+    try {
+      teacherAnalysisList.value = await request.get('/leader/teacher/analysis', { params: { metric: analysisMetric.value } }) || []
+    } catch (e) {
+      ElMessage.error(e?.response?.data || e?.message || '加载教师分析失败')
+    } finally {
+      analysisLoading.value = false
+    }
+  }
 
 const fetchPendingApplications = async () => {
   try {
@@ -778,14 +860,25 @@ const handleReview = async (id, status) => {
 }
 
 
-const handleMenuSelect = (idx) => {
-  activeMenu.value = idx
-  if (idx === '1') fetchData()
-  else if (idx === '2') fetchData()
-  else if (idx === '3') fetchPendingApplications()
-}
+  const handleMenuSelect = (idx) => {
+    activeMenu.value = idx
+    if (idx === '1') fetchData()
+    else if (idx === '2') fetchData()
+    else if (idx === '3') fetchPendingApplications()
+  }
 const goToTeacherPage = () => router.push('/teacher')
-const logout = () => { localStorage.clear(); router.push('/login') }
+  const logout = () => { localStorage.clear(); router.push('/login') }
+
+  const formatTs = (t) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') : '—')
+  const previewJson = (s) => {
+    if (!s) return '—'
+    const text = typeof s === 'string' ? s : JSON.stringify(s)
+    return text.length > 140 ? text.slice(0, 140) + '…' : text
+  }
+  const openTeacherAnalysisDetail = (row) => {
+    currentTeacherAnalysis.value = row
+    analysisDialogVisible.value = true
+  }
 
 // 类型切换
 const handleTypeChange = (type) => {

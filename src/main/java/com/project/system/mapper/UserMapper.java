@@ -8,6 +8,8 @@ import java.util.List;
 @Mapper
 public interface UserMapper {
     User findByUsername(@Param("username") String username);
+    User findByRealNameAndRoleType(@Param("realName") String realName, @Param("roleType") Integer roleType);
+    User selectById(@Param("userId") Long userId);
     int insert(User user);
 
     // 【修改点】支持筛选和分页参数

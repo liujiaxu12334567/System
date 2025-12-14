@@ -8,9 +8,9 @@ import com.project.system.entity.Class;
 import com.project.system.mapper.*;
 import com.project.system.mq.AnalysisEventPublisher;
 import com.project.system.service.TeacherService;
-import com.project.system.service.support.ClassroomMemoryStore;
+import com.project.system.service.support.ClassroomChatStore;
 import com.project.system.websocket.ClassroomEvent;
-import com.project.system.websocket.ClassroomEventPublisher;
+import com.project.system.websocket.ClassroomEventBus;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -45,10 +45,9 @@ public class TeacherServiceImpl implements TeacherService {
     @Autowired private TeacherInteractionMapper teacherInteractionMapper;
     @Autowired private OnlineQuestionMapper onlineQuestionMapper;
     @Autowired private OnlineAnswerMapper onlineAnswerMapper;
-    @Autowired private ClassroomEventPublisher classroomEventPublisher;
-    @Autowired private CourseChatMapper courseChatMapper;
+    @Autowired private ClassroomEventBus classroomEventBus;
     @Autowired private com.project.system.mapper.AttendanceRecordMapper attendanceRecordMapper;
-    @Autowired private ClassroomMemoryStore classroomMemoryStore;
+    @Autowired private ClassroomChatStore classroomChatStore;
     @Autowired private AnalysisResultMapper analysisResultMapper;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private ClassMapper classMapper;
@@ -699,7 +698,7 @@ public class TeacherServiceImpl implements TeacherService {
         } catch (Exception e) {
         }
         onlineQuestionMapper.insert(question);
-        classroomEventPublisher.publish(new ClassroomEvent("question", question.getCourseId(), question.getId(), enrichQuestion(question)));
+        classroomEventBus.publish(new ClassroomEvent("question", question.getCourseId(), question.getId(), enrichQuestion(question)));
         return question;
     }
 
@@ -751,13 +750,13 @@ public class TeacherServiceImpl implements TeacherService {
             String text = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(json);
             onlineAnswerMapper.updateAnswerTextById(answerId, text);
         } catch (Exception ignored) {}
-        classroomEventPublisher.publish(new ClassroomEvent("call", answer.getQuestionId(), answer.getQuestionId(), Map.of("answerId", answerId)));
+        classroomEventBus.publish(new ClassroomEvent("call", answer.getQuestionId(), answer.getQuestionId(), Map.of("answerId", answerId)));
     }
 
     @Override
     public List<CourseChat> listCourseChat(Long courseId, int limit) {
         LocalDateTime sessionStart = courseId == null ? null : getSessionStart(courseId, true);
-        return classroomMemoryStore.listChats(courseId, limit <= 0 ? 200 : limit).stream()
+        return classroomChatStore.list(courseId, limit <= 0 ? 200 : limit).stream()
                 .filter(c -> sessionStart == null || c.getCreateTime() == null || c.getCreateTime().isAfter(sessionStart))
                 .collect(Collectors.toList());
     }
@@ -766,15 +765,17 @@ public class TeacherServiceImpl implements TeacherService {
     public CourseChat sendCourseChat(Long courseId, String content) {
         User teacher = getCurrentTeacher();
         getSessionStart(courseId, true);
+        Long chatId = redisTemplate.opsForValue().increment("classroom:chat:seq:" + courseId);
         CourseChat chat = new CourseChat();
+        chat.setId(chatId);
         chat.setCourseId(courseId);
         chat.setSenderId(teacher.getUserId());
         chat.setSenderName(teacher.getRealName());
         chat.setRole("teacher");
         chat.setContent(content);
-        CourseChat stored = classroomMemoryStore.appendChat(chat);
-        classroomEventPublisher.publish(new ClassroomEvent("chat", courseId, null, stored));
-        return stored;
+        chat.setCreateTime(LocalDateTime.now());
+        classroomEventBus.publish(new ClassroomEvent("chat", courseId, null, chat));
+        return chat;
     }
 
     @Override
@@ -793,7 +794,7 @@ public class TeacherServiceImpl implements TeacherService {
         LocalDateTime now = LocalDateTime.now();
         redisTemplate.opsForValue().set(activeKey, "1");
         setSessionStart(courseId, now);
-        classroomEventPublisher.publish(new ClassroomEvent("start", courseId, null, Map.of("courseId", courseId, "sessionStart", now.toString())));
+        classroomEventBus.publish(new ClassroomEvent("start", courseId, null, Map.of("courseId", courseId, "sessionStart", now.toString())));
         return Map.of("active", true, "sessionStart", now.toString());
     }
 
@@ -805,7 +806,7 @@ public class TeacherServiceImpl implements TeacherService {
 
         resetClassroom(courseId);
         redisTemplate.delete("classroom:active:" + courseId);
-        classroomEventPublisher.publish(new ClassroomEvent("end", courseId, null, Map.of("courseId", courseId)));
+        classroomEventBus.publish(new ClassroomEvent("end", courseId, null, Map.of("courseId", courseId)));
         return Map.of("active", false);
     }
 
@@ -843,9 +844,9 @@ public class TeacherServiceImpl implements TeacherService {
             onlineAnswerMapper.deleteByQuestionIds(qids);
         }
         onlineQuestionMapper.deleteByCourseId(courseId);
-        classroomMemoryStore.clearCourse(courseId);
+        classroomChatStore.clear(courseId);
         setSessionStart(courseId, LocalDateTime.now());
-        classroomEventPublisher.publish(new ClassroomEvent("reset", courseId, null, Map.of("courseId", courseId)));
+        classroomEventBus.publish(new ClassroomEvent("reset", courseId, null, Map.of("courseId", courseId)));
     }
 
     // 【核心实现】获取课堂表现（当前会话）- 按班级分组

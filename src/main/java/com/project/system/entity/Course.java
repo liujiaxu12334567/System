@@ -1,5 +1,3 @@
-// src/main/java/com/project/system/entity/Course.java
-
 package com.project.system.entity;
 
 import lombok.Data;
@@ -7,17 +5,23 @@ import lombok.Data;
 @Data
 public class Course {
     private Long id;
-    private String name;      // 课程名
-    private String semester;  // 学期
-    private String teacher;   // 教师
-    private String code;      // 课程代码
-    private String status;    // 状态
-    private String color;     // 颜色样式
-    private Integer isTop;    // 是否置顶
+    private String name;
+    private String semester;
 
-    private String managerName; // 【新增】课题组长姓名 (关键字段)
+    private String teacher;     // 展示用：教师姓名
+    private Long teacherId;     // 业务约束用：授课教师ID（sys_user.user_id）
 
-    private Long classId;     // 所属班级 ID（单班级旧字段，保留兼容）
-    private String responsibleClassIds; // 负责班级列表（逗号分隔），支持多班级
-    private Long studentCount;          // 应到人数（运行时填充，非持久化）
+    private String code;
+    private String status;
+    private String color;
+    private Integer isTop;
+
+    private String managerName; // 展示用：组长姓名
+    private Long leaderId;      // 业务约束用：课程组组长ID（sys_user.user_id）
+    private Long groupId;       // 课程组ID（sys_course_group.group_id）
+
+    private Long classId;
+    private String responsibleClassIds;
+    private Long studentCount;  // 运行时填充
 }
+

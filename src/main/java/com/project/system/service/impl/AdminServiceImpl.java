@@ -1,6 +1,10 @@
 package com.project.system.service.impl;
 
 import com.project.system.dto.BatchEnrollmentRequest;
+import com.project.system.dto.CourseAssignRequest;
+import com.project.system.dto.CourseBatchAssignRequest;
+import com.project.system.dto.CourseGroupCreateRequest;
+import com.project.system.dto.CourseGroupUpdateLeaderRequest;
 import com.project.system.dto.PaginationResponse;
 import com.project.system.entity.*;
 import com.project.system.entity.Class;
@@ -13,6 +17,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.dao.DataIntegrityViolationException;
 import java.util.stream.Collectors;
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -24,6 +29,7 @@ import java.util.*;
 public class AdminServiceImpl implements AdminService {
     @Autowired private UserMapper userMapper;
     @Autowired private CourseMapper courseMapper;
+    @Autowired private CourseGroupMapper courseGroupMapper;
     @Autowired private ClassMapper classMapper;
     @Autowired private ApplicationMapper applicationMapper;
     @Autowired private NotificationMapper notificationMapper;
@@ -250,34 +256,299 @@ public class AdminServiceImpl implements AdminService {
         }
         courseMapper.insertCourse(course);
     }
+
     @Override
     @Transactional
-    public void batchAssignCourse(String name, String semester, List<String> teacherNames, List<Object> rawClassIds) {
-        String username = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
-        User admin = userMapper.findByUsername(username);
-        List<Long> classIds = rawClassIds.stream().map(o -> Long.parseLong(o.toString())).collect(Collectors.toList());
-        String teacherStr = String.join(",", teacherNames);
+    public void assignCourse(CourseAssignRequest request) {
+        if (request == null) throw new RuntimeException("请求体不能为空");
+        CourseBatchAssignRequest wrapper = new CourseBatchAssignRequest();
+        wrapper.setGroupId(request.getGroupId());
+        CourseBatchAssignRequest.Item item = new CourseBatchAssignRequest.Item();
+        item.setClassId(request.getClassId());
+        item.setTeacherId(request.getTeacherId());
+        wrapper.setAssignments(Collections.singletonList(item));
+        batchAssignCourse(wrapper);
+    }
+
+    @Override
+    public Object listCourseGroups(String semester) {
+        String s = semester == null ? null : semester.trim();
+        if (s != null && s.isEmpty()) s = null;
+        return courseGroupMapper.selectAll(s);
+    }
+
+    @Override
+    @Transactional
+    public void createCourseGroup(CourseGroupCreateRequest request) {
+        if (request == null) throw new RuntimeException("请求体不能为空");
+        String name = request.getName() == null ? "" : request.getName().trim();
+        String semester = request.getSemester() == null ? "" : request.getSemester().trim();
+        if (name.isEmpty()) throw new RuntimeException("课程名称不能为空");
+        if (semester.isEmpty()) throw new RuntimeException("学期不能为空");
+
+        CourseGroup existed = courseGroupMapper.selectByNameAndSemester(name, semester);
+        if (existed != null) throw new RuntimeException("该课程组已存在：" + name + " / " + semester);
+
+        Long leaderId = request.getLeaderId();
+        String leaderName = null;
+        if (leaderId != null) {
+            User leader = userMapper.selectById(leaderId);
+            if (leader == null) throw new RuntimeException("组长不存在，leaderId=" + leaderId);
+            if (!"2".equals(leader.getRoleType()) && !"3".equals(leader.getRoleType())) {
+                throw new RuntimeException("组长必须是教师/组长（role=3/2），leaderId=" + leaderId);
+            }
+            leaderName = leader.getRealName();
+            promoteToLeaderRoleIfNeeded(leader);
+        }
+
+        CourseGroup group = new CourseGroup();
+        group.setName(name);
+        group.setSemester(semester);
+        group.setLeaderId(leaderId);
+        group.setLeaderName(leaderName);
+        courseGroupMapper.insert(group);
+    }
+
+    @Override
+    @Transactional
+    public void updateCourseGroupLeader(CourseGroupUpdateLeaderRequest request) {
+        if (request == null) throw new RuntimeException("请求体不能为空");
+        if (request.getGroupId() == null) throw new RuntimeException("groupId不能为空");
+
+        CourseGroup group = courseGroupMapper.selectById(request.getGroupId());
+        if (group == null) throw new RuntimeException("课程组不存在，groupId=" + request.getGroupId());
+
+        Long oldLeaderId = group.getLeaderId();
+        Long newLeaderId = request.getLeaderId();
+        String newLeaderName = null;
+
+        if (newLeaderId != null) {
+            User newLeader = userMapper.selectById(newLeaderId);
+            if (newLeader == null) throw new RuntimeException("组长不存在，leaderId=" + newLeaderId);
+            if (!"2".equals(newLeader.getRoleType()) && !"3".equals(newLeader.getRoleType())) {
+                throw new RuntimeException("组长必须是教师/组长（role=3/2），leaderId=" + newLeaderId);
+            }
+            newLeaderName = newLeader.getRealName();
+            promoteToLeaderRoleIfNeeded(newLeader);
+        }
+
+        courseGroupMapper.updateLeader(group.getGroupId(), newLeaderId, newLeaderName);
+        courseMapper.updateLeaderByGroupId(group.getGroupId(), newLeaderId, newLeaderName);
+
+        if (oldLeaderId != null && (newLeaderId == null || !oldLeaderId.equals(newLeaderId))) {
+            maybeDemoteLeaderRole(oldLeaderId);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void batchAssignCourse(CourseBatchAssignRequest request) {
+        if (request == null) throw new RuntimeException("请求体不能为空");
+        if (request.getAssignments() == null || request.getAssignments().isEmpty()) {
+            throw new RuntimeException("请至少选择一个班级进行分配");
+        }
+
+        CourseGroup group = resolveCourseGroup(request);
+        if (group.getLeaderId() == null) {
+            throw new RuntimeException("该课程组尚未设置组长，请先在「课程组管理」中指定组长");
+        }
+        User leader = userMapper.selectById(group.getLeaderId());
+        if (leader == null) {
+            throw new RuntimeException("课程组组长用户不存在，leaderId=" + group.getLeaderId());
+        }
+        String courseName = group.getName();
+        String semester = group.getSemester();
+        String leaderName = group.getLeaderName() != null ? group.getLeaderName() : leader.getRealName();
+        Long groupId = group.getGroupId();
+
+        Map<Long, Long> classTeacherMap = new LinkedHashMap<>();
+        Set<Long> teacherIds = new HashSet<>();
+        for (CourseBatchAssignRequest.Item item : request.getAssignments()) {
+            if (item == null) continue;
+            if (item.getClassId() == null) throw new RuntimeException("班级ID不能为空");
+            if (item.getTeacherId() == null) throw new RuntimeException("授课老师ID不能为空");
+            if (classTeacherMap.containsKey(item.getClassId())) {
+                throw new RuntimeException("同一个班级只能指定一个老师，重复班级ID：" + item.getClassId());
+            }
+            classTeacherMap.put(item.getClassId(), item.getTeacherId());
+            teacherIds.add(item.getTeacherId());
+        }
+        if (classTeacherMap.isEmpty()) {
+            throw new RuntimeException("请至少选择一个班级进行分配");
+        }
+
+        Map<Long, User> teacherMap = new HashMap<>();
+        for (Long teacherId : teacherIds) {
+            User teacher = userMapper.selectById(teacherId);
+            if (teacher == null) {
+                throw new RuntimeException("授课老师不存在，teacherId=" + teacherId);
+            }
+            if (!"2".equals(teacher.getRoleType()) && !"3".equals(teacher.getRoleType())) {
+                throw new RuntimeException("授课老师必须是组长/教师（role=2/3），teacherId=" + teacherId);
+            }
+            teacherMap.put(teacherId, teacher);
+        }
+
+        List<String> conflictMessages = new ArrayList<>();
+        for (Long classId : classTeacherMap.keySet()) {
+            Course existed = courseMapper.selectByGroupIdAndClassId(groupId, classId);
+            if (existed == null) continue;
+
+            String className = null;
+            Class clazz = classMapper.findById(classId);
+            if (clazz != null && clazz.getClassName() != null && !clazz.getClassName().trim().isEmpty()) {
+                className = clazz.getClassName().trim();
+            }
+
+            String existedTeacher = existed.getTeacher() == null ? "未知" : existed.getTeacher();
+            String existedCourseId = existed.getId() == null ? "未知" : existed.getId().toString();
+
+            String classLabel = className == null ? String.valueOf(classId) : (className + "（" + classId + "）");
+            conflictMessages.add("班级 " + classLabel + " 已存在课程记录：courseId=" + existedCourseId + "，授课老师=" + existedTeacher);
+        }
+        if (!conflictMessages.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("批量分配失败：以下班级在【课程名=").append(courseName)
+                    .append("，学期=").append(semester)
+                    .append("】下已存在分配（同班同科目不支持多名老师）。\n");
+            sb.append("请到「课程列表」中修改/删除原记录后再批量分配：\n");
+            for (String m : conflictMessages) {
+                sb.append("- ").append(m).append("\n");
+            }
+            throw new RuntimeException(sb.toString().trim());
+        }
+
+        for (Map.Entry<Long, User> entry : teacherMap.entrySet()) {
+            Long teacherId = entry.getKey();
+            List<Long> existingClassIds = courseMapper.selectDistinctClassIdsByTeacherIdAndSemester(teacherId, semester);
+            Set<Long> distinct = new HashSet<>(existingClassIds == null ? Collections.emptyList() : existingClassIds);
+            for (Map.Entry<Long, Long> ct : classTeacherMap.entrySet()) {
+                if (teacherId.equals(ct.getValue())) distinct.add(ct.getKey());
+            }
+            if (distinct.size() > 4) {
+                throw new RuntimeException("老师最多授课4个班级，teacher=" + entry.getValue().getRealName());
+            }
+        }
+
         List<Course> courses = new ArrayList<>();
-        for (Long cid : classIds) {
-            checkAndInsertClass(cid, null);
+        for (Map.Entry<Long, Long> entry : classTeacherMap.entrySet()) {
+            Long classId = entry.getKey();
+            Long teacherId = entry.getValue();
+            User teacher = teacherMap.get(teacherId);
+
+            checkAndInsertClass(classId, null);
+
             Course c = new Course();
-            c.setName(name);
+            c.setName(courseName);
             c.setSemester(semester);
-            c.setTeacher(teacherStr);
-            c.setCode("C" + System.currentTimeMillis() % 10000 + "-" + cid);
+            c.setTeacher(teacher.getRealName());
+            c.setTeacherId(teacherId);
+            c.setCode("C" + System.currentTimeMillis() % 10000 + "-" + classId);
             c.setStatus("进行中");
             c.setColor("blue");
             c.setIsTop(0);
-            c.setClassId(cid);
-            c.setResponsibleClassIds(String.valueOf(cid));
-            c.setManagerName(admin.getRealName());
+            c.setClassId(classId);
+            c.setResponsibleClassIds(String.valueOf(classId));
+            c.setManagerName(leader.getRealName());
+            c.setLeaderId(leader.getUserId());
+            c.setGroupId(groupId);
             courses.add(c);
         }
-        if (!courses.isEmpty()) courseMapper.insertBatchCourses(courses);
-        // updateTeacherTeachingClasses 逻辑略...
+
+        if (!courses.isEmpty()) {
+            try {
+                courseMapper.insertBatchCourses(courses);
+            } catch (DataIntegrityViolationException e) {
+                throw new RuntimeException("批量分配失败：检测到重复分配（同班同科目不支持多名老师），请刷新后重试或先删除原记录");
+            }
+        }
+    }
+
+    private CourseGroup resolveCourseGroup(CourseBatchAssignRequest request) {
+        if (request.getGroupId() != null) {
+            CourseGroup group = courseGroupMapper.selectById(request.getGroupId());
+            if (group == null) throw new RuntimeException("课程组不存在，groupId=" + request.getGroupId());
+            return group;
+        }
+
+        String name = request.getName() == null ? "" : request.getName().trim();
+        String semester = request.getSemester() == null ? "" : request.getSemester().trim();
+        if (name.isEmpty() || semester.isEmpty()) {
+            throw new RuntimeException("请选择已有课程组");
+        }
+        CourseGroup group = courseGroupMapper.selectByNameAndSemester(name, semester);
+        if (group == null) {
+            throw new RuntimeException("课程组不存在，请先在「课程组管理」中创建并指定组长");
+        }
+        return group;
+    }
+
+    private void promoteToLeaderRoleIfNeeded(User user) {
+        if (user == null || user.getUserId() == null) return;
+        if ("2".equals(user.getRoleType())) return;
+        if ("3".equals(user.getRoleType())) {
+            User patch = new User();
+            patch.setUserId(user.getUserId());
+            patch.setRoleType("2");
+            userMapper.updateUser(patch);
+        }
+    }
+
+    private void maybeDemoteLeaderRole(Long userId) {
+        if (userId == null) return;
+        User u = userMapper.selectById(userId);
+        if (u == null) return;
+        if (!"2".equals(u.getRoleType())) return;
+        int stillLeads = courseGroupMapper.countByLeaderId(userId);
+        if (stillLeads > 0) return;
+
+        User patch = new User();
+        patch.setUserId(userId);
+        patch.setRoleType("3");
+        userMapper.updateUser(patch);
     }
     @Override
-    public void updateCourse(Course course) { courseMapper.updateCourse(course); }
+    @Transactional
+    public void updateCourse(Course course) {
+        if (course == null || course.getId() == null) {
+            throw new RuntimeException("课程ID不能为空");
+        }
+
+        Course existed = courseMapper.selectCourseById(course.getId());
+        if (existed == null) {
+            throw new RuntimeException("课程不存在，id=" + course.getId());
+        }
+
+        // 严格规则：如需修改教师，必须传 teacherId，由后端回写 teacher 展示名，避免不一致
+        if (course.getTeacher() != null && course.getTeacherId() == null) {
+            throw new RuntimeException("请使用 teacherId 分配教师（避免 teacher 与 teacher_id 不一致）");
+        }
+
+        if (course.getTeacherId() != null) {
+            User teacher = userMapper.selectById(course.getTeacherId());
+            if (teacher == null) {
+                throw new RuntimeException("教师不存在，teacherId=" + course.getTeacherId());
+            }
+            if (!"2".equals(teacher.getRoleType()) && !"3".equals(teacher.getRoleType())) {
+                throw new RuntimeException("授课老师必须是组长/教师（role=2/3），teacherId=" + course.getTeacherId());
+            }
+
+            String semester = course.getSemester() != null ? course.getSemester() : existed.getSemester();
+            Long classId = course.getClassId() != null ? course.getClassId() : existed.getClassId();
+            if (semester != null && classId != null) {
+                List<Long> existingClassIds = courseMapper.selectDistinctClassIdsByTeacherIdAndSemester(course.getTeacherId(), semester);
+                Set<Long> distinct = new HashSet<>(existingClassIds == null ? Collections.emptyList() : existingClassIds);
+                distinct.add(classId);
+                if (distinct.size() > 4) {
+                    throw new RuntimeException("老师最多授课4个班级，teacher=" + teacher.getRealName());
+                }
+            }
+
+            course.setTeacher(teacher.getRealName());
+        }
+
+        courseMapper.updateCourse(course);
+    }
     @Override
     public void deleteCourse(Long id) { courseMapper.deleteCourseById(id); }
     @Override

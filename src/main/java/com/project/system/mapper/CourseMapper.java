@@ -13,6 +13,12 @@ public interface CourseMapper {
     int insertBatchCourses(@Param("list") List<Course> list);
 
     List<Course> selectAllCourses();
+    Course selectCourseById(@Param("id") Long id);
+    Course selectByNameSemesterClassId(@Param("name") String name, @Param("semester") String semester, @Param("classId") Long classId);
+    Course selectByGroupIdAndClassId(@Param("groupId") Long groupId, @Param("classId") Long classId);
+    int countCoursesByTeacherIdAndSemester(@Param("teacherId") Long teacherId, @Param("semester") String semester);
+    List<Long> selectDistinctClassIdsByTeacherIdAndSemester(@Param("teacherId") Long teacherId, @Param("semester") String semester);
+    int updateLeaderByGroupId(@Param("groupId") Long groupId, @Param("leaderId") Long leaderId, @Param("leaderName") String leaderName);
     int updateCourse(Course course);
     int deleteCourseById(Long id);
 

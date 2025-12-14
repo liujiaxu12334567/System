@@ -7,35 +7,42 @@
         <result column="name" property="name"/>
         <result column="semester" property="semester"/>
         <result column="teacher" property="teacher"/>
+        <result column="teacher_id" property="teacherId"/>
         <result column="code" property="code"/>
         <result column="status" property="status"/>
         <result column="color" property="color"/>
         <result column="is_top" property="isTop"/>
         <result column="class_id" property="classId"/>
         <result column="responsible_class_ids" property="responsibleClassIds"/>
-        <result column="manager_name" property="managerName"/> </resultMap>
+        <result column="manager_name" property="managerName"/>
+        <result column="leader_id" property="leaderId"/>
+        <result column="group_id" property="groupId"/>
+    </resultMap>
 
 
     <insert id="insertCourse">
-        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top, class_id, responsible_class_ids, manager_name)
-        VALUES (#{name}, #{semester}, #{teacher}, #{code}, #{status}, #{color}, 0, #{classId}, #{responsibleClassIds}, #{managerName})
+        INSERT INTO sys_course (name, semester, teacher, teacher_id, code, status, color, is_top, class_id, responsible_class_ids, manager_name, leader_id, group_id)
+        VALUES (#{name}, #{semester}, #{teacher}, #{teacherId}, #{code}, #{status}, #{color}, 0, #{classId}, #{responsibleClassIds}, #{managerName}, #{leaderId}, #{groupId})
     </insert>
 
     <insert id="insertBatchCourses" parameterType="java.util.List">
-        INSERT INTO sys_course (name, semester, teacher, code, status, color, is_top, class_id, responsible_class_ids, manager_name)
+        INSERT INTO sys_course (name, semester, teacher, teacher_id, code, status, color, is_top, class_id, responsible_class_ids, manager_name, leader_id, group_id)
         VALUES
         <foreach collection="list" item="item" separator=",">
             (
             #{item.name},
             #{item.semester},
             #{item.teacher},
+            #{item.teacherId},
             #{item.code},
             #{item.status},
             #{item.color},
             0,
             #{item.classId},
             #{item.responsibleClassIds},
-            #{item.managerName}
+            #{item.managerName},
+            #{item.leaderId},
+            #{item.groupId}
             )
         </foreach>
     </insert>
@@ -44,14 +51,54 @@
         SELECT c.* FROM sys_course c ORDER BY c.id DESC
     </select>
 
+    <select id="selectCourseById" resultMap="CourseResultMap">
+        SELECT c.* FROM sys_course c WHERE c.id = #{id} LIMIT 1
+    </select>
+
+    <select id="selectByNameSemesterClassId" resultMap="CourseResultMap">
+        SELECT c.* FROM sys_course c
+        WHERE c.name = #{name} AND c.semester = #{semester} AND c.class_id = #{classId}
+        LIMIT 1
+    </select>
+
+    <select id="selectByGroupIdAndClassId" resultMap="CourseResultMap">
+        SELECT c.* FROM sys_course c
+        WHERE c.group_id = #{groupId} AND c.class_id = #{classId}
+        LIMIT 1
+    </select>
+
+    <select id="countCoursesByTeacherIdAndSemester" resultType="int">
+        SELECT COUNT(DISTINCT c.class_id)
+        FROM sys_course c
+        WHERE c.teacher_id = #{teacherId} AND c.semester = #{semester}
+    </select>
+
+    <select id="selectDistinctClassIdsByTeacherIdAndSemester" resultType="java.lang.Long">
+        SELECT DISTINCT c.class_id
+        FROM sys_course c
+        WHERE c.teacher_id = #{teacherId} AND c.semester = #{semester}
+          AND c.class_id IS NOT NULL
+    </select>
+
+    <update id="updateLeaderByGroupId">
+        UPDATE sys_course
+        SET leader_id = #{leaderId},
+            manager_name = #{leaderName}
+        WHERE group_id = #{groupId}
+    </update>
+
     <update id="updateCourse">
         UPDATE sys_course
         <set>
             <if test="teacher != null">teacher = #{teacher},</if>
+            <if test="teacherId != null">teacher_id = #{teacherId},</if>
             <if test="status != null">status = #{status},</if>
             <if test="classId != null">class_id = #{classId},</if>
             <if test="responsibleClassIds != null">responsible_class_ids = #{responsibleClassIds},</if>
-            <if test="managerName != null">manager_name = #{managerName},</if> </set>
+            <if test="managerName != null">manager_name = #{managerName},</if>
+            <if test="leaderId != null">leader_id = #{leaderId},</if>
+            <if test="groupId != null">group_id = #{groupId},</if>
+        </set>
         WHERE id = #{id}
     </update>
 
