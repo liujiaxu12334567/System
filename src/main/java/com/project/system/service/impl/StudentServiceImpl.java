@@ -49,7 +49,7 @@ public class StudentServiceImpl implements StudentService {
     @Autowired private CourseChatMapper courseChatMapper;
     @Autowired private AnalysisEventPublisher analysisEventPublisher;
     @Autowired private ClassroomMemoryStore classroomMemoryStore;
-    @Autowired private ClassroomMemoryStore classroomMemoryStore;
+    // 已删除重复的 classroomMemoryStore 注入
 
     @Value("${file.upload-dir:./uploads}")
     private String uploadDir;
@@ -71,25 +71,23 @@ public class StudentServiceImpl implements StudentService {
         return userMapper.findByUsername(username);
     }
 
-    /**
-     * 获取课程详情
-     * 使用 Redis 缓存，key 为 "course_info::ID"
-     */
     @Override
     @Cacheable(value = "course_info", key = "#courseId")
     public Course getCourseInfo(Long courseId) {
-        // 当 Redis 中没有数据时，会执行此方法查询数据库，并将结果存入 Redis
         List<Course> all = courseMapper.selectAllCourses();
         return all.stream().filter(c -> c.getId().equals(courseId)).findFirst().orElse(null);
     }
+
     @Override
     public void markNotificationAsRead(Long id) {
         notificationMapper.updateReadStatus(id);
     }
+
     @Override
     public List<Material> getCourseMaterials(Long courseId) {
         return materialMapper.selectByCourseId(courseId);
     }
+
     @Override
     public boolean doCheckIn(Long courseId) {
         String batchId = redisTemplate.opsForValue().get("course:checkin:active:" + courseId);
@@ -101,10 +99,34 @@ public class StudentServiceImpl implements StudentService {
         return true;
     }
 
+    // 【核心修复】不仅检查签到是否开启，还检查学生是否已签
+    // 请确保 StudentService 接口中定义了此方法: Map<String, Object> getCheckInStatus(Long courseId);
+    // 如果接口定义的是 boolean isCheckInActive(Long courseId)，请去修改接口定义
+    @Override
+    public Map<String, Object> getCheckInStatus(Long courseId) {
+        User student = getCurrentUser();
+        String activeKey = "course:checkin:active:" + courseId;
+        String batchId = redisTemplate.opsForValue().get(activeKey);
+
+        Map<String, Object> res = new HashMap<>();
+        if (batchId != null) {
+            res.put("active", true);
+            // 检查当前学生是否在 Redis 的已签到 Set 中
+            Boolean isMember = redisTemplate.opsForSet().isMember("course:checkin:list:" + batchId, student.getUserId().toString());
+            res.put("checked", Boolean.TRUE.equals(isMember));
+        } else {
+            res.put("active", false);
+            res.put("checked", false);
+        }
+        return res;
+    }
+
+    // 保留旧方法以防接口报错，建议在接口中废弃它
     @Override
     public boolean isCheckInActive(Long courseId) {
         return redisTemplate.hasKey("course:checkin:active:" + courseId);
     }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void submitQuiz(Long materialId, Integer score, String userAnswers, String textAnswer, List<MultipartFile> files) {
@@ -113,7 +135,6 @@ public class StudentServiceImpl implements StudentService {
         String finalContentJson = userAnswers;
         List<String> uploadedPaths = new ArrayList<>();
 
-        // 处理文件上传和文本答案
         if (textAnswer != null || (files != null && !files.isEmpty())) {
             if (files != null) {
                 for (MultipartFile file : files) {
@@ -131,7 +152,6 @@ public class StudentServiceImpl implements StudentService {
                     }
                 }
             }
-            // JSON 构造
             try {
                 Map<String, Object> answerMap = new HashMap<>();
                 answerMap.put("text", textAnswer != null ? textAnswer : "");
@@ -143,7 +163,6 @@ public class StudentServiceImpl implements StudentService {
             }
         }
 
-        // 检查是否已提交
         QuizRecord exist = quizRecordMapper.findByUserIdAndMaterialId(user.getUserId(), materialId);
         if (exist != null) {
             throw new RuntimeException("您已提交过，如需重交请联系老师重置。");
@@ -189,7 +208,6 @@ public class StudentServiceImpl implements StudentService {
 
         String reply = callDeepSeekChat(material, userAnswersJson, homeworkText, history);
 
-        // 如果是第一轮对话，保存 AI 的初始反馈
         if (history != null && history.size() == 1) {
             record.setAiFeedback(reply);
             quizRecordMapper.updateAiFeedback(record);
@@ -198,7 +216,6 @@ public class StudentServiceImpl implements StudentService {
         return reply;
     }
 
-    // 私有方法：调用 AI
     private String callDeepSeekChat(Material material, String quizAnswers, String homeworkText, List<Map<String, String>> history) {
         try {
             ObjectMapper mapper = new ObjectMapper();
@@ -262,14 +279,11 @@ public class StudentServiceImpl implements StudentService {
         LocalDateTime now = LocalDateTime.now();
 
         for (Exam exam : exams) {
-            // 1. 检查是否已交卷
             ExamRecord record = examMapper.findRecordByUserIdAndExamId(user.getUserId(), exam.getId());
             if (record != null) {
                 exam.setStatus("已交卷");
                 continue;
             }
-
-            // 2. 动态判断状态
             try {
                 LocalDateTime startTime = LocalDateTime.parse(exam.getStartTime(), FORMATTER);
                 LocalDateTime deadlineTime = LocalDateTime.parse(exam.getDeadline(), FORMATTER);
@@ -317,9 +331,9 @@ public class StudentServiceImpl implements StudentService {
         User user = getCurrentUser();
         ExamRecord record = examMapper.findRecordByUserIdAndExamId(user.getUserId(), examId);
         if (record == null) {
-            return examMapper.findExamById(examId); // 返回考试信息供查看
+            return examMapper.findExamById(examId);
         }
-        return record; // 返回提交记录
+        return record;
     }
 
     @Override
@@ -340,6 +354,7 @@ public class StudentServiceImpl implements StudentService {
             return activity;
         }).collect(Collectors.toList());
     }
+
     @Override
     public List<Notification> getMyNotifications() {
         return notificationMapper.selectByUserId(getCurrentUser().getUserId());
@@ -374,7 +389,6 @@ public class StudentServiceImpl implements StudentService {
         if (question == null) {
             throw new RuntimeException("问题不存在");
         }
-        // 仅允许当前课堂会话的问题
         java.time.LocalDateTime sessionStart = getSessionStart(question.getCourseId(), false);
         if (sessionStart != null && question.getCreateTime() != null && !question.getCreateTime().isAfter(sessionStart)) {
             throw new RuntimeException("该问题已不在当前课堂会话中");
@@ -399,7 +413,6 @@ public class StudentServiceImpl implements StudentService {
         answer.setAnswerText(buildAnswerJson("hand", "举手", "pending", student.getUserId()));
         onlineAnswerMapper.insert(answer);
         OnlineAnswer enriched = enrichAnswer(answer);
-        // 推送举手事件
         OnlineQuestion q = onlineQuestionMapper.selectById(questionId);
         if (q != null) classroomEventPublisher.publish(new ClassroomEvent("hand", q.getCourseId(), questionId, enriched));
         return enriched;
@@ -464,48 +477,41 @@ public class StudentServiceImpl implements StudentService {
         return null;
     }
 
-    // 【新增】获取待办任务（逻辑：该学生所在班级的所有作业 - 该学生已提交的作业）
     @Override
     public List<Map<String, Object>> getPendingTasks() {
         User user = getCurrentUser();
         if (user.getClassId() == null) return Collections.emptyList();
 
-        // 1. 获取该班级所有课程
         List<Course> courses = courseMapper.selectAllCourses().stream()
                 .filter(c -> c.getClassId() != null && c.getClassId().equals(user.getClassId()))
                 .collect(Collectors.toList());
 
-        // 2. 获取这些课程下的所有"作业/测验/项目"资料
         List<Material> allTasks = new ArrayList<>();
         for (Course c : courses) {
             List<Material> materials = materialMapper.selectByCourseId(c.getId());
             materials.stream()
                     .filter(m -> Arrays.asList("作业", "测验", "项目").contains(m.getType()))
                     .forEach(m -> {
-                        // 临时借用 filePath 字段存课程名，方便前端显示（或者用 Map 包装）
                         m.setFilePath(c.getName());
                         allTasks.add(m);
                     });
         }
 
-        // 3. 获取学生已提交的记录
         List<QuizRecord> submittedRecords = quizRecordMapper.selectByUserId(user.getUserId());
         Set<Long> submittedMaterialIds = submittedRecords.stream()
                 .map(QuizRecord::getMaterialId)
                 .collect(Collectors.toSet());
 
-        // 4. 过滤出未提交的任务
         return allTasks.stream()
                 .filter(task -> !submittedMaterialIds.contains(task.getId()))
                 .map(task -> {
                     Map<String, Object> map = new HashMap<>();
                     map.put("id", task.getId());
-                    map.put("courseId", task.getCourseId()); // ★★★ 修复点：添加 courseId ★★★
-                    map.put("courseName", task.getFilePath()); // 之前临时存的课程名
+                    map.put("courseId", task.getCourseId());
+                    map.put("courseName", task.getFilePath());
                     map.put("title", task.getFileName());
                     map.put("type", task.getType());
 
-                    // 解析截止时间
                     String deadline = "无限制";
                     try {
                         JsonNode node = new ObjectMapper().readTree(task.getContent());
@@ -518,7 +524,6 @@ public class StudentServiceImpl implements StudentService {
                 .collect(Collectors.toList());
     }
 
-    // ==== 辅助 ====
     private OnlineQuestion enrichQuestion(OnlineQuestion q) {
         if (q == null) return null;
         q.setMode("broadcast");

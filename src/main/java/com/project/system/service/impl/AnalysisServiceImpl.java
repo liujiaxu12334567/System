@@ -37,4 +37,8 @@ public class AnalysisServiceImpl implements AnalysisService {
         }
         return map;
     }
+    @Override
+    public AnalysisResult getLatestAnalysis(Long courseId, String metric) {
+        return analysisResultMapper.selectLatestByCourseIdAndMetric(courseId, metric);
+    }
 }

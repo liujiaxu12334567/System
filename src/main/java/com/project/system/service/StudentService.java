@@ -13,6 +13,12 @@ public interface StudentService {
     void markNotificationAsRead(Long id);
     // ...
     boolean doCheckIn(Long courseId);
+
+    // 【核心修复】不仅检查签到是否开启，还检查学生是否已签
+    // 请确保 StudentService 接口中定义了此方法: Map<String, Object> getCheckInStatus(Long courseId);
+    // 如果接口定义的是 boolean isCheckInActive(Long courseId)，请去修改接口定义
+    Map<String, Object> getCheckInStatus(Long courseId);
+
     boolean isCheckInActive(Long courseId);
     List<Map<String, Object>> getPendingTasks();
     Course getCourseInfo(Long courseId);

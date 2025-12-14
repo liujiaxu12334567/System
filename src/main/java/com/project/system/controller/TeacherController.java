@@ -81,6 +81,15 @@ public class TeacherController {
         return classIds;
     }
 
+    @GetMapping("/classroom/performance")
+    public ResponseEntity<?> getClassroomPerformance(@RequestParam Long courseId) {
+        try {
+            return ResponseEntity.ok(teacherService.getClassroomPerformance(courseId));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.badRequest().body("获取统计失败: " + e.getMessage());
+        }
+    }
 
     // 1. 获取该老师执教班级的学生列表 (支持分页和筛选)
     @GetMapping("/students")

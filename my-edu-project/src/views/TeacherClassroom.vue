@@ -13,9 +13,10 @@
         </div>
       </div>
       <div class="header-right">
-        <el-button type="warning" plain round style="margin-right: 8px" @click="resetClassroom">
-          <el-icon style="margin-right: 4px"><Refresh /></el-icon> 开启新课堂
+        <el-button type="warning" plain round @click="showPerformance" style="margin-right: 10px;">
+          <el-icon style="margin-right: 4px"><DataLine /></el-icon> 课堂表现
         </el-button>
+
         <el-button type="primary" round @click="publishQuestion">
           <el-icon style="margin-right: 4px"><Promotion /></el-icon> 发布提问
         </el-button>
@@ -154,6 +155,96 @@
         </div>
       </section>
     </main>
+
+    <el-dialog v-model="performanceVisible" title="课堂表现（当前会话）" width="900px" center destroy-on-close>
+      <div v-loading="performanceLoading" class="perf-container">
+
+        <div v-if="viewMode === 'class'" class="class-dashboard-view">
+          <div v-if="!performanceData || performanceData.length === 0" class="empty-state">
+            <el-empty description="当前暂无班级数据" />
+          </div>
+          <div v-else class="dashboard-grid">
+            <div
+                v-for="cls in performanceData"
+                :key="cls.classId"
+                class="class-card"
+                @click="enterClassDetail(cls)"
+            >
+              <div class="card-title">{{ cls.className }}</div>
+              <div class="gauge-chart">
+                <el-progress
+                    type="dashboard"
+                    :percentage="cls.score"
+                    :color="getScoreColor"
+                    :width="120"
+                >
+                  <template #default="{ percentage }">
+                    <span class="percentage-value">{{ percentage }}</span>
+                    <span class="percentage-label">活跃指数</span>
+                  </template>
+                </el-progress>
+              </div>
+              <div class="card-stats">
+                <div class="stat-row">
+                  <span>总人数：{{ cls.studentCount }}</span>
+                  <span>活跃：<span style="color:#67C23A">{{ cls.activeCount }}</span></span>
+                </div>
+                <div class="hint-text">点击查看详情 <el-icon><ArrowRight /></el-icon></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="student-detail-view">
+          <div class="detail-header">
+            <el-button link @click="viewMode = 'class'">
+              <el-icon><ArrowLeft /></el-icon> 返回班级概览
+            </el-button>
+            <span class="current-class-title">{{ currentClassStats?.className }} - 学生明细</span>
+          </div>
+
+          <el-table
+              :data="currentClassStats?.students || []"
+              height="400"
+              stripe
+              style="width: 100%"
+              :default-sort="{ prop: 'total', order: 'descending' }"
+          >
+            <el-table-column prop="name" label="学生姓名" width="120" fixed />
+            <el-table-column prop="username" label="学号" width="130" />
+            <el-table-column prop="hand" label="举手" width="100" sortable align="center">
+              <template #default="{row}">
+                <el-tag v-if="row.hand > 0" type="primary" size="small">{{ row.hand }}</el-tag>
+                <span v-else class="text-gray">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="race" label="抢答" width="100" sortable align="center">
+              <template #default="{row}">
+                <el-tag v-if="row.race > 0" type="warning" size="small">{{ row.race }}</el-tag>
+                <span v-else class="text-gray">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="answer" label="答题" width="100" sortable align="center">
+              <template #default="{row}">
+                <el-tag v-if="row.answer > 0" type="success" size="small">{{ row.answer }}</el-tag>
+                <span v-else class="text-gray">-</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="total" label="总计互动" width="120" sortable align="center">
+              <template #default="{row}">
+                <span style="font-weight:bold; font-size:16px">{{ row.total }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="lastTime" label="最近时间" min-width="160" sortable />
+          </el-table>
+        </div>
+
+      </div>
+      <template #footer>
+        <el-button @click="performanceVisible = false">关闭</el-button>
+        <el-button type="primary" @click="fetchPerformanceData">刷新数据</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -161,7 +252,7 @@
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Promotion, Refresh } from '@element-plus/icons-vue'
+import { ArrowLeft, Promotion, Refresh, DataLine, ArrowRight } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import dayjs from 'dayjs'
 
@@ -186,6 +277,13 @@ const answers = ref([])
 const chats = ref([])
 const chatInput = ref('')
 const chatScrollRef = ref(null)
+
+// 课堂表现状态
+const performanceVisible = ref(false)
+const performanceLoading = ref(false)
+const performanceData = ref([])
+const viewMode = ref('class') // 'class' | 'student'
+const currentClassStats = ref(null)
 
 let timer = null
 let ws = null
@@ -218,6 +316,44 @@ const scrollToBottom = () => {
       chatScrollRef.value.scrollTop = chatScrollRef.value.scrollHeight
     }
   })
+}
+
+// === 课堂表现逻辑 ===
+const fetchPerformanceData = async () => {
+  performanceLoading.value = true
+  try {
+    const res = await request.get('/teacher/classroom/performance', {
+      params: { courseId }
+    })
+    performanceData.value = res || []
+
+    // 如果当前在详情页，需要更新详情数据
+    if (viewMode.value === 'student' && currentClassStats.value) {
+      const updatedClass = performanceData.value.find(c => c.classId === currentClassStats.value.classId)
+      if (updatedClass) currentClassStats.value = updatedClass
+    }
+  } catch (e) {
+    ElMessage.error('获取课堂表现失败')
+  } finally {
+    performanceLoading.value = false
+  }
+}
+
+const showPerformance = () => {
+  viewMode.value = 'class'
+  performanceVisible.value = true
+  fetchPerformanceData()
+}
+
+const enterClassDetail = (classStats) => {
+  currentClassStats.value = classStats
+  viewMode.value = 'student'
+}
+
+const getScoreColor = (percentage) => {
+  if (percentage < 30) return '#909399'
+  if (percentage < 70) return '#E6A23C'
+  return '#67C23A'
 }
 
 // === Data Fetching ===
@@ -253,12 +389,9 @@ const loadChat = async () => {
 const sendChat = async () => {
   if (!chatInput.value.trim()) return
   try {
-    const res = await request.post(`/teacher/classroom/${courseId}/chat`, { content: chatInput.value.trim() })
+    await request.post(`/teacher/classroom/${courseId}/chat`, { content: chatInput.value.trim() })
     chatInput.value = ''
-    if (res) {
-      chats.value.push(res)
-      scrollToBottom()
-    }
+    await loadChat()
   } catch (e) { ElMessage.error('发送失败') }
 }
 
@@ -281,21 +414,6 @@ const callAnswer = async (id) => {
   } catch (e) { ElMessage.error('操作失败') }
 }
 
-const resetClassroom = async () => {
-  const ok = window.confirm('开启新课堂会清空上一节的聊天与在线提问记录，确认继续？')
-  if (!ok) return
-  try {
-    await request.post(`/teacher/classroom/${courseId}/reset`)
-    ElMessage.success('已开启新的课堂')
-    currentQuestion.value = null
-    queue.value = []
-    answers.value = []
-    chats.value = []
-    await fetchQuestions()
-    await loadChat()
-  } catch (e) { ElMessage.error('重置失败') }
-}
-
 // === Connection ===
 const startPolling = () => {
   timer = setInterval(() => {
@@ -315,21 +433,7 @@ const connectWs = () => {
       switch (msg.type) {
         case 'question': fetchQuestions(); break;
         case 'hand': case 'race': case 'answer': case 'call': loadQueue(); loadAnswers(); loadChat(); break;
-        case 'chat':
-          if (msg.payload) {
-            chats.value.push(msg.payload)
-            scrollToBottom()
-          } else {
-            loadChat()
-          }
-          break;
-        case 'reset':
-          currentQuestion.value = null;
-          queue.value = [];
-          answers.value = [];
-          chats.value = [];
-          fetchQuestions();
-          break;
+        case 'chat': loadChat(); break;
       }
     } catch (e) {}
   }
@@ -369,7 +473,7 @@ $border-color: #ebeef5;
     .back-btn { color: #606266; font-size: 18px; &:hover { color: $primary; } }
     .course-info {
       h2 { margin: 0; font-size: 18px; color: #303133; }
-      .status-badge { font-size: 12px; color: #909399; display: flex; align-items: center; gap: 6px; .dot { width: 6px; height: 6px; border-radius: 50%; background: #67C23A; } }
+      .status-badge { font-size: 12px; color: #909399; display: flex; align-items: center; gap: 6px; .dot { width: 6px; height: 6px; border-radius: 50%; background: #F56C6C; &.online { background: #67C23A; } } }
     }
   }
 }
@@ -499,6 +603,106 @@ $border-color: #ebeef5;
       padding-right: 60px; border: none; background: #f5f7fa; border-radius: 8px;
       &:focus { background: #fff; box-shadow: 0 0 0 1px $primary inset; }
     }
+  }
+}
+
+/* 课堂表现弹窗样式 */
+.perf-container {
+  min-height: 400px;
+}
+
+/* 视图1：仪表盘网格 */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 20px;
+  padding: 10px;
+}
+
+.class-card {
+  background: #fff;
+  border: 1px solid #EBEEF5;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
+
+  &:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+    border-color: #409EFF;
+  }
+
+  .card-title {
+    font-size: 18px;
+    font-weight: bold;
+    color: #303133;
+    margin-bottom: 15px;
+  }
+
+  .gauge-chart {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 15px;
+
+    .percentage-value {
+      display: block;
+      font-size: 28px;
+      font-weight: bold;
+      color: #303133;
+    }
+    .percentage-label {
+      display: block;
+      font-size: 12px;
+      color: #909399;
+      margin-top: 5px;
+    }
+  }
+
+  .card-stats {
+    border-top: 1px dashed #EBEEF5;
+    padding-top: 15px;
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      color: #606266;
+      margin-bottom: 10px;
+    }
+
+    .hint-text {
+      font-size: 12px;
+      color: #409EFF;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+  }
+}
+
+/* 视图2：详情表格 */
+.student-detail-view {
+  .detail-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #EBEEF5;
+
+    .current-class-title {
+      font-size: 18px;
+      font-weight: bold;
+      color: #303133;
+    }
+  }
+
+  .text-gray {
+    color: #C0C4CC;
   }
 }
 </style>

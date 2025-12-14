@@ -1,6 +1,7 @@
 package com.project.system.mapper;
 
 import com.project.system.entity.AttendanceRecord;
+import com.project.system.entity.AttendanceSummary;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 

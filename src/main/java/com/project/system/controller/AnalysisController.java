@@ -1,12 +1,10 @@
 package com.project.system.controller;
 
+import com.project.system.entity.AnalysisResult;
 import com.project.system.service.AnalysisService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/analysis")
@@ -18,5 +16,18 @@ public class AnalysisController {
     @GetMapping("/{courseId}")
     public ResponseEntity<?> getCourseAnalysis(@PathVariable Long courseId) {
         return ResponseEntity.ok(analysisService.getAnalysisByCourse(courseId));
+    }
+
+    // 【新增】查询特定指标接口
+    @GetMapping("/result")
+    public ResponseEntity<?> getAnalysisResult(
+            @RequestParam Long courseId,
+            @RequestParam String metric) {
+        AnalysisResult result = analysisService.getLatestAnalysis(courseId, metric);
+        if (result == null) {
+            // 返回空对象或 404，这里返回空对象方便前端处理
+            return ResponseEntity.ok(null);
+        }
+        return ResponseEntity.ok(result);
     }
 }

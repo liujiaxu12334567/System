@@ -11,4 +11,7 @@ public interface AnalysisResultMapper {
     List<AnalysisResult> selectByCourseId(@Param("courseId") Long courseId);
 
     void insert(AnalysisResult result);
+
+    // 【新增】查询指定课程指定指标的最新记录
+    AnalysisResult selectLatestByCourseIdAndMetric(@Param("courseId") Long courseId, @Param("metric") String metric);
 }

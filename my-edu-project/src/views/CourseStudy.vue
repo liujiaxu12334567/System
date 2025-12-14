@@ -28,10 +28,16 @@
 
         <div class="right-actions">
           <div class="action-btn checkin-btn"
-               v-if="isCheckInOpen"
+               v-if="isCheckInOpen && !hasCheckedIn"
                @click="handleStudentCheckIn">
             <el-icon><Location /></el-icon>
             <span>立即签到</span>
+          </div>
+
+          <div class="action-btn signed-btn"
+               v-if="hasCheckedIn">
+            <el-icon><CircleCheckFilled /></el-icon>
+            <span>已签到</span>
           </div>
 
           <div class="action-btn">
@@ -427,7 +433,8 @@ import {
   ArrowLeft, Document, Bell, Search, Download, View, Location,
   TrendCharts, ChatLineRound, DataAnalysis, CircleCheck,
   Share, Operation, Notebook, ZoomIn, ZoomOut, Refresh,
-  Flag, Folder, CollectionTag, Reading, Aim, Files, DataBoard, QuestionFilled
+  Flag, Folder, CollectionTag, Reading, Aim, Files, DataBoard, QuestionFilled,
+  CircleCheckFilled // 新增图标
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -453,6 +460,7 @@ const quizStatusMap = ref({})
 
 // 【新增】签到状态
 const isCheckInOpen = ref(false)
+const hasCheckedIn = ref(false)
 let checkTimer = null
 
 // 允许预览的白名单
@@ -474,11 +482,13 @@ onBeforeUnmount(() => {
   if (checkTimer) clearInterval(checkTimer);
 })
 
-// === 签到逻辑 ===
+// === 签到逻辑 (修复) ===
 const checkStatus = async () => {
   try {
+    // 调用后端新接口，获取 active 和 checked 状态
     const res = await request.get(`/student/checkin/status/${courseId}`)
     isCheckInOpen.value = res.active
+    hasCheckedIn.value = res.checked // 确保后端有返回这个字段
   } catch(e){}
 }
 
@@ -486,7 +496,8 @@ const handleStudentCheckIn = async () => {
   try {
     await request.post('/student/checkin', { courseId: Number(courseId) })
     ElMessage.success('签到成功！')
-    isCheckInOpen.value = false // 签到后立即隐藏按钮防止重复
+    hasCheckedIn.value = true // 本地立即更新状态
+    checkStatus() // 再次确认
   } catch(e) {
     ElMessage.error(e.response?.data || '签到失败')
   }
@@ -729,7 +740,7 @@ const formatTime = (t) => t ? t.replace('T',' ').substring(0,16) : ''
         .el-icon { font-size: 24px; margin-bottom: 5px; } span { font-size: 12px; }
       }
 
-      /* 【新增】签到按钮样式 */
+      /* 【修改】签到按钮样式 */
       .checkin-btn {
         background-color: #E6A23C;
         animation: bounce 2s infinite;
@@ -737,6 +748,13 @@ const formatTime = (t) => t ? t.replace('T',' ').substring(0,16) : ''
         &:hover {
           background-color: #cf9236;
         }
+      }
+
+      /* 【新增】已签到按钮样式 */
+      .signed-btn {
+        background-color: #67C23A;
+        cursor: default;
+        &:hover { background-color: #67C23A; }
       }
     }
   }

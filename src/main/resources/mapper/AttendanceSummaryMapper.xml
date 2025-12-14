@@ -31,4 +31,9 @@
         </foreach>
         ORDER BY date ASC, id ASC
     </select>
+
+    <insert id="insert" parameterType="com.project.system.entity.AttendanceSummary" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO attendance_summary (course_id, class_id, date, expected, present)
+        VALUES (#{courseId}, #{classId}, #{date}, #{expected}, #{present})
+    </insert>
 </mapper>

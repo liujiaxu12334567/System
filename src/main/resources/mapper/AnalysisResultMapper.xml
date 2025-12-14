@@ -22,4 +22,12 @@
         INSERT INTO analysis_result (course_id, metric, value_json, generated_at, event_id)
         VALUES (#{courseId}, #{metric}, #{valueJson}, #{generatedAt}, #{eventId})
     </insert>
+
+    <select id="selectLatestByCourseIdAndMetric" resultMap="AnalysisResultMap">
+        SELECT id, course_id, metric, value_json, generated_at, event_id
+        FROM analysis_result
+        WHERE course_id = #{courseId} AND metric = #{metric}
+        ORDER BY generated_at DESC, id DESC
+            LIMIT 1
+    </select>
 </mapper>

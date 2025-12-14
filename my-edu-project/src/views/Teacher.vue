@@ -116,7 +116,9 @@
               <div class="value-group">
                 <span class="number">{{ stats.studentCount }}</span><span class="unit">人</span>
               </div>
-              <div class="trend">较上学期 +5% <el-icon><Top /></el-icon></div>
+              <div class="trend">
+                <span>教学班级: {{ teachingClassIds.length || 0 }} 个</span>
+              </div>
             </div>
             <div class="metric-icon-bg"><el-icon><UserFilled /></el-icon></div>
           </div>
@@ -127,7 +129,11 @@
               <div class="value-group">
                 <span class="number">{{ stats.attendanceRate }}</span><span class="unit">%</span>
               </div>
-              <div class="trend">保持稳定 <el-icon><Minus /></el-icon></div>
+              <div class="trend">
+                <span v-if="stats.attendanceRate >= 95">表现卓越 <el-icon><Trophy /></el-icon></span>
+                <span v-else-if="stats.attendanceRate >= 90">保持稳定 <el-icon><Minus /></el-icon></span>
+                <span v-else>需关注缺勤 <el-icon><Warning /></el-icon></span>
+              </div>
             </div>
             <div class="metric-icon-bg"><el-icon><Trophy /></el-icon></div>
           </div>
@@ -138,7 +144,10 @@
               <div class="value-group">
                 <span class="number">{{ stats.interactionIndex }}</span><span class="unit">/10</span>
               </div>
-              <div class="trend">活跃度高</div>
+              <div class="trend">
+                <span v-if="stats.interactionIndex >= 8">课堂气氛活跃</span>
+                <span v-else>互动有待提升</span>
+              </div>
             </div>
             <div class="metric-icon-bg"><el-icon><ChatLineRound /></el-icon></div>
           </div>
@@ -149,39 +158,39 @@
               <div class="value-group">
                 <span class="number">{{ stats.submissionRate }}</span><span class="unit">%</span>
               </div>
-              <div class="trend">较上周 +2% <el-icon><Top /></el-icon></div>
+              <div class="trend">
+                <span>共收到提交: {{ submissions.length || '-' }} 份</span>
+              </div>
             </div>
             <div class="metric-icon-bg"><el-icon><TrendCharts /></el-icon></div>
           </div>
         </div>
 
-        <div class="performance-card">
-          <div class="card-header-light perf-header">
-            <div class="header-title-group">
-              <span class="deco-bar bg-green"></span>
-              <span class="title">课堂表现（当前会话）</span>
-            </div>
-            <div class="perf-actions">
-              <el-select v-model="perfCourseId" size="small" placeholder="选择课程" style="width: 200px" @change="fetchPerformance">
-                <el-option v-for="c in myCourseList" :key="c.id" :label="c.name" :value="c.id" />
-              </el-select>
-              <el-button size="small" type="primary" link :disabled="!perfCourseId" @click="fetchPerformance(perfCourseId)">
-                <el-icon><Refresh /></el-icon> 刷新
-              </el-button>
+        <div class="dashboard-card class-perf-section-light">
+          <div class="section-header-light">
+            <h3 class="title">班级活跃度总览</h3>
+            <div class="hint">基于所有历史互动数据统计</div>
+          </div>
+          <div v-if="!stats.classPerformanceList || stats.classPerformanceList.length === 0" class="empty-perf">
+            <el-empty description="暂无班级互动数据" :image-size="80" />
+          </div>
+          <div v-else class="perf-grid">
+            <div v-for="cls in stats.classPerformanceList" :key="cls.courseId" class="perf-card">
+              <div class="perf-title">{{ cls.courseName }} <el-tag size="small" effect="plain">{{ cls.className }}</el-tag></div>
+              <div class="perf-gauge">
+                <el-progress type="dashboard" :percentage="cls.score" :color="getScoreColor" :width="100">
+                  <template #default="{ percentage }">
+                    <span class="p-val">{{ percentage }}</span>
+                    <span class="p-lbl">活跃分</span>
+                  </template>
+                </el-progress>
+              </div>
+              <div class="perf-stats">
+                <div>学生: {{ cls.studentCount }}</div>
+                <div>活跃: <span style="color:#67C23A">{{ cls.activeCount }}</span></div>
+              </div>
             </div>
           </div>
-          <el-table :data="performanceList" size="small" border v-loading="perfLoading" empty-text="暂无当前课堂记录">
-            <el-table-column prop="studentName" label="学生" min-width="120" />
-            <el-table-column prop="handCount" label="举手" width="80" />
-            <el-table-column prop="raceCount" label="抢答" width="80" />
-            <el-table-column prop="answerCount" label="答题" width="80" />
-            <el-table-column prop="total" label="总计" width="90">
-              <template #default="{row}"><el-tag type="success" effect="plain">{{ row.total }}</el-tag></template>
-            </el-table-column>
-            <el-table-column prop="lastAnswerTime" label="最近时间" min-width="150">
-              <template #default="{row}">{{ formatDateTime(row.lastAnswerTime) }}</template>
-            </el-table-column>
-          </el-table>
         </div>
 
         <div class="charts-row-light">
@@ -431,7 +440,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
 import {
   DataAnalysis, Document, Reading, Monitor, Bell, UserFilled, Trophy, ChatLineRound, TrendCharts, Search, EditPen, Stopwatch,
-  CaretBottom, Top, Bottom, Minus, Plus, Upload, View, Check, Calendar, Collection, VideoPlay, User, Clock, Refresh
+  CaretBottom, Top, Bottom, Minus, Plus, Upload, View, Check, Calendar, Collection, VideoPlay, User, Clock, Refresh, Warning
 } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -448,7 +457,7 @@ const currentDate = dayjs().format('YYYY年MM月DD日 dddd')
 const loading = ref(false)
 
 // 数据状态
-const stats = ref({ studentCount: 0, attendanceRate: 0, interactionIndex: 0, submissionRate: 0 })
+const stats = ref({ studentCount: 0, attendanceRate: 0, interactionIndex: 0, submissionRate: 0, classPerformanceList: [] })
 const studentList = ref([])
 const applicationList = ref([])
 const teachingMaterials = ref([])
@@ -457,9 +466,6 @@ const notificationList = ref([])
 const teachingClassIds = ref([])
 const availableExams = ref([])
 const unreadCount = computed(() => notificationList.value.filter(n => !n.isRead).length)
-const performanceList = ref([])
-const perfCourseId = ref(null)
-const perfLoading = ref(false)
 
 // 签到相关
 const myCourseList = ref([])
@@ -546,10 +552,6 @@ const fetchMyCourses = async () => {
 
     // 刷新每个课程的状态
     myCourseList.value.forEach(c => refreshStatus(c.id))
-    if (!perfCourseId.value && myCourseList.value.length > 0) {
-      perfCourseId.value = myCourseList.value[0].id
-      fetchPerformance(perfCourseId.value)
-    }
 
     // 启动轮询
     if(!statusTimer) statusTimer = setInterval(refreshAllStatus, 3000)
@@ -745,19 +747,6 @@ const fetchDashboardData = async () => {
   } catch(e) { console.error(e) }
 }
 
-const fetchPerformance = async (courseId) => {
-  if (!courseId) return
-  perfLoading.value = true
-  try {
-    const res = await request.get(`/teacher/classroom/${courseId}/performance`)
-    performanceList.value = Array.isArray(res) ? res : []
-  } catch (e) {
-    ElMessage.error('加载课堂表现失败')
-  } finally {
-    perfLoading.value = false
-  }
-}
-
 const fetchApplications = async () => {
   try { applicationList.value = await request.get('/teacher/my-applications') || [] } catch(e){}
 }
@@ -813,8 +802,13 @@ const submitGrade = async (row) => {
   row.record.score = row.gradeForm.score
 }
 
+const getScoreColor = (percentage) => {
+  if (percentage < 40) return '#909399';
+  if (percentage < 70) return '#E6A23C';
+  return '#67C23A';
+}
+
 const formatTime = (t) => t ? dayjs(t).fromNow() : ''
-const formatDateTime = (t) => t ? dayjs(t).format('YYYY-MM-DD HH:mm') : ''
 const formatType = (t) => ({ADD:'新增',DELETE:'删除',RESET_PWD:'重置',DEADLINE_EXTENSION:'延期'}[t]||t)
 const formatStatus = (s) => ({PENDING:'审核中',APPROVED:'通过',REJECTED:'驳回'}[s]||s)
 const getStatusType = (s) => ({APPROVED:'success',REJECTED:'danger',PENDING:'warning'}[s]||'info')
@@ -899,6 +893,27 @@ $card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   }
 }
 
+/* 【新增】课堂表现概览样式 */
+.class-perf-section-light {
+  padding: 20px; margin-bottom: 24px;
+  .section-header-light {
+    display: flex; align-items: baseline; gap: 10px; margin-bottom: 15px;
+    .hint { font-size: 12px; color: #909399; }
+  }
+}
+.perf-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px;
+}
+.perf-card {
+  border: 1px solid #EBEEF5; border-radius: 8px; padding: 15px; text-align: center; transition: all 0.3s;
+  &:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); transform: translateY(-3px); }
+  .perf-title { font-weight: bold; font-size: 14px; margin-bottom: 10px; display:flex; justify-content:center; align-items:center; gap:5px; }
+  .perf-gauge { display: flex; justify-content: center; margin-bottom: 10px; }
+  .p-val { display: block; font-size: 20px; font-weight: bold; color: #303133; }
+  .p-lbl { display: block; font-size: 10px; color: #909399; }
+  .perf-stats { display: flex; justify-content: space-around; font-size: 12px; color: #606266; background: #f9fafe; padding: 8px; border-radius: 4px; }
+}
+
 .charts-row-light {
   margin-bottom: 24px;
   .chart-card-light {
@@ -913,24 +928,6 @@ $card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
       .bg-purple { background-color: #909399; }
     }
     .chart-box-light { height: 280px; width: 100%; }
-  }
-}
-.performance-card {
-  margin-bottom: 24px;
-  background: $white;
-  border-radius: 12px;
-  box-shadow: $card-shadow;
-  padding: 16px;
-  .perf-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
-  .perf-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
   }
 }
 
