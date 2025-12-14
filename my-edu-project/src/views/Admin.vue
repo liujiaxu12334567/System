@@ -194,13 +194,40 @@
         <h2 class="page-title">待审核申请</h2>
         <el-card shadow="never" class="content-panel-bright">
           <el-alert v-if="applicationList.length === 0" title="当前没有待审核的申请记录" type="success" show-icon style="margin-bottom: 20px;" />
-          <el-table :data="applicationList" border style="width: 100%" header-cell-class-name="table-header-bright">
+          <el-table :data="formattedApplications" border style="width: 100%" header-cell-class-name="table-header-bright">
             <el-table-column prop="id" label="ID" width="60" />
             <el-table-column prop="teacherName" label="申请人" width="100" />
             <el-table-column prop="type" label="类型" width="120">
               <template #default="scope"><el-tag :type="getTypeTag(scope.row.type)" effect="light">{{ formatType(scope.row.type) }}</el-tag></template>
             </el-table-column>
-            <el-table-column prop="content" label="申请内容" min-width="180" show-overflow-tooltip/>
+            <el-table-column label="申请内容" min-width="260">
+              <template #default="scope">
+                <div v-if="scope.row.type === 'QUALITY_ACTIVITY' || scope.row.type === 'QUALITY_COMPETITION'" class="app-card">
+                  <el-image
+                    v-if="scope.row.parsedContent?.img"
+                    :src="resolveFileUrl(scope.row.parsedContent.img)"
+                    fit="cover"
+                    style="width: 60px; height: 60px; border-radius: 8px;"
+                    :preview-src-list="[resolveFileUrl(scope.row.parsedContent.img)]"
+                  />
+                  <div class="app-card-text">
+                    <div class="app-title">{{ scope.row.parsedContent?.title || '—' }}</div>
+                    <div class="app-desc">{{ scope.row.parsedContent?.desc || '—' }}</div>
+                  </div>
+                </div>
+                <div v-else-if="scope.row.type === 'LEAVE_APPLICATION'" class="app-meta">
+                  <div><span class="label">请假类型：</span>{{ scope.row.parsedContent?.leaveType || '—' }}</div>
+                  <div><span class="label">是否离校：</span>{{ scope.row.parsedContent?.isLeaving ? '是' : '否' }}</div>
+                  <div><span class="label">联系方式：</span>{{ scope.row.parsedContent?.contact || '—' }}</div>
+                </div>
+                <div v-else-if="scope.row.type === 'DEADLINE_EXTENSION'" class="app-meta">
+                  {{ scope.row.content }}
+                </div>
+                <div v-else class="app-meta">
+                  {{ typeof scope.row.content === 'string' ? scope.row.content : JSON.stringify(scope.row.content) }}
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column prop="reason" label="申请理由" min-width="150" show-overflow-tooltip/>
             <el-table-column prop="createTime" label="提交时间" width="160" class-name="time-col"/>
             <el-table-column label="操作" width="160" fixed="right" align="center">
@@ -358,6 +385,32 @@
 
       <el-dialog v-model="statsDialogVisible" title="通知统计详情" width="800px">
         <div style="margin-bottom:15px; font-weight:bold;">通知标题：{{ currentStatsTitle }}</div>
+        <div class="stats-summary">
+          <div class="summary-item">
+            <span class="label">发送人数</span>
+            <span class="value">{{ currentStatsSummary.total || 0 }}</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">已读</span>
+            <span class="value success">{{ currentStatsSummary.readCount || 0 }}</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">已回复</span>
+            <span class="value primary">{{ currentStatsSummary.replyCount || 0 }}</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">需填报</span>
+            <span class="value">{{ currentStatsSummary.needReply ? '是' : '否' }}</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">阅读率</span>
+            <span class="value">{{ calcRate(currentStatsSummary.readCount, currentStatsSummary.total) }}%</span>
+          </div>
+          <div class="summary-item">
+            <span class="label">回复率</span>
+            <span class="value">{{ calcRate(currentStatsSummary.replyCount, currentStatsSummary.total) }}%</span>
+          </div>
+        </div>
         <el-table :data="currentStatsList" height="400" border stripe>
           <el-table-column property="realName" label="姓名" width="120" />
           <el-table-column property="username" label="学号/工号" width="120" />
@@ -403,6 +456,12 @@ const teacherList = ref([])
 const classList = ref([])
 const loading = reactive({ range: false, upload: false })
 const debugStatus = ref('等待操作...')
+const formattedApplications = computed(() => {
+  return (applicationList.value || []).map(item => ({
+    ...item,
+    parsedContent: parseApplicationContent(item.content)
+  }))
+})
 
 // 表单数据
 const rangeForm = reactive({ startUsername: '', endUsername: '', targetClassId: null, major: null })
@@ -440,6 +499,7 @@ const selectedTeacher = ref('')
 const notifyUserOptions = ref([])
 const currentStatsList = ref([])
 const currentStatsTitle = ref('')
+const currentStatsSummary = ref({ total: 0, readCount: 0, replyCount: 0, needReply: false })
 
 // 计算属性：检查上传条件是否满足
 const isUploadReady = computed(() => {
@@ -582,6 +642,7 @@ const fetchCourseAndTeacherData = async () => {
   } catch(e) {}
 }
 
+
 const submitRangeEnroll = async () => {
   if (!rangeForm.startUsername || !rangeForm.targetClassId) return ElMessage.warning('请补全信息')
   loading.range = true
@@ -608,9 +669,41 @@ const handleMenuSelect = (idx) => {
 // 辅助函数
 const getRoleName = (t) => ({'1':'管理员','2':'课题组长','3':'普通教师','4':'学生','5':'素质教师'}[t] || '未知')
 const getRoleTag = (t) => ({'1':'danger','2':'success','3':'primary','4':'info','5':'warning'}[t] || 'info')
-const getTypeTag = (t) => ({ADD:'success',DELETE:'danger',RESET_PWD:'warning',DEADLINE_EXTENSION:'warning'}[t] || 'info')
-const formatType = (t) => ({ADD:'新增学生',DELETE:'删除学生',RESET_PWD:'重置密码',DEADLINE_EXTENSION:'延期申请'}[t]||t)
+const getTypeTag = (t) => ({
+  ADD:'success',
+  DELETE:'danger',
+  RESET_PWD:'warning',
+  DEADLINE_EXTENSION:'warning',
+  QUALITY_ACTIVITY:'primary',
+  QUALITY_COMPETITION:'primary',
+  LEAVE_APPLICATION:'info'
+}[t] || 'info')
+const formatType = (t) => ({
+  ADD:'新增学生',
+  DELETE:'删除学生',
+  RESET_PWD:'重置密码',
+  DEADLINE_EXTENSION:'延期申请',
+  QUALITY_ACTIVITY:'素质活动',
+  QUALITY_COMPETITION:'素质竞赛',
+  LEAVE_APPLICATION:'请假申请'
+}[t]||t)
 const formatDate = (t) => t ? dayjs(t).format('YYYY-MM-DD HH:mm') : ''
+const parseApplicationContent = (raw) => {
+  if (!raw) return {}
+  if (typeof raw === 'object') return raw
+  try {
+    return JSON.parse(raw)
+  } catch (e) {
+    return { text: raw }
+  }
+}
+const resolveFileUrl = (path) => {
+  if (!path) return ''
+  if (/^https?:\/\//i.test(path)) return path
+  if (path.startsWith('//')) return window.location.protocol + path
+  if (path.startsWith('/')) return window.location.origin + path
+  return `${window.location.origin}/${path}`
+}
 
 const handleSizeChange = (v) => { pageSize.value = v; fetchUsers() }
 const handleCurrentChange = (v) => { pageNum.value = v; fetchUsers() }
@@ -644,7 +737,12 @@ const submitForm = async () => {
   // 处理数组转字符串
   const payload = { ...form.value, roleType: String(form.value.roleType) }
   if (form.value.roleType === 2) payload.teacherRank = form.value.managerCourses.join(',')
-  if (form.value.roleType === 5) payload.teachingClasses = form.value.teachingClassesIds.join(',')
+  if (form.value.roleType === 5) {
+    if (form.value.teachingClassesIds && form.value.teachingClassesIds.length > 4) {
+      return ElMessage.warning('素质教师最多分配4个班级')
+    }
+    payload.teachingClasses = form.value.teachingClassesIds.join(',')
+  }
   delete payload.managerCourses; delete payload.teachingClassesIds;
 
   try {
@@ -707,9 +805,18 @@ const submitNotification = async () => {
 }
 const viewStats = async (row) => {
   currentStatsTitle.value = row.title;
-  const res = await request.get(`/admin/notification/stats/${row.batchId}`);
-  currentStatsList.value = res || [];
+  const [detail, summary] = await Promise.all([
+    request.get(`/admin/notification/stats/${row.batchId}`),
+    request.get(`/admin/notification/stats/summary/${row.batchId}`)
+  ]);
+  currentStatsList.value = detail || [];
+  currentStatsSummary.value = summary || { total: 0, readCount: 0, replyCount: 0, needReply: false };
   statsDialogVisible.value = true;
+}
+
+const calcRate = (part, total) => {
+  if (!total || total === 0) return 0;
+  return ((Number(part || 0) * 100) / Number(total)).toFixed(1);
 }
 
 </script>
@@ -824,6 +931,12 @@ const viewStats = async (row) => {
   font-size: 13px;
 }
 
+.empty-tip {
+  padding: 16px;
+  text-align: center;
+  color: #909399;
+}
+
 /* 分页 */
 .pagination-container-bright {
   margin-top: 24px;
@@ -843,6 +956,29 @@ const viewStats = async (row) => {
   font-size: 16px;
   color: #303133;
 }
+
+.stats-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  background: #f9fafc;
+  padding: 12px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+.summary-item .label {
+  display: block;
+  color: #909399;
+  font-size: 12px;
+}
+.summary-item .value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+}
+.summary-item .value.success { color: #67c23a; }
+.summary-item .value.primary { color: #409eff; }
 .upload-area {
   margin-top: 20px;
   border-top: 1px dashed #e4e7ed;
@@ -906,4 +1042,28 @@ const viewStats = async (row) => {
 
 /* 工具类 */
 .mb-20 { margin-bottom: 20px; }
+
+/* 申请内容卡片 */
+.app-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.app-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.app-title {
+  font-weight: 600;
+  color: #303133;
+}
+.app-desc {
+  color: #606266;
+  font-size: 13px;
+}
+.app-meta .label {
+  color: #909399;
+  margin-right: 6px;
+}
 </style>

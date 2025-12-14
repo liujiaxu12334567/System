@@ -4,9 +4,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.system.entity.Application;
 import com.project.system.entity.Notification;
 import com.project.system.entity.User;
+import com.project.system.entity.Course;
+import com.project.system.entity.AttendanceRecord;
+import com.project.system.entity.AttendanceSummary;
 import com.project.system.mapper.ApplicationMapper;
 import com.project.system.mapper.NotificationMapper;
+import com.project.system.mapper.AttendanceSummaryMapper;
+import com.project.system.mapper.AttendanceRecordMapper;
 import com.project.system.mapper.UserMapper;
+import com.project.system.mapper.CourseMapper;
 import com.project.system.service.QualityService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,9 +26,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -34,7 +43,13 @@ public class QualityServiceImpl implements QualityService {
     @Autowired
     private NotificationMapper notificationMapper;
     @Autowired
+    private AttendanceSummaryMapper attendanceSummaryMapper;
+    @Autowired
+    private AttendanceRecordMapper attendanceRecordMapper;
+    @Autowired
     private UserMapper userMapper;
+    @Autowired
+    private CourseMapper courseMapper;
 
     @Value("${file.upload-dir:./uploads}")
     private String uploadDir;
@@ -92,6 +107,85 @@ public class QualityServiceImpl implements QualityService {
     }
 
     @Override
+    public List<Map<String, Object>> getManagedAttendance() {
+        User qualityTeacher = getCurrentUser();
+        String classesStr = qualityTeacher.getTeachingClasses();
+        if (classesStr == null || classesStr.isEmpty()) {
+            return List.of();
+        }
+        List<Long> classIds = classesStrToList(classesStr).stream()
+                .map(Long::parseLong)
+                .collect(Collectors.toList());
+        if (classIds.isEmpty()) return List.of();
+
+        List<AttendanceSummary> summaries = attendanceSummaryMapper.selectByClassIds(classIds);
+        Map<Long, long[]> agg = new HashMap<>();
+        for (var a : summaries) {
+            long expected = a.getExpected() == null ? 0 : a.getExpected();
+            long present = a.getPresent() == null ? 0 : a.getPresent();
+            long[] pair = agg.computeIfAbsent(a.getClassId(), k -> new long[2]);
+            pair[0] += present;
+            pair[1] += expected;
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        agg.forEach((cls, pair) -> {
+            long present = pair[0];
+            long expected = pair[1];
+            double rate = expected > 0 ? Math.round((present * 1000.0 / expected)) / 10.0 : 0d;
+            result.add(Map.of(
+                    "classId", cls,
+                    "present", present,
+                    "expected", expected,
+                    "rate", rate
+            ));
+        });
+        return result;
+    }
+
+    @Override
+    public List<com.project.system.dto.AttendanceRecordResponse> getAttendanceRecords(Long classId, Long courseId, Long studentId) {
+        User qualityTeacher = getCurrentUser();
+        String classesStr = qualityTeacher.getTeachingClasses();
+        if (classesStr == null || classesStr.isEmpty()) {
+            throw new RuntimeException("未分配班级，无权查看");
+        }
+        List<String> managed = classesStrToList(classesStr);
+        if (classId == null || managed.stream().noneMatch(c -> c.equals(String.valueOf(classId)))) {
+            throw new RuntimeException("无权查看该班级");
+        }
+
+        List<AttendanceRecord> list = attendanceRecordMapper.selectByClassCourseStudent(classId, courseId, studentId);
+        if (list == null || list.isEmpty()) return List.of();
+
+        Map<Long, User> studentMap = new HashMap<>();
+        userMapper.selectStudentsByClassIds(List.of(classId)).forEach(u -> studentMap.put(u.getUserId(), u));
+
+        Set<Long> courseIds = list.stream().map(AttendanceRecord::getCourseId).collect(Collectors.toSet());
+        Map<Long, Course> courseMap = courseMapper.selectAllCourses().stream()
+                .filter(c -> c.getId() != null && courseIds.contains(c.getId()))
+                .collect(Collectors.toMap(Course::getId, c -> c, (a, b) -> a));
+
+        List<com.project.system.dto.AttendanceRecordResponse> resp = new ArrayList<>();
+        for (AttendanceRecord r : list) {
+            com.project.system.dto.AttendanceRecordResponse dto = new com.project.system.dto.AttendanceRecordResponse();
+            dto.setClassId(r.getClassId());
+            dto.setCourseId(r.getCourseId());
+            dto.setStudentId(r.getStudentId());
+            dto.setDate(r.getDate() != null ? r.getDate().toString() : null);
+            dto.setPresent(r.getPresent());
+            dto.setCourseName(courseMap.get(r.getCourseId()) != null ? courseMap.get(r.getCourseId()).getName() : null);
+            dto.setStudentName(studentMap.get(r.getStudentId()) != null ? studentMap.get(r.getStudentId()).getRealName() : null);
+            resp.add(dto);
+        }
+        return resp;
+    }
+
+    private List<String> classesStrToList(String classesStr) {
+        return List.of(classesStr.split(",")).stream()
+                .map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toList());
+    }
+
+    @Override
     public List<Application> getManagedApplications() {
         User qualityTeacher = getCurrentUser();
         String classesStr = qualityTeacher.getTeachingClasses();
@@ -99,7 +193,7 @@ public class QualityServiceImpl implements QualityService {
             return List.of();
         }
 
-        List<String> managedClassIds = List.of(classesStr.split(","));
+        List<String> managedClassIds = classesStrToList(classesStr);
         List<Application> all = applicationMapper.findByStatus("PENDING");
 
         return all.stream()
@@ -115,6 +209,13 @@ public class QualityServiceImpl implements QualityService {
     public void reviewApplication(Long id, String status) {
         Application app = applicationMapper.findById(id);
         if(app != null) {
+            User qualityTeacher = getCurrentUser();
+            String classesStr = qualityTeacher.getTeachingClasses();
+            if (classesStr == null || classesStr.isEmpty() || app.getTargetId() == null ||
+                    classesStrToList(classesStr).stream().noneMatch(c -> c.equals(String.valueOf(app.getTargetId())))) {
+                throw new RuntimeException("无权审批：该班级不在您的负责范围内");
+            }
+
             app.setStatus(status);
             applicationMapper.updateStatus(id, status);
 
@@ -160,7 +261,7 @@ public class QualityServiceImpl implements QualityService {
         }
 
         // 解析班级ID列表
-        List<Long> classIds = List.of(classesStr.split(",")).stream()
+        List<Long> classIds = classesStrToList(classesStr).stream()
                 .map(Long::parseLong)
                 .collect(Collectors.toList());
 

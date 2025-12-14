@@ -10,13 +10,15 @@ public class LoginResponse {
     private String realName;
     private String role;
     private String teacherRank;
+    private String teachingClasses;
 
-    public LoginResponse(String token, Long id, String username, String realName, String role, String teacherRank) {
+    public LoginResponse(String token, Long id, String username, String realName, String role, String teacherRank, String teachingClasses) {
         this.token = token;
         this.id = id;
         this.username = username;
         this.realName = realName;
         this.role = role;
         this.teacherRank = teacherRank;
+        this.teachingClasses = teachingClasses;
     }
 }

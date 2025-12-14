@@ -399,6 +399,19 @@ public class TeacherController {
         }
         return ResponseEntity.ok(teacherService.sendCourseChat(courseId, content.trim()));
     }
+
+    // 【新增】重置课堂，清空聊天与在线提问/回答
+    @PostMapping("/classroom/{courseId}/reset")
+    public ResponseEntity<?> resetClassroom(@PathVariable Long courseId) {
+        teacherService.resetClassroom(courseId);
+        return ResponseEntity.ok("课堂数据已重置");
+    }
+
+    // 【新增】在线测试表现
+    @GetMapping("/classroom/{courseId}/performance")
+    public ResponseEntity<?> classroomPerformance(@PathVariable Long courseId) {
+        return ResponseEntity.ok(teacherService.getClassroomPerformance(courseId));
+    }
     // 【新增】回复通知
     @PostMapping("/notification/reply")
     public ResponseEntity<?> replyNotification(@RequestBody Map<String, Object> data) {

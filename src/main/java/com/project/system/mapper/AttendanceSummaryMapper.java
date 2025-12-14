@@ -9,4 +9,6 @@ import java.util.List;
 @Mapper
 public interface AttendanceSummaryMapper {
     List<AttendanceSummary> selectByCourseIds(@Param("courseIds") List<Long> courseIds);
+
+    List<AttendanceSummary> selectByClassIds(@Param("classIds") List<Long> classIds);
 }

@@ -1,0 +1,80 @@
+[2025-12-14 01:35:12] 开始执行Python脚本...
+[2025-12-14 01:35:14] [analysis] RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/%2F
+[2025-12-14 01:35:14] [analysis] MYSQL_URL=mysql+pymysql://root:liujiaxu@localhost:3306/system
+[2025-12-14 01:35:16] [analysis] consumer started, waiting for messages...
+[2025-12-14 01:48:45] [analysis] RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/%2F
+[2025-12-14 01:48:45] Traceback (most recent call last):
+[2025-12-14 01:48:45] [analysis] MYSQL_URL=mysql+pymysql://root:liujiaxu@localhost:3306/system
+[2025-12-14 01:48:45] [analysis] consumer started, waiting for messages...
+[2025-12-14 01:48:45]   File "d:\HuaweiMoveData\Users\38929\Desktop\System\System\docs\python_analysis_consumer.py", line 116, in <module>
+[2025-12-14 01:48:45]     main()
+[2025-12-14 01:48:45]   File "d:\HuaweiMoveData\Users\38929\Desktop\System\System\docs\python_analysis_consumer.py", line 112, in main
+[2025-12-14 01:48:45]     channel.start_consuming()
+[2025-12-14 01:48:45]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 1883, in start_consuming
+[2025-12-14 01:48:45]     self._process_data_events(time_limit=None)
+[2025-12-14 01:48:45]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 2044, in _process_data_events
+[2025-12-14 01:48:45]     self.connection.process_data_events(time_limit=time_limit)
+[2025-12-14 01:48:46]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 842, in process_data_events
+[2025-12-14 01:48:47]     self._flush_output(common_terminator)
+[2025-12-14 01:48:49]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 523, in _flush_output
+[2025-12-14 01:48:50]     raise self._closed_result.value.error
+[2025-12-14 01:48:50] pika.exceptions.AMQPHeartbeatTimeout: No activity or too many missed heartbeats in the last 60 seconds
+[2025-12-14 01:48:50] Python脚本执行结束
+[2025-12-14 01:49:15] 开始执行Python脚本...
+[2025-12-14 01:49:39] [analysis] RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/%2F
+[2025-12-14 01:49:39] [analysis] MYSQL_URL=mysql+pymysql://root:liujiaxu@localhost:3306/system
+[2025-12-14 01:49:39] [analysis] consumer started, waiting for messages...
+[2025-12-14 01:49:39] Traceback (most recent call last):
+[2025-12-14 01:49:39]   File "d:\HuaweiMoveData\Users\38929\Desktop\System\System\docs\python_analysis_consumer.py", line 116, in <module>
+[2025-12-14 01:49:39]     main()
+[2025-12-14 01:49:39]   File "d:\HuaweiMoveData\Users\38929\Desktop\System\System\docs\python_analysis_consumer.py", line 112, in main
+[2025-12-14 01:49:39]     channel.start_consuming()
+[2025-12-14 01:49:39]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 1883, in start_consuming
+[2025-12-14 01:49:39]     self._process_data_events(time_limit=None)
+[2025-12-14 01:49:40]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 2044, in _process_data_events
+[2025-12-14 01:49:40]     self.connection.process_data_events(time_limit=time_limit)
+[2025-12-14 01:49:40]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 842, in process_data_events
+[2025-12-14 01:49:40]     self._flush_output(common_terminator)
+[2025-12-14 01:49:40]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 523, in _flush_output
+[2025-12-14 01:49:40]     raise self._closed_result.value.error
+[2025-12-14 01:49:40] pika.exceptions.AMQPHeartbeatTimeout: No activity or too many missed heartbeats in the last 60 seconds
+[2025-12-14 01:49:41] Python脚本执行结束
+[2025-12-14 01:58:07] [analysis] RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/%2F
+[2025-12-14 01:58:07] [analysis] MYSQL_URL=mysql+pymysql://root:liujiaxu@localhost:3306/system
+[2025-12-14 01:58:08] [analysis] consumer started, waiting for messages...
+[2025-12-14 01:58:08] Traceback (most recent call last):
+[2025-12-14 01:58:08]   File "d:\HuaweiMoveData\Users\38929\Desktop\System\System\docs\python_analysis_consumer.py", line 116, in <module>
+[2025-12-14 01:58:08]     main()
+[2025-12-14 01:58:09]   File "d:\HuaweiMoveData\Users\38929\Desktop\System\System\docs\python_analysis_consumer.py", line 112, in main
+[2025-12-14 01:58:09]     channel.start_consuming()
+[2025-12-14 01:58:09]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 1883, in start_consuming
+[2025-12-14 01:58:09]     self._process_data_events(time_limit=None)
+[2025-12-14 01:58:09]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 2044, in _process_data_events
+[2025-12-14 01:58:09]     self.connection.process_data_events(time_limit=time_limit)
+[2025-12-14 01:58:10]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 842, in process_data_events
+[2025-12-14 01:58:10]     self._flush_output(common_terminator)
+[2025-12-14 01:58:10]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 523, in _flush_output
+[2025-12-14 01:58:10]     raise self._closed_result.value.error
+[2025-12-14 01:58:10] pika.exceptions.AMQPHeartbeatTimeout: No activity or too many missed heartbeats in the last 60 seconds
+[2025-12-14 01:58:10] Python脚本执行结束
+[2025-12-14 01:58:19] 开始执行Python脚本...
+[2025-12-14 09:06:09] [analysis] RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/%2F
+[2025-12-14 09:06:09] [analysis] MYSQL_URL=mysql+pymysql://root:liujiaxu@localhost:3306/system
+[2025-12-14 09:06:11] [analysis] consumer started, waiting for messages...
+[2025-12-14 09:06:11] [analysis] stored metric=classroom_online_performance courseId=3004
+[2025-12-14 09:06:12] Traceback (most recent call last):
+[2025-12-14 09:06:12]   File "d:\HuaweiMoveData\Users\38929\Desktop\System\System\docs\python_analysis_consumer.py", line 116, in <module>
+[2025-12-14 09:06:13]     main()
+[2025-12-14 09:06:13]   File "d:\HuaweiMoveData\Users\38929\Desktop\System\System\docs\python_analysis_consumer.py", line 112, in main
+[2025-12-14 09:06:13]     channel.start_consuming()
+[2025-12-14 09:06:13]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 1883, in start_consuming
+[2025-12-14 09:06:13]     self._process_data_events(time_limit=None)
+[2025-12-14 09:06:13]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 2044, in _process_data_events
+[2025-12-14 09:06:14]     self.connection.process_data_events(time_limit=time_limit)
+[2025-12-14 09:06:14]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 842, in process_data_events
+[2025-12-14 09:06:14]     self._flush_output(common_terminator)
+[2025-12-14 09:06:15]   File "C:\Users\38929\AppData\Local\Programs\Python\Python311\Lib\site-packages\pika\adapters\blocking_connection.py", line 523, in _flush_output
+[2025-12-14 09:06:15]     raise self._closed_result.value.error
+[2025-12-14 09:06:16] pika.exceptions.AMQPHeartbeatTimeout: No activity or too many missed heartbeats in the last 60 seconds
+[2025-12-14 09:06:16] Python脚本执行结束
+[2025-12-14 09:50:09] 开始执行Python脚本...

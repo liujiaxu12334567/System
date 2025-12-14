@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.project.system.mapper.AnalysisResultMapper">
+
+    <resultMap id="AnalysisResultMap" type="com.project.system.entity.AnalysisResult">
+        <id column="id" property="id"/>
+        <result column="course_id" property="courseId"/>
+        <result column="metric" property="metric"/>
+        <result column="value_json" property="valueJson"/>
+        <result column="generated_at" property="generatedAt"/>
+        <result column="event_id" property="eventId"/>
+    </resultMap>
+
+    <select id="selectByCourseId" resultMap="AnalysisResultMap">
+        SELECT id, course_id, metric, value_json, generated_at, event_id
+        FROM analysis_result
+        WHERE course_id = #{courseId}
+        ORDER BY generated_at DESC, id DESC
+    </select>
+
+    <insert id="insert" parameterType="com.project.system.entity.AnalysisResult" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO analysis_result (course_id, metric, value_json, generated_at, event_id)
+        VALUES (#{courseId}, #{metric}, #{valueJson}, #{generatedAt}, #{eventId})
+    </insert>
+</mapper>

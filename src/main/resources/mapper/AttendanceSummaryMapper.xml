@@ -21,4 +21,14 @@
         </foreach>
         ORDER BY date ASC, id ASC
     </select>
+
+    <select id="selectByClassIds" resultMap="AttendanceSummaryMap">
+        SELECT id, course_id, class_id, date, expected, present, created_at
+        FROM attendance_summary
+        WHERE class_id IN
+        <foreach collection="classIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+        ORDER BY date ASC, id ASC
+    </select>
 </mapper>

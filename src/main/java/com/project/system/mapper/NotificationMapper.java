@@ -23,4 +23,7 @@ public interface NotificationMapper {
 
     // 根据批次ID查询详细统计
     List<Map<String, Object>> selectStatsByBatchId(@Param("batchId") String batchId);
+
+    // 根据批次ID汇总统计
+    Map<String, Object> selectStatsSummaryByBatchId(@Param("batchId") String batchId);
 }

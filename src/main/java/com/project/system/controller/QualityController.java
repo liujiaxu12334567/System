@@ -69,4 +69,19 @@ public class QualityController {
         qualityService.reviewApplication(id, status);
         return ResponseEntity.ok("审核完成");
     }
+
+    // 素质教师查看负责班级出勤率
+    @GetMapping("/teacher/attendance")
+    public ResponseEntity<?> getAttendance() {
+        return ResponseEntity.ok(qualityService.getManagedAttendance());
+    }
+
+    // 素质教师查看班级-课程-学生出勤明细
+    @GetMapping("/teacher/attendance/records")
+    public ResponseEntity<?> getAttendanceRecords(
+            @RequestParam Long classId,
+            @RequestParam(required = false) Long courseId,
+            @RequestParam(required = false) Long studentId) {
+        return ResponseEntity.ok(qualityService.getAttendanceRecords(classId, courseId, studentId));
+    }
 }

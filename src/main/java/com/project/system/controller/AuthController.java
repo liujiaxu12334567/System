@@ -64,7 +64,8 @@ public class AuthController {
                 user.getUsername(),
                 user.getRealName(),
                 user.getRoleType(),
-                user.getTeacherRank()
+                user.getTeacherRank(),
+                user.getTeachingClasses()
         ));
     }
 

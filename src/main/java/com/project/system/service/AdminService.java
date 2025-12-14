@@ -31,6 +31,8 @@ public interface AdminService {
 
     // 获取某条通知的统计详情
     List<Map<String, Object>> getNotificationStats(String batchId);
+    // 获取通知统计汇总（阅读率/回复率等）
+    Map<String, Object> getNotificationStatsSummary(String batchId);
     // ...
     Object listClasses();
     Object listPendingApplications();

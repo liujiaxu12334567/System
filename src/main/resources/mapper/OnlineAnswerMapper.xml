@@ -51,4 +51,12 @@
         FROM online_answer
         WHERE id = #{id}
     </select>
+
+    <delete id="deleteByQuestionIds">
+        DELETE FROM online_answer
+        WHERE question_id IN
+        <foreach collection="questionIds" item="qid" open="(" separator="," close=")">
+            #{qid}
+        </foreach>
+    </delete>
 </mapper>

@@ -283,9 +283,12 @@ const loadChat = async () => {
 const sendChat = async () => {
   if (!chatInput.value.trim()) return
   try {
-    await request.post(`/student/classroom/${courseId}/chat`, { content: chatInput.value.trim() })
+    const res = await request.post(`/student/classroom/${courseId}/chat`, { content: chatInput.value.trim() })
     chatInput.value = ''
-    await loadChat()
+    if (res) {
+      chats.value.push(res)
+      scrollToBottom()
+    }
   } catch (e) { ElMessage.error('发送失败') }
 }
 
@@ -345,7 +348,21 @@ const connectWs = () => {
       switch (msg.type) {
         case 'question': fetchQuestions(); break;
         case 'hand': case 'race': case 'answer': case 'call': loadAnswers(); loadChat(); break;
-        case 'chat': loadChat(); break;
+        case 'chat':
+          if (msg.payload) {
+            chats.value.push(msg.payload)
+            scrollToBottom()
+          } else {
+            loadChat()
+          }
+          break;
+        case 'reset':
+          currentQuestion.value = null;
+          questions.value = [];
+          answers.value = [];
+          chats.value = [];
+          fetchQuestions();
+          break;
       }
     } catch (e) {}
   }

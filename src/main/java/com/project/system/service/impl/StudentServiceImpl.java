@@ -6,7 +6,9 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.project.system.entity.*;
 import com.project.system.mapper.*;
+import com.project.system.mq.AnalysisEventPublisher;
 import com.project.system.service.StudentService;
+import com.project.system.service.support.ClassroomMemoryStore;
 import com.project.system.websocket.ClassroomEvent;
 import com.project.system.websocket.ClassroomEventPublisher;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +47,9 @@ public class StudentServiceImpl implements StudentService {
     @Autowired private OnlineAnswerMapper onlineAnswerMapper;
     @Autowired private ClassroomEventPublisher classroomEventPublisher;
     @Autowired private CourseChatMapper courseChatMapper;
+    @Autowired private AnalysisEventPublisher analysisEventPublisher;
+    @Autowired private ClassroomMemoryStore classroomMemoryStore;
+    @Autowired private ClassroomMemoryStore classroomMemoryStore;
 
     @Value("${file.upload-dir:./uploads}")
     private String uploadDir;
@@ -104,6 +109,7 @@ public class StudentServiceImpl implements StudentService {
     @Transactional(rollbackFor = Exception.class)
     public void submitQuiz(Long materialId, Integer score, String userAnswers, String textAnswer, List<MultipartFile> files) {
         User user = getCurrentUser();
+        Material material = materialMapper.findById(materialId);
         String finalContentJson = userAnswers;
         List<String> uploadedPaths = new ArrayList<>();
 
@@ -151,6 +157,14 @@ public class StudentServiceImpl implements StudentService {
         record.setAiFeedback(null);
 
         quizRecordMapper.insert(record);
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("courseId", material != null ? material.getCourseId() : null);
+        payload.put("materialId", materialId);
+        payload.put("studentId", user.getUserId());
+        payload.put("type", material != null ? material.getType() : "quiz");
+        payload.put("score", score);
+        analysisEventPublisher.publish("analysis.assignment.submitted", payload);
     }
 
     @Override
@@ -279,6 +293,7 @@ public class StudentServiceImpl implements StudentService {
     @Transactional(rollbackFor = Exception.class)
     public void submitExam(Long examId, Integer score, String userAnswers, Integer cheatCount) {
         User user = getCurrentUser();
+        Exam exam = examMapper.findExamById(examId);
         ExamRecord record = new ExamRecord();
         record.setUserId(user.getUserId());
         record.setExamId(examId);
@@ -287,6 +302,14 @@ public class StudentServiceImpl implements StudentService {
         record.setCheatCount(cheatCount);
 
         examMapper.insertExamRecord(record);
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("courseId", exam != null ? exam.getCourseId() : null);
+        payload.put("examId", examId);
+        payload.put("studentId", user.getUserId());
+        payload.put("score", score);
+        payload.put("cheatCount", cheatCount);
+        analysisEventPublisher.publish("analysis.exam.submitted", payload);
     }
 
     @Override
@@ -333,7 +356,11 @@ public class StudentServiceImpl implements StudentService {
                     .collect(Collectors.toList());
         }
         if (ids.isEmpty()) return Collections.emptyList();
-        return onlineQuestionMapper.selectByCourseIds(ids).stream().map(this::enrichQuestion).collect(Collectors.toList());
+        java.time.LocalDateTime sessionStart = getSessionStart(courseId, false);
+        return onlineQuestionMapper.selectByCourseIds(ids).stream()
+                .filter(q -> sessionStart == null || (q.getCreateTime() != null && q.getCreateTime().isAfter(sessionStart)))
+                .map(this::enrichQuestion)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -346,6 +373,11 @@ public class StudentServiceImpl implements StudentService {
         OnlineQuestion question = onlineQuestionMapper.selectById(questionId);
         if (question == null) {
             throw new RuntimeException("问题不存在");
+        }
+        // 仅允许当前课堂会话的问题
+        java.time.LocalDateTime sessionStart = getSessionStart(question.getCourseId(), false);
+        if (sessionStart != null && question.getCreateTime() != null && !question.getCreateTime().isAfter(sessionStart)) {
+            throw new RuntimeException("该问题已不在当前课堂会话中");
         }
         OnlineAnswer answer = new OnlineAnswer();
         answer.setQuestionId(questionId);
@@ -390,14 +422,17 @@ public class StudentServiceImpl implements StudentService {
 
     @Override
     public List<OnlineAnswer> listAnswers(Long questionId) {
-        return enrichAnswers(onlineAnswerMapper.selectByQuestionId(questionId));
+        OnlineQuestion q = onlineQuestionMapper.selectById(questionId);
+        if (q == null) return Collections.emptyList();
+        java.time.LocalDateTime sessionStart = getSessionStart(q.getCourseId(), false);
+        return enrichAnswers(onlineAnswerMapper.selectByQuestionId(questionId)).stream()
+                .filter(a -> sessionStart == null || (a.getCreateTime() != null && a.getCreateTime().isAfter(sessionStart)))
+                .collect(Collectors.toList());
     }
 
     @Override
     public List<CourseChat> listCourseChat(Long courseId, int limit) {
-        return courseChatMapper.selectByCourseId(courseId, limit <= 0 ? 200 : limit).stream()
-                .sorted(Comparator.comparing(CourseChat::getCreateTime))
-                .collect(Collectors.toList());
+        return classroomMemoryStore.listChats(courseId, limit <= 0 ? 200 : limit);
     }
 
     @Override
@@ -409,9 +444,24 @@ public class StudentServiceImpl implements StudentService {
         chat.setSenderName(student.getRealName());
         chat.setRole("student");
         chat.setContent(content);
-        courseChatMapper.insert(chat);
-        classroomEventPublisher.publish(new ClassroomEvent("chat", courseId, null, chat));
-        return chat;
+        CourseChat stored = classroomMemoryStore.appendChat(chat);
+        classroomEventPublisher.publish(new ClassroomEvent("chat", courseId, null, stored));
+        return stored;
+    }
+
+    private java.time.LocalDateTime getSessionStart(Long courseId, boolean createIfAbsent) {
+        if (courseId == null) return null;
+        String key = "classroom:session:start:" + courseId;
+        String val = redisTemplate.opsForValue().get(key);
+        if (val != null) {
+            try { return java.time.LocalDateTime.parse(val); } catch (Exception ignored) {}
+        }
+        if (createIfAbsent) {
+            java.time.LocalDateTime now = java.time.LocalDateTime.now();
+            redisTemplate.opsForValue().set(key, now.toString());
+            return now;
+        }
+        return null;
     }
 
     // 【新增】获取待办任务（逻辑：该学生所在班级的所有作业 - 该学生已提交的作业）

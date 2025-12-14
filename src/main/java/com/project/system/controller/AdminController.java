@@ -196,4 +196,9 @@ public class AdminController {
     public ResponseEntity<?> getNotificationStats(@PathVariable String batchId) {
         return ResponseEntity.ok(adminService.getNotificationStats(batchId));
     }
+
+    @GetMapping("/notification/stats/summary/{batchId}")
+    public ResponseEntity<?> getNotificationStatsSummary(@PathVariable String batchId) {
+        return ResponseEntity.ok(adminService.getNotificationStatsSummary(batchId));
+    }
 }

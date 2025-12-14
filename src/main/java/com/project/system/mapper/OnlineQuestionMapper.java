@@ -13,4 +13,6 @@ public interface OnlineQuestionMapper {
     OnlineQuestion selectById(@Param("id") Long id);
     long countByCourseIds(@Param("courseIds") List<Long> courseIds);
     List<OnlineQuestion> selectAllByCourseIds(@Param("courseIds") List<Long> courseIds);
+    int deleteByCourseId(@Param("courseId") Long courseId);
+    List<Long> selectIdsByCourseId(@Param("courseId") Long courseId);
 }

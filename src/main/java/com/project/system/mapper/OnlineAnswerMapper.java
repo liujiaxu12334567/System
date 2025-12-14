@@ -14,4 +14,5 @@ public interface OnlineAnswerMapper {
     int updateAnswerTextById(@Param("id") Long id, @Param("answerText") String answerText);
     List<OnlineAnswer> selectByCourseIds(@Param("courseIds") List<Long> courseIds);
     OnlineAnswer selectById(@Param("id") Long id);
+    int deleteByQuestionIds(@Param("questionIds") List<Long> questionIds);
 }

@@ -87,4 +87,10 @@ public interface TeacherService {
     // 【新增】课堂聊天
     java.util.List<com.project.system.entity.CourseChat> listCourseChat(Long courseId, int limit);
     com.project.system.entity.CourseChat sendCourseChat(Long courseId, String content);
+
+    // 【新增】重置课堂（清空聊天、在线提问与回答）
+    void resetClassroom(Long courseId);
+
+    // 【新增】在线测试表现汇总
+    java.util.List<java.util.Map<String, Object>> getClassroomPerformance(Long courseId);
 }

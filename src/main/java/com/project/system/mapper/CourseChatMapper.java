@@ -10,4 +10,5 @@ import java.util.List;
 public interface CourseChatMapper {
     int insert(CourseChat chat);
     List<CourseChat> selectByCourseId(@Param("courseId") Long courseId, @Param("limit") int limit);
+    int deleteByCourseId(@Param("courseId") Long courseId);
 }

@@ -51,4 +51,16 @@
                  LEFT JOIN sys_user u ON n.user_id = u.user_id
         WHERE n.batch_id = #{batchId}
     </select>
+
+    <select id="selectStatsSummaryByBatchId" resultType="java.util.Map">
+        <![CDATA[
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN n.is_read = 1 THEN 1 ELSE 0 END) AS readCount,
+            SUM(CASE WHEN n.user_reply IS NOT NULL AND n.user_reply <> '' THEN 1 ELSE 0 END) AS replyCount,
+            MAX(n.is_action_required) AS needReply
+        FROM sys_notification n
+        WHERE n.batch_id = #{batchId}
+        ]]>
+    </select>
 </mapper>

@@ -13,6 +13,9 @@
         </div>
       </div>
       <div class="header-right">
+        <el-button type="warning" plain round style="margin-right: 8px" @click="resetClassroom">
+          <el-icon style="margin-right: 4px"><Refresh /></el-icon> 开启新课堂
+        </el-button>
         <el-button type="primary" round @click="publishQuestion">
           <el-icon style="margin-right: 4px"><Promotion /></el-icon> 发布提问
         </el-button>
@@ -250,9 +253,12 @@ const loadChat = async () => {
 const sendChat = async () => {
   if (!chatInput.value.trim()) return
   try {
-    await request.post(`/teacher/classroom/${courseId}/chat`, { content: chatInput.value.trim() })
+    const res = await request.post(`/teacher/classroom/${courseId}/chat`, { content: chatInput.value.trim() })
     chatInput.value = ''
-    await loadChat()
+    if (res) {
+      chats.value.push(res)
+      scrollToBottom()
+    }
   } catch (e) { ElMessage.error('发送失败') }
 }
 
@@ -275,6 +281,21 @@ const callAnswer = async (id) => {
   } catch (e) { ElMessage.error('操作失败') }
 }
 
+const resetClassroom = async () => {
+  const ok = window.confirm('开启新课堂会清空上一节的聊天与在线提问记录，确认继续？')
+  if (!ok) return
+  try {
+    await request.post(`/teacher/classroom/${courseId}/reset`)
+    ElMessage.success('已开启新的课堂')
+    currentQuestion.value = null
+    queue.value = []
+    answers.value = []
+    chats.value = []
+    await fetchQuestions()
+    await loadChat()
+  } catch (e) { ElMessage.error('重置失败') }
+}
+
 // === Connection ===
 const startPolling = () => {
   timer = setInterval(() => {
@@ -294,7 +315,21 @@ const connectWs = () => {
       switch (msg.type) {
         case 'question': fetchQuestions(); break;
         case 'hand': case 'race': case 'answer': case 'call': loadQueue(); loadAnswers(); loadChat(); break;
-        case 'chat': loadChat(); break;
+        case 'chat':
+          if (msg.payload) {
+            chats.value.push(msg.payload)
+            scrollToBottom()
+          } else {
+            loadChat()
+          }
+          break;
+        case 'reset':
+          currentQuestion.value = null;
+          queue.value = [];
+          answers.value = [];
+          chats.value = [];
+          fetchQuestions();
+          break;
       }
     } catch (e) {}
   }

@@ -155,6 +155,35 @@
           </div>
         </div>
 
+        <div class="performance-card">
+          <div class="card-header-light perf-header">
+            <div class="header-title-group">
+              <span class="deco-bar bg-green"></span>
+              <span class="title">课堂表现（当前会话）</span>
+            </div>
+            <div class="perf-actions">
+              <el-select v-model="perfCourseId" size="small" placeholder="选择课程" style="width: 200px" @change="fetchPerformance">
+                <el-option v-for="c in myCourseList" :key="c.id" :label="c.name" :value="c.id" />
+              </el-select>
+              <el-button size="small" type="primary" link :disabled="!perfCourseId" @click="fetchPerformance(perfCourseId)">
+                <el-icon><Refresh /></el-icon> 刷新
+              </el-button>
+            </div>
+          </div>
+          <el-table :data="performanceList" size="small" border v-loading="perfLoading" empty-text="暂无当前课堂记录">
+            <el-table-column prop="studentName" label="学生" min-width="120" />
+            <el-table-column prop="handCount" label="举手" width="80" />
+            <el-table-column prop="raceCount" label="抢答" width="80" />
+            <el-table-column prop="answerCount" label="答题" width="80" />
+            <el-table-column prop="total" label="总计" width="90">
+              <template #default="{row}"><el-tag type="success" effect="plain">{{ row.total }}</el-tag></template>
+            </el-table-column>
+            <el-table-column prop="lastAnswerTime" label="最近时间" min-width="150">
+              <template #default="{row}">{{ formatDateTime(row.lastAnswerTime) }}</template>
+            </el-table-column>
+          </el-table>
+        </div>
+
         <div class="charts-row-light">
           <el-row :gutter="20">
             <el-col :span="8">
@@ -428,6 +457,9 @@ const notificationList = ref([])
 const teachingClassIds = ref([])
 const availableExams = ref([])
 const unreadCount = computed(() => notificationList.value.filter(n => !n.isRead).length)
+const performanceList = ref([])
+const perfCourseId = ref(null)
+const perfLoading = ref(false)
 
 // 签到相关
 const myCourseList = ref([])
@@ -514,6 +546,10 @@ const fetchMyCourses = async () => {
 
     // 刷新每个课程的状态
     myCourseList.value.forEach(c => refreshStatus(c.id))
+    if (!perfCourseId.value && myCourseList.value.length > 0) {
+      perfCourseId.value = myCourseList.value[0].id
+      fetchPerformance(perfCourseId.value)
+    }
 
     // 启动轮询
     if(!statusTimer) statusTimer = setInterval(refreshAllStatus, 3000)
@@ -709,6 +745,19 @@ const fetchDashboardData = async () => {
   } catch(e) { console.error(e) }
 }
 
+const fetchPerformance = async (courseId) => {
+  if (!courseId) return
+  perfLoading.value = true
+  try {
+    const res = await request.get(`/teacher/classroom/${courseId}/performance`)
+    performanceList.value = Array.isArray(res) ? res : []
+  } catch (e) {
+    ElMessage.error('加载课堂表现失败')
+  } finally {
+    perfLoading.value = false
+  }
+}
+
 const fetchApplications = async () => {
   try { applicationList.value = await request.get('/teacher/my-applications') || [] } catch(e){}
 }
@@ -765,6 +814,7 @@ const submitGrade = async (row) => {
 }
 
 const formatTime = (t) => t ? dayjs(t).fromNow() : ''
+const formatDateTime = (t) => t ? dayjs(t).format('YYYY-MM-DD HH:mm') : ''
 const formatType = (t) => ({ADD:'新增',DELETE:'删除',RESET_PWD:'重置',DEADLINE_EXTENSION:'延期'}[t]||t)
 const formatStatus = (s) => ({PENDING:'审核中',APPROVED:'通过',REJECTED:'驳回'}[s]||s)
 const getStatusType = (s) => ({APPROVED:'success',REJECTED:'danger',PENDING:'warning'}[s]||'info')
@@ -863,6 +913,24 @@ $card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
       .bg-purple { background-color: #909399; }
     }
     .chart-box-light { height: 280px; width: 100%; }
+  }
+}
+.performance-card {
+  margin-bottom: 24px;
+  background: $white;
+  border-radius: 12px;
+  box-shadow: $card-shadow;
+  padding: 16px;
+  .perf-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .perf-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 }
 

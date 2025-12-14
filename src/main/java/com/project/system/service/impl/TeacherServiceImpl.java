@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.system.dto.PaginationResponse;
 import com.project.system.entity.*;
 import com.project.system.mapper.*;
+import com.project.system.mq.AnalysisEventPublisher;
 import com.project.system.service.TeacherService;
+import com.project.system.service.support.ClassroomMemoryStore;
 import com.project.system.websocket.ClassroomEvent;
 import com.project.system.websocket.ClassroomEventPublisher;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -16,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -31,6 +34,7 @@ public class TeacherServiceImpl implements TeacherService {
     @Autowired private ExamMapper examMapper;
     @Autowired private NotificationMapper notificationMapper;
     @Autowired private RabbitTemplate rabbitTemplate;
+    @Autowired private AnalysisEventPublisher analysisEventPublisher;
 
     // 【新增】注入 Redis 模板用于处理签到数据
     @Autowired private StringRedisTemplate redisTemplate;
@@ -42,6 +46,10 @@ public class TeacherServiceImpl implements TeacherService {
     @Autowired private OnlineAnswerMapper onlineAnswerMapper;
     @Autowired private ClassroomEventPublisher classroomEventPublisher;
     @Autowired private CourseChatMapper courseChatMapper;
+    @Autowired private com.project.system.mapper.AttendanceRecordMapper attendanceRecordMapper;
+    @Autowired private ClassroomMemoryStore classroomMemoryStore;
+    @Autowired private AnalysisResultMapper analysisResultMapper;
+    @Autowired private ObjectMapper objectMapper;
 
     // 辅助方法：获取当前登录教师
     private User getCurrentTeacher() {
@@ -504,8 +512,58 @@ public class TeacherServiceImpl implements TeacherService {
 
     @Override
     public void stopCheckIn(Long courseId) {
+        String activeKey = "course:checkin:active:" + courseId;
+        String batchId = redisTemplate.opsForValue().get(activeKey);
+
+        if (batchId != null) {
+            Long checkedCount = redisTemplate.opsForSet().size("course:checkin:list:" + batchId);
+
+            Course course = courseMapper.selectAllCourses().stream()
+                    .filter(c -> c.getId().equals(courseId)).findFirst().orElse(null);
+            long totalStudents = 0;
+            Long classId = null;
+            if (course != null && course.getClassId() != null) {
+                classId = course.getClassId();
+                totalStudents = userMapper.countStudentsByTeachingClasses(null, null, Collections.singletonList(String.valueOf(classId)));
+            }
+
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("courseId", courseId);
+            payload.put("batchId", batchId);
+            payload.put("checkedCount", checkedCount == null ? 0 : checkedCount);
+            payload.put("totalCount", totalStudents);
+            analysisEventPublisher.publish("analysis.attendance.closed", payload);
+
+            // 写出勤明细
+            if (classId != null) {
+                List<User> students = userMapper.selectStudentsByClassIds(Collections.singletonList(classId));
+                Set<String> presentIds = redisTemplate.opsForSet().members("course:checkin:list:" + batchId);
+                Set<Long> present = new HashSet<>();
+                if (presentIds != null) {
+                    for (String s : presentIds) {
+                        try { present.add(Long.parseLong(s)); } catch (Exception ignored) {}
+                    }
+                }
+                List<com.project.system.entity.AttendanceRecord> records = new ArrayList<>();
+                java.sql.Date today = java.sql.Date.valueOf(java.time.LocalDate.now());
+                for (User s : students) {
+                    com.project.system.entity.AttendanceRecord r = new com.project.system.entity.AttendanceRecord();
+                    r.setClassId(classId);
+                    r.setCourseId(courseId);
+                    r.setStudentId(s.getUserId());
+                    r.setDate(today);
+                    r.setPresent(present.contains(s.getUserId()));
+                    r.setBatchId(batchId);
+                    records.add(r);
+                }
+                if (!records.isEmpty()) {
+                    attendanceRecordMapper.batchInsert(records);
+                }
+            }
+        }
+
         // 删除活动状态 key 即可，学生无法再获取到 batchId 进行签到
-        redisTemplate.delete("course:checkin:active:" + courseId);
+        redisTemplate.delete(activeKey);
     }
 
     @Override
@@ -626,7 +684,11 @@ public class TeacherServiceImpl implements TeacherService {
         if (targetIds.isEmpty()) return Collections.emptyList();
         targetIds = targetIds.stream().filter(myCourseIds::contains).collect(Collectors.toList());
         if (targetIds.isEmpty()) return Collections.emptyList();
-        return onlineQuestionMapper.selectByCourseIds(targetIds).stream().map(this::enrichQuestion).collect(Collectors.toList());
+        LocalDateTime sessionStart = getSessionStart(courseId, false);
+        return onlineQuestionMapper.selectByCourseIds(targetIds).stream()
+                .filter(q -> sessionStart == null || (q.getCreateTime() != null && q.getCreateTime().isAfter(sessionStart)))
+                .map(this::enrichQuestion)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -636,7 +698,10 @@ public class TeacherServiceImpl implements TeacherService {
         // 权限校验
         Set<Long> myCourseIds = getMyCourses().stream().map(Course::getId).collect(Collectors.toSet());
         if (!myCourseIds.contains(q.getCourseId())) return Collections.emptyList();
-        return enrichAnswers(onlineAnswerMapper.selectByQuestionId(questionId));
+        LocalDateTime sessionStart = getSessionStart(q.getCourseId(), false);
+        return enrichAnswers(onlineAnswerMapper.selectByQuestionId(questionId)).stream()
+                .filter(a -> sessionStart == null || (a.getCreateTime() != null && a.getCreateTime().isAfter(sessionStart)))
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -665,9 +730,7 @@ public class TeacherServiceImpl implements TeacherService {
 
     @Override
     public List<CourseChat> listCourseChat(Long courseId, int limit) {
-        return courseChatMapper.selectByCourseId(courseId, limit <= 0 ? 200 : limit).stream()
-                .sorted(Comparator.comparing(CourseChat::getCreateTime))
-                .collect(Collectors.toList());
+        return classroomMemoryStore.listChats(courseId, limit <= 0 ? 200 : limit);
     }
 
     @Override
@@ -679,9 +742,91 @@ public class TeacherServiceImpl implements TeacherService {
         chat.setSenderName(teacher.getRealName());
         chat.setRole("teacher");
         chat.setContent(content);
-        courseChatMapper.insert(chat);
-        classroomEventPublisher.publish(new ClassroomEvent("chat", courseId, null, chat));
-        return chat;
+        CourseChat stored = classroomMemoryStore.appendChat(chat);
+        classroomEventPublisher.publish(new ClassroomEvent("chat", courseId, null, stored));
+        return stored;
+    }
+
+    @Override
+    @Transactional
+    public void resetClassroom(Long courseId) {
+        if (courseId == null) return;
+        // 0) 在线测试表现汇总（先保存，再清空）
+        try {
+            List<Map<String, Object>> perf = getClassroomPerformance(courseId);
+            if (perf != null && !perf.isEmpty()) {
+                Map<String, Object> payload = new HashMap<>();
+                payload.put("courseId", courseId);
+                payload.put("generatedAt", java.time.LocalDateTime.now());
+                payload.put("students", perf);
+                AnalysisResult ar = new AnalysisResult();
+                ar.setCourseId(courseId);
+                ar.setMetric("classroom_online_performance");
+                ar.setEventId("classroom_perf_" + courseId + "_" + System.currentTimeMillis());
+                ar.setValueJson(objectMapper.writeValueAsString(payload));
+                analysisResultMapper.insert(ar);
+            }
+        } catch (Exception ignored) {}
+
+        // 1) 先删除当前课程的在线回答，再删问题
+        List<Long> qids = onlineQuestionMapper.selectIdsByCourseId(courseId);
+        if (qids != null && !qids.isEmpty()) {
+            onlineAnswerMapper.deleteByQuestionIds(qids);
+        }
+        onlineQuestionMapper.deleteByCourseId(courseId);
+        // 2) 删除课程聊天记录（内存态）
+        classroomMemoryStore.clearCourse(courseId);
+        // 2.5) 标记新的课堂会话开始时间
+        setSessionStart(courseId, LocalDateTime.now());
+        // 3) 通知 WebSocket 客户端刷新
+        classroomEventPublisher.publish(new ClassroomEvent("reset", courseId, null, Map.of("courseId", courseId)));
+    }
+
+    @Override
+    public List<Map<String, Object>> getClassroomPerformance(Long courseId) {
+        if (courseId == null) return Collections.emptyList();
+        LocalDateTime sessionStart = getSessionStart(courseId, false);
+        List<OnlineAnswer> answers = onlineAnswerMapper.selectByCourseIds(Collections.singletonList(courseId));
+        if (answers == null || answers.isEmpty()) return Collections.emptyList();
+
+        Map<Long, PerfCounter> perfMap = new HashMap<>();
+        for (OnlineAnswer a : answers) {
+            OnlineAnswer enriched = enrichAnswer(a);
+            if (sessionStart != null && a.getCreateTime() != null && !a.getCreateTime().isAfter(sessionStart)) {
+                continue;
+            }
+            PerfCounter c = perfMap.computeIfAbsent(a.getStudentId(), k -> new PerfCounter());
+            c.total++;
+            String type = enriched.getType() == null ? "answer" : enriched.getType();
+            switch (type) {
+                case "hand": c.hand++; break;
+                case "race": c.race++; break;
+                default: c.answer++; break;
+            }
+            if (a.getCreateTime() != null && (c.lastTime == null || a.getCreateTime().isAfter(c.lastTime))) {
+                c.lastTime = a.getCreateTime();
+            }
+        }
+
+        Map<Long, User> studentMap = userMapper.selectUsersByRole("4").stream()
+                .collect(Collectors.toMap(User::getUserId, u -> u, (a, b) -> a));
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        perfMap.forEach((sid, c) -> {
+            Map<String, Object> m = new HashMap<>();
+            m.put("studentId", sid);
+            User stu = studentMap.get(sid);
+            m.put("studentName", stu != null ? stu.getRealName() : ("学生" + sid));
+            m.put("handCount", c.hand);
+            m.put("raceCount", c.race);
+            m.put("answerCount", c.answer);
+            m.put("total", c.total);
+            m.put("lastAnswerTime", c.lastTime);
+            result.add(m);
+        });
+
+        result.sort(Comparator.comparing((Map<String, Object> m) -> (Integer) m.get("total")).reversed());
+        return result;
     }
 
     private OnlineQuestion enrichQuestion(OnlineQuestion q) {
@@ -712,6 +857,34 @@ public class TeacherServiceImpl implements TeacherService {
             } catch (Exception ignored) {}
         }
         return a;
+    }
+
+    private LocalDateTime getSessionStart(Long courseId, boolean createIfAbsent) {
+        if (courseId == null) return null;
+        String key = "classroom:session:start:" + courseId;
+        String val = redisTemplate.opsForValue().get(key);
+        if (val != null) {
+            try { return LocalDateTime.parse(val); } catch (Exception ignored) {}
+        }
+        if (createIfAbsent) {
+            LocalDateTime now = LocalDateTime.now();
+            redisTemplate.opsForValue().set(key, now.toString());
+            return now;
+        }
+        return null;
+    }
+
+    private void setSessionStart(Long courseId, LocalDateTime time) {
+        if (courseId == null || time == null) return;
+        redisTemplate.opsForValue().set("classroom:session:start:" + courseId, time.toString());
+    }
+
+    private static class PerfCounter {
+        int hand = 0;
+        int race = 0;
+        int answer = 0;
+        int total = 0;
+        java.time.LocalDateTime lastTime;
     }
 
     private List<OnlineAnswer> enrichAnswers(List<OnlineAnswer> list) {

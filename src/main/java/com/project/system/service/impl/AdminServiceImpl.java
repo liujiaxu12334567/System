@@ -81,7 +81,9 @@ public class AdminServiceImpl implements AdminService {
             }
         }
         if ("4".equals(roleType) && classId != null) checkAndInsertClass(classId, major);
-        if ("5".equals(roleType) && teachingClasses != null) user.setTeachingClasses(teachingClasses);
+        if ("5".equals(roleType) && teachingClasses != null) {
+            user.setTeachingClasses(validateTeachingClasses(teachingClasses));
+        }
 
         userMapper.insert(user);
     }
@@ -93,7 +95,15 @@ public class AdminServiceImpl implements AdminService {
         } else {
             user.setPassword(null);
         }
-        if ("2".equals(user.getRoleType())) user.setTeachingClasses(null);
+        if ("2".equals(user.getRoleType())) {
+            user.setTeachingClasses(null);
+        } else if ("5".equals(user.getRoleType())) {
+            if (user.getTeachingClasses() != null) {
+                user.setTeachingClasses(validateTeachingClasses(user.getTeachingClasses()));
+            }
+        } else {
+            user.setTeachingClasses(null);
+        }
         if ("4".equals(user.getRoleType()) && user.getClassId() != null) checkAndInsertClass(user.getClassId(), null);
         userMapper.updateUser(user);
     }
@@ -330,4 +340,20 @@ public class AdminServiceImpl implements AdminService {
     public List<Object> getNotificationHistory() { return new ArrayList<>(notificationMapper.selectSentBatches()); }
     @Override
     public List<Map<String, Object>> getNotificationStats(String batchId) { return notificationMapper.selectStatsByBatchId(batchId); }
+    @Override
+    public Map<String, Object> getNotificationStatsSummary(String batchId) { return notificationMapper.selectStatsSummaryByBatchId(batchId); }
+
+    private String validateTeachingClasses(String teachingClasses) {
+        String[] arr = teachingClasses.split(",");
+        List<String> cleaned = new ArrayList<>();
+        for (String s : arr) {
+            if (s == null) continue;
+            String t = s.trim();
+            if (!t.isEmpty()) cleaned.add(t);
+        }
+        if (cleaned.size() > 4) {
+            throw new RuntimeException("素质教师最多分配4个班级");
+        }
+        return String.join(",", cleaned);
+    }
 }
