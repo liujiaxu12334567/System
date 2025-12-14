@@ -411,8 +411,20 @@ def handle_action(envelope: Dict[str, Any]):
             compute_and_store_all(course_id, base_event_id, trigger=f"{action}:retry")
 
 
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="RabbitMQ analysis consumer / MySQL aggregator")
+    p.add_argument("--once", type=int, help="只对指定 courseId 计算一次并退出（不连接 RabbitMQ）")
+    p.add_argument("--trigger", default="manual.once", help="写入 analysis_result 时的 trigger 字段（仅 --once 模式）")
+    return p
+
+
 def main():
+    args = build_arg_parser().parse_args()
     init_db()
+
+    if args.once:
+        compute_and_store_all(int(args.once), base_event_id=None, trigger=str(args.trigger))
+        return
 
     print(f"[analysis] RABBITMQ_URL={RABBITMQ_URL}")
     print(f"[analysis] MYSQL_URL={MYSQL_URL}")
