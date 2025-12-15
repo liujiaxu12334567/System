@@ -15,4 +15,6 @@ public interface MaterialMapper {
 
     // 【修复/新增】更新资料内容（用于修改截止时间）
     int updateContent(@Param("id") Long id, @Param("content") String content);
+
+    long countTasksByCourseIds(@Param("courseIds") List<Long> courseIds);
 }

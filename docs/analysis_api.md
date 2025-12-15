@@ -47,7 +47,7 @@
 
 推荐在组长页的 “教师数据分析” 输入框里使用以下 `metric`：
 - `course_online_rate`：到课/在线率（来源：`attendance_summary`）
-- `homework_submission_rate`：作业提交率（来源：`assignment_summary`）
+- `homework_submission_rate`：作业提交率（来源：`sys_quiz_record` + `sys_material`，更实时；可选兼容 `assignment_summary`）
 - `interaction_score`：互动度评分（来源：`teacher_interaction` + `online_question/online_answer`）
 - `chat_activity`：聊天活跃度（来源：`course_chat`）
 

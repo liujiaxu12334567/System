@@ -48,4 +48,22 @@
     <select id="findById" resultMap="QuizRecordResultMap">
         SELECT * FROM sys_quiz_record WHERE id = #{id}
     </select>
+
+    <select id="countSubmittedTasksByCourseIdsAndStudentIds" resultType="com.project.system.dto.StudentCountAgg">
+        SELECT
+            r.user_id AS userId,
+            COUNT(DISTINCT r.material_id) AS count
+        FROM sys_quiz_record r
+                 INNER JOIN sys_material m ON r.material_id = m.id
+        WHERE m.type IN ('作业', '测验', '项目')
+          AND m.course_id IN
+        <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+          AND r.user_id IN
+        <foreach collection="studentIds" item="sid" open="(" separator="," close=")">
+            #{sid}
+        </foreach>
+        GROUP BY r.user_id
+    </select>
 </mapper>

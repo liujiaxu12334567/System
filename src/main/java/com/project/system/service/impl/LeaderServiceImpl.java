@@ -23,11 +23,15 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 public class LeaderServiceImpl implements LeaderService {
+
+    private static final DateTimeFormatter DEADLINE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Autowired private UserMapper userMapper;
     @Autowired private CourseMapper courseMapper;
@@ -279,8 +283,7 @@ public class LeaderServiceImpl implements LeaderService {
             }
 
             if (deadline != null && !deadline.isEmpty()) {
-                finalContent = String.format("{\"text\": \"%s\", \"deadline\": \"%s\"}",
-                        content != null ? content.replace("\"", "\\\"") : "", deadline);
+                finalContent = mergeDeadlineIntoContent(content, deadline);
             }
         }
 
@@ -374,19 +377,17 @@ public class LeaderServiceImpl implements LeaderService {
         Material material = materialMapper.findById(materialId);
         if (material == null) throw new RuntimeException("资料不存在");
 
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(material.getContent());
-            if (root.isObject() && root.has("text")) {
-                ((ObjectNode) root).put("deadline", newDeadline);
-                String newContent = mapper.writeValueAsString(root);
-                materialMapper.updateContent(materialId, newContent);
-            } else {
-                throw new RuntimeException("资料格式不支持更新截止时间");
-            }
-        } catch (IOException e) {
-            throw new RuntimeException("JSON解析失败");
+        if (newDeadline == null || newDeadline.isBlank()) {
+            throw new RuntimeException("新的截止时间不能为空");
         }
+        try {
+            LocalDateTime.parse(newDeadline.trim(), DEADLINE_FORMATTER);
+        } catch (Exception e) {
+            throw new RuntimeException("截止时间格式应为 yyyy-MM-dd HH:mm:ss");
+        }
+
+        String newContent = mergeDeadlineIntoContent(material.getContent(), newDeadline.trim());
+        materialMapper.updateContent(materialId, newContent);
     }
 
     @Override
@@ -428,8 +429,7 @@ public class LeaderServiceImpl implements LeaderService {
 
         // 2. 格式化内容（处理截止时间）
         if (deadline != null && !deadline.isEmpty()) {
-            finalContent = String.format("{\"text\": \"%s\", \"deadline\": \"%s\"}",
-                    content != null ? content.replace("\"", "\\\"") : "", deadline);
+            finalContent = mergeDeadlineIntoContent(content, deadline);
         }
 
         // 3. 查找所有受影响的课程
@@ -526,6 +526,25 @@ public class LeaderServiceImpl implements LeaderService {
         if (processedCourseIds.isEmpty()) {
             throw new RuntimeException("没有找到匹配的课程来发布考试。");
         }
+    }
+
+    private String mergeDeadlineIntoContent(String content, String deadline) {
+        if (deadline == null || deadline.isEmpty()) return content;
+        String c = content == null ? "" : content.trim();
+        try {
+            if (c.startsWith("{")) {
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode root = mapper.readTree(c);
+                if (root != null && root.isObject()) {
+                    ((ObjectNode) root).put("deadline", deadline);
+                    return mapper.writeValueAsString(root);
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // 非 JSON：兜底包装为 text + deadline
+        String safeText = content == null ? "" : content.replace("\\", "\\\\").replace("\"", "\\\"");
+        return String.format("{\"text\": \"%s\", \"deadline\": \"%s\"}", safeText, deadline);
     }
     @Override
     @Transactional

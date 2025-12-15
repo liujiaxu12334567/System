@@ -248,16 +248,22 @@
           <el-table :data="studentList" border style="width: 100%" height="400" header-cell-class-name="light-table-header" v-loading="loading">
             <el-table-column prop="username" label="学号" width="140" />
             <el-table-column prop="realName" label="姓名" width="120" font-weight="bold"/>
-            <el-table-column prop="classId" label="班级" width="100" align="center">
+          <el-table-column prop="classId" label="班级" width="100" align="center">
               <template #default="scope"><el-tag effect="light">{{ scope.row.classId }}班</el-tag></template>
-            </el-table-column>
-            <el-table-column label="AI综合画像" width="150" align="center">
-              <template #default>
-                <el-progress :percentage="Number((Math.random() * (98 - 80) + 80).toFixed(0))" :status="Math.random()>0.5?'success':''"></el-progress>
+          </el-table-column>
+          <el-table-column label="AI综合画像" width="150" align="center">
+              <template #default="scope">
+                <span v-if="!classFilter" class="text-gray">-</span>
+                <el-tooltip v-else :content="formatPortrait(scope.row)" placement="top">
+                  <el-progress
+                      :percentage="getPortraitScore(scope.row)"
+                      :status="getPortraitStatus(scope.row)"
+                  />
+                </el-tooltip>
               </template>
-            </el-table-column>
-            <el-table-column prop="createTime" label="入学时间" min-width="160" />
-            <el-table-column label="操作" width="180" fixed="right" align="center">
+          </el-table-column>
+          <el-table-column prop="createTime" label="入学时间" min-width="160" />
+          <el-table-column label="操作" width="180" fixed="right" align="center">
               <template #default="scope">
                 <el-button link type="primary" size="small" @click="openApplyDialog('RESET_PWD', scope.row)">重置</el-button>
                 <el-popconfirm title="确定要发起删除申请吗？" @confirm="submitApplication">
@@ -361,6 +367,21 @@
           <el-table-column prop="type" label="类型" width="100" align="center">
             <template #default="scope"><el-tag :type="getMaterialTypeTag(scope.row.type)" effect="light">{{ scope.row.type }}</el-tag></template>
           </el-table-column>
+          <el-table-column label="截止时间" width="180" align="center">
+            <template #default="{row}">
+              <span v-if="['作业','测验','项目'].includes(row.type)">{{ getMaterialDeadline(row) || '无限制' }}</span>
+              <span v-else class="text-gray">-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="120" align="center">
+            <template #default="{row}">
+              <template v-if="['作业','测验','项目'].includes(row.type)">
+                <el-tag v-if="isMaterialExpired(row)" type="danger" effect="plain">时间到了</el-tag>
+                <el-tag v-else type="success" effect="plain">进行中</el-tag>
+              </template>
+              <span v-else class="text-gray">-</span>
+            </template>
+          </el-table-column>
           <el-table-column label="操作" width="220" align="center">
             <template #default="scope">
               <el-button size="small" type="primary" link @click="openSubmissionDialog(scope.row)">批改作业</el-button>
@@ -403,6 +424,24 @@
             <el-form-item label="学号"><el-input v-model="applyForm.newUsername" /></el-form-item>
             <el-form-item label="姓名"><el-input v-model="applyForm.newRealName" /></el-form-item>
             <el-form-item label="班级ID"><el-input v-model="applyForm.newClassId" type="number" /></el-form-item>
+          </template>
+          <template v-else-if="applyForm.type === 'DEADLINE_EXTENSION'">
+            <el-form-item label="资料">
+              <el-input v-model="applyForm.materialName" disabled placeholder="-" />
+            </el-form-item>
+            <el-form-item label="当前截止">
+              <el-input v-model="applyForm.currentDeadline" disabled placeholder="无限制" />
+            </el-form-item>
+            <el-form-item label="延长至">
+              <el-date-picker
+                  v-model="applyForm.newDeadline"
+                  type="datetime"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  format="YYYY-MM-DD HH:mm:ss"
+                  placeholder="选择新的截止时间"
+                  style="width: 100%"
+              />
+            </el-form-item>
           </template>
           <el-form-item label="申请理由">
             <el-input type="textarea" v-model="applyForm.reason" rows="4" />
@@ -491,7 +530,17 @@ const selectedExamId = ref(null)
 const dialogVisible = ref(false)
 const submissionDialogVisible = ref(false)
 const dialogTitle = ref('')
-const applyForm = ref({ type: '', reason: '', newUsername: '', newRealName: '', newClassId: null })
+const applyForm = ref({
+  type: '',
+  reason: '',
+  newUsername: '',
+  newRealName: '',
+  newClassId: null,
+  targetId: null,
+  materialName: '',
+  currentDeadline: '',
+  newDeadline: ''
+})
 const submissions = ref([])
 const currentMaterial = ref({})
 
@@ -733,8 +782,49 @@ const fetchStudents = async () => {
       }})
     studentList.value = res.list || []
     total.value = res.total || 0
+    await fetchStudentPortraits()
   } catch(e) { ElMessage.error('加载学生失败') }
   finally { loading.value = false }
+}
+
+const portraitMap = ref({})
+const fetchStudentPortraits = async () => {
+  const ids = (studentList.value || []).map(s => s?.userId).filter(Boolean)
+  if (!classFilter.value || ids.length === 0) {
+    portraitMap.value = {}
+    studentList.value = (studentList.value || []).map(s => ({ ...s, portrait: null }))
+    return
+  }
+  try {
+    const res = await request.get('/teacher/student-portraits', {
+      params: { classId: classFilter.value, studentIds: ids.join(',') }
+    })
+    const map = {}
+    ;(res || []).forEach(p => { if (p?.userId != null) map[p.userId] = p })
+    portraitMap.value = map
+    studentList.value = (studentList.value || []).map(s => ({ ...s, portrait: map[s.userId] || null }))
+  } catch (e) {
+    portraitMap.value = {}
+    studentList.value = (studentList.value || []).map(s => ({ ...s, portrait: null }))
+  }
+}
+
+const getPortrait = (row) => row?.portrait || portraitMap.value?.[row?.userId] || null
+const getPortraitScore = (row) => {
+  const v = Number(getPortrait(row)?.portraitScore ?? 0)
+  if (!Number.isFinite(v)) return 0
+  return Math.max(0, Math.min(100, v))
+}
+const getPortraitStatus = (row) => {
+  const s = getPortraitScore(row)
+  if (s >= 80) return 'success'
+  if (s > 0 && s < 60) return 'exception'
+  return ''
+}
+const formatPortrait = (row) => {
+  const p = getPortrait(row)
+  if (!p) return '暂无画像数据'
+  return `出勤 ${p.attendanceRate}%（${p.attendancePresent}/${p.attendanceTotal}） | 提交 ${p.submissionRate}%（${p.submittedCount}/${p.taskTotal}） | 互动 ${p.interactionScore}%（${p.interactionCount}）`
 }
 
 const fetchDashboardData = async () => {
@@ -770,18 +860,45 @@ const fetchCheatingRecords = async () => {
 
 // 业务逻辑
 const openApplyDialog = (type, row, autoSubmit = false) => {
-  applyForm.value = { type, reason: '', newUsername: '', newRealName: '', newClassId: null, targetId: row?.userId }
-  dialogTitle.value = type === 'ADD' ? '新增学生申请' : '操作确认'
+  if (type === 'DEADLINE_EXTENSION') {
+    applyForm.value = {
+      type,
+      reason: '',
+      newUsername: '',
+      newRealName: '',
+      newClassId: null,
+      targetId: row?.id,
+      materialName: row?.fileName || '',
+      currentDeadline: getMaterialDeadline(row) || '',
+      newDeadline: ''
+    }
+    dialogTitle.value = '资料延期申请'
+  } else {
+    applyForm.value = { type, reason: '', newUsername: '', newRealName: '', newClassId: null, targetId: row?.userId, materialName: '', currentDeadline: '', newDeadline: '' }
+    dialogTitle.value = type === 'ADD' ? '新增学生申请' : '操作确认'
+  }
   dialogVisible.value = true
 }
 
 const submitApplication = async () => {
   if(!applyForm.value.reason) return ElMessage.warning('请填写理由')
-  let content = applyForm.value.type === 'ADD'
-      ? `新增学生: ${applyForm.value.newRealName} (${applyForm.value.newUsername}) 到班级 ${applyForm.value.newClassId}`
-      : `对学生ID ${applyForm.value.targetId} 进行 ${applyForm.value.type} 操作`
+  let content = ''
+  if (applyForm.value.type === 'ADD') {
+    content = `新增学生: ${applyForm.value.newRealName} (${applyForm.value.newUsername}) 到班级 ${applyForm.value.newClassId}`
+  } else if (applyForm.value.type === 'DEADLINE_EXTENSION') {
+    if (!applyForm.value.targetId) return ElMessage.warning('缺少资料ID，无法发起延期申请')
+    if (!applyForm.value.newDeadline) return ElMessage.warning('请选择新的截止时间')
+    content = `资料延期申请: ${applyForm.value.materialName || ''} (materialId=${applyForm.value.targetId}) 延长至: ${applyForm.value.newDeadline}`
+  } else {
+    content = `对学生ID ${applyForm.value.targetId} 进行 ${applyForm.value.type} 操作`
+  }
 
-  await request.post('/teacher/apply', { ...applyForm.value, content })
+  await request.post('/teacher/apply', {
+    type: applyForm.value.type,
+    reason: applyForm.value.reason,
+    targetId: applyForm.value.targetId,
+    content
+  })
   ElMessage.success('申请已提交')
   dialogVisible.value = false
   fetchApplications()
@@ -813,6 +930,27 @@ const formatType = (t) => ({ADD:'新增',DELETE:'删除',RESET_PWD:'重置',DEAD
 const formatStatus = (s) => ({PENDING:'审核中',APPROVED:'通过',REJECTED:'驳回'}[s]||s)
 const getStatusType = (s) => ({APPROVED:'success',REJECTED:'danger',PENDING:'warning'}[s]||'info')
 const getMaterialTypeTag = (t) => ({'作业':'primary','测验':'warning'}[t]||'info')
+
+const parseMaterialContent = (content) => {
+  if (!content) return { text: '', deadline: '' }
+  try {
+    const obj = JSON.parse(content)
+    return obj && typeof obj === 'object' ? obj : { text: String(content), deadline: '' }
+  } catch (e) {
+    return { text: String(content), deadline: '' }
+  }
+}
+
+const getMaterialDeadline = (row) => {
+  const obj = parseMaterialContent(row?.content)
+  return obj?.deadline || ''
+}
+
+const isMaterialExpired = (row) => {
+  const d = getMaterialDeadline(row)
+  if (!d) return false
+  return dayjs().isAfter(dayjs(d))
+}
 const handleSizeChange = (v) => { pageSize.value = v; fetchStudents() }
 const handleCurrentChange = (v) => { pageNum.value = v; fetchStudents() }
 const logout = () => { localStorage.clear(); router.push('/login') }

@@ -1,0 +1,11 @@
+[analysis] RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/%2F
+[analysis] MYSQL_URL=mysql+pymysql://root:liujiaxu@localhost:3306/System?charset=utf8mb4
+[analysis] consumer started, waiting for messages...
+[analysis] stored metric=course_online_rate courseId=3004 trigger=cron.chat_scan
+[analysis] stored metric=homework_submission_rate courseId=3004 trigger=cron.chat_scan
+[analysis] stored metric=interaction_score courseId=3004 trigger=cron.chat_scan
+[analysis] stored metric=chat_activity courseId=3004 trigger=cron.chat_scan
+[analysis] stored metric=course_online_rate courseId=3003 trigger=analysis.assignment.submitted
+[analysis] stored metric=homework_submission_rate courseId=3003 trigger=analysis.assignment.submitted
+[analysis] stored metric=interaction_score courseId=3003 trigger=analysis.assignment.submitted
+[analysis] stored metric=chat_activity courseId=3003 trigger=analysis.assignment.submitted

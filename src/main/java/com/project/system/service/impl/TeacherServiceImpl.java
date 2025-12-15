@@ -3,6 +3,9 @@ package com.project.system.service.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.system.dto.PaginationResponse;
+import com.project.system.dto.StudentAttendanceAgg;
+import com.project.system.dto.StudentCountAgg;
+import com.project.system.dto.StudentPortraitResponse;
 import com.project.system.entity.*;
 import com.project.system.entity.Class;
 import com.project.system.mapper.*;
@@ -105,6 +108,24 @@ public class TeacherServiceImpl implements TeacherService {
         return Math.round(value * 10.0) / 10.0;
     }
 
+    private boolean courseContainsClass(Course course, Long classId, Map<Long, List<Long>> courseClassMap) {
+        if (course == null || classId == null) return false;
+        if (course.getId() != null) {
+            List<Long> viaRelation = courseClassMap.getOrDefault(course.getId(), Collections.emptyList());
+            if (!viaRelation.isEmpty() && viaRelation.contains(classId)) return true;
+        }
+        if (course.getResponsibleClassIds() != null && !course.getResponsibleClassIds().trim().isEmpty()) {
+            for (String s : course.getResponsibleClassIds().split(",")) {
+                s = s.trim();
+                if (s.isEmpty()) continue;
+                try {
+                    if (Long.parseLong(s) == classId) return true;
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        return course.getClassId() != null && course.getClassId().equals(classId);
+    }
+
     @Override
     public PaginationResponse<?> listStudents(String keyword, String classId, int pageNum, int pageSize) {
         User teacher = getCurrentTeacher();
@@ -130,6 +151,93 @@ public class TeacherServiceImpl implements TeacherService {
 
         List<User> list = userMapper.selectStudentsByTeachingClasses(keyword, finalClassId, validClassIds, offset, pageSize);
         return new PaginationResponse<>(list, total, pageNum, pageSize);
+    }
+
+    @Override
+    public List<StudentPortraitResponse> getStudentPortraits(Long classId, List<Long> studentIds) {
+        User teacher = getCurrentTeacher();
+        if (classId == null) throw new RuntimeException("classId 不能为空");
+
+        List<String> validClassIds = getValidClassIds(teacher);
+        if (!validClassIds.contains(String.valueOf(classId))) throw new RuntimeException("无权访问该班级");
+
+        if (studentIds == null || studentIds.isEmpty()) return Collections.emptyList();
+
+        List<User> classStudents = userMapper.selectStudentsByClassIds(Collections.singletonList(classId));
+        Set<Long> classStudentIds = classStudents.stream()
+                .map(User::getUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        List<Long> targetStudentIds = studentIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .filter(classStudentIds::contains)
+                .collect(Collectors.toList());
+        if (targetStudentIds.isEmpty()) return Collections.emptyList();
+
+        List<Course> myCourses = getMyCourses();
+        List<Long> myCourseIds = myCourses.stream()
+                .map(Course::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        Map<Long, List<Long>> courseClassMap = getCourseClassMap(myCourseIds);
+
+        List<Long> courseIdsForClass = myCourses.stream()
+                .filter(c -> courseContainsClass(c, classId, courseClassMap))
+                .map(Course::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        long taskTotal = courseIdsForClass.isEmpty() ? 0 : materialMapper.countTasksByCourseIds(courseIdsForClass);
+
+        Map<Long, StudentAttendanceAgg> attendanceAggMap = new HashMap<>();
+        Map<Long, Long> submittedCountMap = new HashMap<>();
+        Map<Long, Long> interactionCountMap = new HashMap<>();
+
+        if (!courseIdsForClass.isEmpty()) {
+            for (StudentAttendanceAgg agg : attendanceRecordMapper.countByClassAndCourseIdsAndStudentIds(classId, courseIdsForClass, targetStudentIds)) {
+                if (agg != null && agg.getUserId() != null) attendanceAggMap.put(agg.getUserId(), agg);
+            }
+
+            for (StudentCountAgg agg : quizRecordMapper.countSubmittedTasksByCourseIdsAndStudentIds(courseIdsForClass, targetStudentIds)) {
+                if (agg != null && agg.getUserId() != null) submittedCountMap.put(agg.getUserId(), agg.getCount() == null ? 0L : agg.getCount());
+            }
+
+            for (StudentCountAgg agg : onlineAnswerMapper.countAnswersByCourseIdsAndStudentIds(courseIdsForClass, targetStudentIds)) {
+                if (agg != null && agg.getUserId() != null) interactionCountMap.put(agg.getUserId(), agg.getCount() == null ? 0L : agg.getCount());
+            }
+        }
+
+        List<StudentPortraitResponse> result = new ArrayList<>();
+        for (Long studentId : targetStudentIds) {
+            StudentAttendanceAgg att = attendanceAggMap.get(studentId);
+            long present = att == null || att.getPresentCount() == null ? 0 : att.getPresentCount();
+            long total = att == null || att.getTotalCount() == null ? 0 : att.getTotalCount();
+            double attendanceRate = total > 0 ? roundToOne(present * 100d / total) : 0d;
+
+            long submitted = submittedCountMap.getOrDefault(studentId, 0L);
+            double submissionRate = taskTotal > 0 ? roundToOne(submitted * 100d / taskTotal) : 0d;
+
+            long interactionCount = interactionCountMap.getOrDefault(studentId, 0L);
+            double interactionScore = Math.min(100d, roundToOne(interactionCount * 12.5d)); // 8次互动≈100分
+
+            double portraitScore = roundToOne(attendanceRate * 0.4d + submissionRate * 0.4d + interactionScore * 0.2d);
+
+            StudentPortraitResponse p = new StudentPortraitResponse();
+            p.setUserId(studentId);
+            p.setAttendanceRate(attendanceRate);
+            p.setAttendancePresent(present);
+            p.setAttendanceTotal(total);
+            p.setSubmissionRate(submissionRate);
+            p.setSubmittedCount(submitted);
+            p.setTaskTotal(taskTotal);
+            p.setInteractionScore(interactionScore);
+            p.setInteractionCount(interactionCount);
+            p.setPortraitScore(portraitScore);
+            result.add(p);
+        }
+        return result;
     }
 
     @Override

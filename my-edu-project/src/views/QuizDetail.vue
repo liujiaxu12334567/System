@@ -111,7 +111,8 @@
             <div v-for="(q, index) in questions" :key="index" class="grid-item" :class="getGridClass(index)" @click="scrollToQuestion(index)">{{ index + 1 }}</div>
           </div>
           <div class="action-area">
-            <el-button v-if="mode === 'take'" type="primary" size="large" class="submit-btn" @click="handleSubmit">提交试卷</el-button>
+            <el-alert v-if="mode === 'take' && isExpired" title="已过期，无法提交" type="error" :closable="false" show-icon style="margin-bottom: 10px;" />
+            <el-button v-if="mode === 'take'" type="primary" size="large" class="submit-btn" :disabled="isExpired" @click="handleSubmit">提交试卷</el-button>
             <el-button v-else size="large" class="submit-btn" @click="$router.go(-1)">返回列表</el-button>
           </div>
         </div>
@@ -124,7 +125,9 @@
           <h3>{{ materialType }}内容</h3>
           <div class="meta-info">
             <span>截止时间：{{ taskContent.deadline || '无限制' }}</span>
-            <span class="status-tag" :class="mode === 'review' ? 'done' : 'todo'">{{ mode === 'review' ? '已提交' : '待提交' }}</span>
+            <span class="status-tag" :class="isExpired ? 'expired' : (mode === 'review' ? 'done' : 'todo')">
+              {{ isExpired ? '已过期' : (mode === 'review' ? '已提交' : '待提交') }}
+            </span>
           </div>
         </div>
         <div class="task-desc-content">
@@ -167,17 +170,18 @@
 
         </div>
         <div v-else class="edit-content">
+          <el-alert v-if="isExpired" title="已过期，无法作答/提交" type="error" :closable="false" show-icon style="margin-bottom: 16px" />
           <el-form label-position="top">
-            <el-form-item label="正文内容"><el-input v-model="submitText" type="textarea" :rows="10" /></el-form-item>
+            <el-form-item label="正文内容"><el-input v-model="submitText" type="textarea" :rows="10" :disabled="isExpired" /></el-form-item>
             <el-form-item label="上传附件">
-              <el-upload class="upload-demo" action="#" :auto-upload="false" :on-change="(f, l) => submitFiles = l" :on-remove="(f, l) => submitFiles = l" multiple :limit="5">
+              <el-upload class="upload-demo" action="#" :disabled="isExpired" :auto-upload="false" :on-change="(f, l) => submitFiles = l" :on-remove="(f, l) => submitFiles = l" multiple :limit="5">
                 <el-button type="primary" plain>点击上传</el-button>
               </el-upload>
             </el-form-item>
           </el-form>
           <div class="submit-bar">
             <el-button size="large" @click="$router.go(-1)">取消</el-button>
-            <el-button type="primary" size="large" @click="submitAssignment" :loading="submitting">提交{{ materialType }}</el-button>
+            <el-button type="primary" size="large" @click="submitAssignment" :loading="submitting" :disabled="isExpired">提交{{ materialType }}</el-button>
           </div>
         </div>
       </div>
@@ -195,6 +199,7 @@ import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import dayjs from 'dayjs'
 import { ArrowLeft, Check, Close, Paperclip, Document, Upload, MagicStick, Cpu, User, DataAnalysis } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -212,6 +217,7 @@ const questions = ref([])
 const userAnswers = ref([])
 const myScore = ref(0)
 const taskContent = ref({ text: '', deadline: '' })
+const taskDeadline = ref('')
 const taskFilePath = ref('')
 const taskFileName = ref('')
 const submitText = ref('')
@@ -220,6 +226,13 @@ const myAnswerText = ref('')
 const myAnswerFiles = ref([])
 const hasSubmitted = ref(false)
 const initialAiFeedback = ref('')
+
+const isExpired = computed(() => {
+  if (mode.value !== 'take') return false
+  const deadline = materialType.value === '测验' ? taskDeadline.value : (taskContent.value?.deadline || '')
+  if (!deadline || deadline === '无限制') return false
+  return dayjs().isAfter(dayjs(deadline))
+})
 
 // === 聊天与 AI 相关 ===
 const chatHistory = ref([])
@@ -250,9 +263,11 @@ const loadData = async () => {
 
     if (materialType.value === '测验') {
       questions.value = contentJson.questions || []
+      taskDeadline.value = contentJson.deadline || ''
       if (mode.value === 'take') userAnswers.value = new Array(questions.value.length).fill(-1)
     } else {
       taskContent.value = contentJson
+      taskDeadline.value = contentJson.deadline || ''
     }
 
     const record = await request.get(`/student/quiz/record/${materialId}`)
@@ -365,6 +380,7 @@ const pushToChat = (role, content, isTyping = false) => {
 
 // === 提交逻辑 ===
 const submitAssignment = async () => {
+  if (isExpired.value) return ElMessage.error('已过期，无法提交')
   if (!submitText.value && submitFiles.value.length === 0) return ElMessage.warning('请填写内容或上传附件')
   submitting.value = true
   const formData = new FormData()
@@ -382,6 +398,7 @@ const submitAssignment = async () => {
 }
 
 const handleSubmit = async () => {
+  if (isExpired.value) return ElMessage.error('已过期，无法提交')
   loading.value = true
   // 仅计算测验分数（如果不是测验，score默认为0或null）
   const score = questions.value.reduce((sum, q, i) => sum + (userAnswers.value[i]===q.answer ? q.score : 0), 0)
@@ -401,7 +418,11 @@ const handleSubmit = async () => {
 }
 
 // 辅助函数
-const handleSelectOption = (qIdx, oIdx) => { if (mode.value === 'take') userAnswers.value[qIdx] = oIdx }
+const handleSelectOption = (qIdx, oIdx) => {
+  if (mode.value !== 'take') return
+  if (isExpired.value) return
+  userAnswers.value[qIdx] = oIdx
+}
 const downloadFile = (path, name) => {
   if (!path) return
   // 使用 path 的最后一部分作为文件名查找
@@ -493,7 +514,7 @@ const totalScore = computed(() => questions.value.reduce((sum, q) => sum + q.sco
 /* Assignment Specific Styles */
 .task-card, .answer-card { flex: 1; min-height: 400px; }
 .task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; h3 { margin: 0; } }
-.meta-info { display: flex; align-items: center; gap: 15px; font-size: 14px; color: #909399; .status-tag { padding: 4px 8px; border-radius: 4px; &.done { background: #67C23A; color: #fff; } &.todo { background: #E6A23C; color: #fff; } } }
+.meta-info { display: flex; align-items: center; gap: 15px; font-size: 14px; color: #909399; .status-tag { padding: 4px 8px; border-radius: 4px; &.done { background: #67C23A; color: #fff; } &.todo { background: #E6A23C; color: #fff; } &.expired { background: #F56C6C; color: #fff; } } }
 .task-desc-content { .desc-text { white-space: pre-wrap; margin-bottom: 20px; font-size: 15px; color: #333; } .teacher-attachment { padding: 10px; border: 1px dashed #eee; border-radius: 4px; .attach-item { display: flex; align-items: center; gap: 10px; font-size: 14px; } } }
 .submit-bar { display: flex; justify-content: flex-end; margin-top: 20px; gap: 10px; }
 .answer-card .card-header { border-bottom: 1px solid #eee; }

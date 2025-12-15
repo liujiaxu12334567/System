@@ -1,6 +1,7 @@
 package com.project.system.service;
 
 import com.project.system.dto.PaginationResponse;
+import com.project.system.dto.StudentPortraitResponse;
 import com.project.system.entity.Application;
 import com.project.system.entity.Exam;
 import com.project.system.entity.Notification;
@@ -98,4 +99,7 @@ public interface TeacherService {
 
     // 【新增】在线测试表现汇总
     java.util.List<java.util.Map<String, Object>> getClassroomPerformance(Long courseId);
+
+    // 【新增】学生AI综合画像（按班级/课程聚合出勤/提交/互动）
+    java.util.List<StudentPortraitResponse> getStudentPortraits(Long classId, java.util.List<Long> studentIds);
 }

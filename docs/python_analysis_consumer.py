@@ -26,7 +26,8 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime
+from decimal import Decimal
+from datetime import date, datetime
 from threading import Event, Thread
 from time import sleep
 from typing import Any, Dict, List, Optional, Tuple
@@ -330,6 +331,21 @@ def compute_chat_activity(course_id: int) -> Dict[str, Any]:
 def store_metric(session, course_id: int, metric: str, value_json: Dict[str, Any], event_id: Optional[str]):
     now = datetime.utcnow()
     try:
+        def sanitize(v: Any) -> Any:
+            if v is None:
+                return None
+            if isinstance(v, (datetime, date)):
+                return v.isoformat()
+            if isinstance(v, Decimal):
+                return float(v)
+            if isinstance(v, dict):
+                return {k: sanitize(val) for k, val in v.items()}
+            if isinstance(v, (list, tuple)):
+                return [sanitize(x) for x in v]
+            return v
+
+        value_json = sanitize(value_json)
+
         existing = None
         if event_id:
             existing = session.query(AnalysisResult).filter(AnalysisResult.event_id == event_id).one_or_none()

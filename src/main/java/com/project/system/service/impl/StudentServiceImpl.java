@@ -137,6 +137,10 @@ public class StudentServiceImpl implements StudentService {
     public void submitQuiz(Long materialId, Integer score, String userAnswers, String textAnswer, List<MultipartFile> files) {
         User user = getCurrentUser();
         Material material = materialMapper.findById(materialId);
+        if (material == null) throw new RuntimeException("任务不存在");
+
+        // 截止时间校验（组长下发的测验/作业/项目）
+        validateMaterialDeadline(material);
         String finalContentJson = userAnswers;
         List<String> uploadedPaths = new ArrayList<>();
 
@@ -189,6 +193,48 @@ public class StudentServiceImpl implements StudentService {
         payload.put("type", material != null ? material.getType() : "quiz");
         payload.put("score", score);
         analysisEventPublisher.publish("analysis.assignment.submitted", payload);
+    }
+
+    private void validateMaterialDeadline(Material material) {
+        if (material == null) return;
+        String content = material.getContent();
+        if (content == null) return;
+        String c = content.trim();
+        if (!c.startsWith("{")) return;
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode node = mapper.readTree(c);
+
+            String deadline = null;
+            if (node.has("deadline") && !node.get("deadline").isNull()) {
+                deadline = node.get("deadline").asText();
+            }
+
+            // 兼容历史错误：批量下发时把原 JSON 放进 text 里
+            if ((deadline == null || deadline.isBlank()) && node.has("text") && node.get("text").isTextual()) {
+                String text = node.get("text").asText();
+                if (text != null && text.trim().startsWith("{")) {
+                    try {
+                        JsonNode inner = mapper.readTree(text.trim());
+                        if (inner.has("deadline") && !inner.get("deadline").isNull()) {
+                            deadline = inner.get("deadline").asText();
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            if (deadline == null || deadline.isBlank()) return;
+
+            LocalDateTime deadlineTime = LocalDateTime.parse(deadline, FORMATTER);
+            if (LocalDateTime.now().isAfter(deadlineTime)) {
+                throw new RuntimeException("已超过截止时间，无法提交。");
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception ignored) {
+            // JSON/时间格式异常：不阻塞提交（避免误伤历史数据）
+        }
     }
 
     @Override
@@ -313,6 +359,31 @@ public class StudentServiceImpl implements StudentService {
     public void submitExam(Long examId, Integer score, String userAnswers, Integer cheatCount) {
         User user = getCurrentUser();
         Exam exam = examMapper.findExamById(examId);
+        if (exam == null) throw new RuntimeException("考试不存在");
+
+        ExamRecord exist = examMapper.findRecordByUserIdAndExamId(user.getUserId(), examId);
+        if (exist != null) throw new RuntimeException("您已交卷，无需重复提交。");
+
+        // 时间校验：未开始/已结束都禁止提交
+        try {
+            if (exam.getStartTime() != null && !exam.getStartTime().isBlank()) {
+                LocalDateTime startTime = LocalDateTime.parse(exam.getStartTime(), FORMATTER);
+                if (LocalDateTime.now().isBefore(startTime)) {
+                    throw new RuntimeException("考试未开始，无法提交。");
+                }
+            }
+            if (exam.getDeadline() != null && !exam.getDeadline().isBlank()) {
+                LocalDateTime deadlineTime = LocalDateTime.parse(exam.getDeadline(), FORMATTER);
+                if (LocalDateTime.now().isAfter(deadlineTime)) {
+                    throw new RuntimeException("考试已结束，无法提交。");
+                }
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception ignored) {
+            // 时间格式异常：不阻塞提交（避免误伤历史数据）
+        }
+
         ExamRecord record = new ExamRecord();
         record.setUserId(user.getUserId());
         record.setExamId(examId);
@@ -547,11 +618,24 @@ public class StudentServiceImpl implements StudentService {
                     map.put("type", task.getType());
 
                     String deadline = "无限制";
+                    boolean expired = false;
                     try {
                         JsonNode node = new ObjectMapper().readTree(task.getContent());
-                        if (node.has("deadline")) deadline = node.get("deadline").asText();
+                        if (node.has("deadline") && !node.get("deadline").isNull()) {
+                            String d = node.get("deadline").asText();
+                            if (d != null && !d.isBlank()) deadline = d;
+                        }
+                        if (deadline != null && !deadline.isBlank() && !"无限制".equals(deadline)) {
+                            try {
+                                LocalDateTime deadlineTime = LocalDateTime.parse(deadline.trim(), FORMATTER);
+                                expired = LocalDateTime.now().isAfter(deadlineTime);
+                            } catch (Exception ignored) {
+                                expired = false;
+                            }
+                        }
                     } catch (Exception e) {}
                     map.put("deadline", deadline);
+                    map.put("expired", expired);
 
                     return map;
                 })

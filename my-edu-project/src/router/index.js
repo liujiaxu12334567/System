@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-const Login = () => import('../views/Login.vue')
+const Login = () => import('../views/LoginStyled.vue')
 const Home = () => import('../views/Home.vue')
 const Admin = () => import('../views/Admin.vue')
 const Teacher = () => import('../views/Teacher.vue')

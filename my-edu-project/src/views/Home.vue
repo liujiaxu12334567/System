@@ -173,9 +173,10 @@
                   link
                   round
                   size="small"
+                  :disabled="Boolean(task.expired)"
                   @click="$router.push({ name: 'QuizDetail', params: { courseId: task.courseId || 0, materialId: task.id }, query: { mode: 'take', type: task.type } })"
               >
-                去完成
+                {{ task.expired ? '已过期' : '去完成' }}
               </el-button>
             </div>
           </div>

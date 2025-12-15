@@ -3,6 +3,7 @@ package com.project.system.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.system.dto.PaginationResponse;
+import com.project.system.dto.StudentPortraitResponse;
 import com.project.system.entity.*;
 
 import com.project.system.mapper.ApplicationMapper;
@@ -28,6 +29,7 @@ import java.util.Set;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 
@@ -134,6 +136,28 @@ public class TeacherController {
         return ResponseEntity.ok(new PaginationResponse<>(list, total, pageNum, pageSize));
     }
 
+    // 【新增】学生AI综合画像（按班级/课程聚合出勤/提交/互动）
+    @GetMapping("/student-portraits")
+    public ResponseEntity<?> getStudentPortraits(
+            @RequestParam("classId") Long classId,
+            @RequestParam("studentIds") String studentIds) {
+        if (classId == null) return ResponseEntity.badRequest().body("classId 不能为空");
+        if (studentIds == null || studentIds.trim().isEmpty()) return ResponseEntity.ok(Collections.emptyList());
+
+        List<Long> ids = Arrays.stream(studentIds.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> {
+                    try { return Long.parseLong(s); } catch (Exception e) { return null; }
+                })
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+
+        List<StudentPortraitResponse> res = teacherService.getStudentPortraits(classId, ids);
+        return ResponseEntity.ok(res);
+    }
+
     // 2. 提交申请 (核心功能：增/删/改学生信息, 延长截止时间)
     @PostMapping("/apply")
     public ResponseEntity<?> submitApplication(@RequestBody Application app) {
@@ -143,8 +167,16 @@ public class TeacherController {
         app.setTeacherId(teacher.getUserId());
         app.setTeacherName(teacher.getRealName());
 
-        if (app.getType() == null || app.getReason() == null) {
+        if (app.getType() == null || app.getReason() == null || app.getReason().trim().isEmpty()) {
             return ResponseEntity.badRequest().body("申请信息不完整，请填写类型和理由。");
+        }
+        if ("DEADLINE_EXTENSION".equals(app.getType())) {
+            if (app.getTargetId() == null) {
+                return ResponseEntity.badRequest().body("延期申请缺少资料ID（targetId）");
+            }
+            if (app.getContent() == null || !app.getContent().contains("延长至:")) {
+                return ResponseEntity.badRequest().body("延期申请内容缺少“延长至:”字段");
+            }
         }
 
         applicationMapper.insert(app);

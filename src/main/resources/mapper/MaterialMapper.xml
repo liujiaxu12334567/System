@@ -19,4 +19,14 @@
         UPDATE sys_material SET content = #{content} WHERE id = #{id}
     </update>
 
+    <select id="countTasksByCourseIds" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_material
+        WHERE type IN ('作业', '测验', '项目')
+          AND course_id IN
+        <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+    </select>
+
 </mapper>

@@ -59,4 +59,21 @@
             #{qid}
         </foreach>
     </delete>
+
+    <select id="countAnswersByCourseIdsAndStudentIds" resultType="com.project.system.dto.StudentCountAgg">
+        SELECT
+            a.student_id AS userId,
+            COUNT(*) AS count
+        FROM online_answer a
+                 INNER JOIN online_question q ON a.question_id = q.id
+        WHERE q.course_id IN
+        <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+            #{cid}
+        </foreach>
+          AND a.student_id IN
+        <foreach collection="studentIds" item="sid" open="(" separator="," close=")">
+            #{sid}
+        </foreach>
+        GROUP BY a.student_id
+    </select>
 </mapper>

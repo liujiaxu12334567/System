@@ -33,4 +33,26 @@
         </if>
         ORDER BY date ASC, id ASC
     </select>
+
+    <select id="countByClassAndCourseIdsAndStudentIds" resultType="com.project.system.dto.StudentAttendanceAgg">
+        SELECT
+            student_id AS userId,
+            SUM(CASE WHEN present = 1 THEN 1 ELSE 0 END) AS presentCount,
+            COUNT(*) AS totalCount
+        FROM attendance_record
+        WHERE class_id = #{classId}
+        <if test="courseIds != null and courseIds.size > 0">
+            AND course_id IN
+            <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
+                #{cid}
+            </foreach>
+        </if>
+        <if test="studentIds != null and studentIds.size > 0">
+            AND student_id IN
+            <foreach collection="studentIds" item="sid" open="(" separator="," close=")">
+                #{sid}
+            </foreach>
+        </if>
+        GROUP BY student_id
+    </select>
 </mapper>

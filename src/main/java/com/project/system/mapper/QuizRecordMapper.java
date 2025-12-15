@@ -1,6 +1,7 @@
 package com.project.system.mapper;
 
 import com.project.system.entity.QuizRecord;
+import com.project.system.dto.StudentCountAgg;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import java.util.List;
@@ -31,4 +32,8 @@ public interface QuizRecordMapper {
 
     // 8. 根据ID查找单个记录
     QuizRecord findById(@Param("id") Long id);
+
+    List<StudentCountAgg> countSubmittedTasksByCourseIdsAndStudentIds(
+            @Param("courseIds") List<Long> courseIds,
+            @Param("studentIds") List<Long> studentIds);
 }
