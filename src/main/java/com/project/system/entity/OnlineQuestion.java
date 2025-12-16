@@ -12,6 +12,7 @@ public class OnlineQuestion {
     private Long teacherId;
     private String title;
     private String content;
+    private String correctAnswer;
     private LocalDateTime deadline;
     private LocalDateTime createTime;
 

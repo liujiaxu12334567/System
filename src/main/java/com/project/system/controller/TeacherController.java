@@ -310,28 +310,21 @@ public class TeacherController {
     // 9. 查看考试作弊记录
     @GetMapping("/exam/{examId}/cheating-records")
     public ResponseEntity<?> getExamCheatingRecords(@PathVariable Long examId) {
-        List<ExamRecord> allRecords = examMapper.selectExamRecordsByExamId(examId);
-
-        List<Map<String, Object>> cheatingList = new ArrayList<>();
-        List<User> allStudents = userMapper.selectUsersByRole("4");
-        Map<Long, User> studentMap = allStudents.stream().collect(Collectors.toMap(User::getUserId, s -> s));
-
-        for (ExamRecord record : allRecords) {
-            if (record.getCheatCount() != null && record.getCheatCount() > 0) {
-                User student = studentMap.get(record.getUserId());
-
-                if (student != null) {
-                    Map<String, Object> item = new HashMap<>();
-                    item.put("record", record);
-                    item.put("studentName", student.getRealName());
-                    item.put("studentUsername", student.getUsername());
-                    item.put("classId", student.getClassId());
-                    cheatingList.add(item);
-                }
-            }
+        try {
+            return ResponseEntity.ok(teacherService.getExamCheatingRecords(examId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("获取考试作弊记录失败: " + e.getMessage());
         }
+    }
 
-        return ResponseEntity.ok(cheatingList);
+    // 9.1 考试监控记录（所有已提交记录）
+    @GetMapping("/exam/{examId}/monitor-records")
+    public ResponseEntity<?> getExamMonitorRecords(@PathVariable Long examId) {
+        try {
+            return ResponseEntity.ok(teacherService.getExamMonitorRecords(examId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("获取考试监控记录失败: " + e.getMessage());
+        }
     }
     // 【新增】获取通知列表
     @GetMapping("/notifications")
@@ -395,6 +388,7 @@ public class TeacherController {
             q.setCourseId(Long.valueOf(payload.get("courseId").toString()));
             q.setTitle((String) payload.getOrDefault("title", ""));
             q.setContent((String) payload.getOrDefault("content", ""));
+            q.setCorrectAnswer((String) payload.getOrDefault("correctAnswer", null));
             q.setMode((String) payload.getOrDefault("mode", "broadcast"));
             if (payload.get("assignStudentId") != null && !payload.get("assignStudentId").toString().isEmpty()) {
                 q.setAssignStudentId(Long.valueOf(payload.get("assignStudentId").toString()));
@@ -432,6 +426,7 @@ public class TeacherController {
             q.setCourseId(Long.valueOf(payload.get("courseId").toString()));
             q.setTitle((String) payload.getOrDefault("title", ""));
             q.setContent((String) payload.getOrDefault("content", ""));
+            q.setCorrectAnswer((String) payload.getOrDefault("correctAnswer", null));
             q.setMode((String) payload.getOrDefault("mode", "broadcast"));
             if (payload.get("assignStudentId") != null && !payload.get("assignStudentId").toString().isEmpty()) {
                 q.setAssignStudentId(Long.valueOf(payload.get("assignStudentId").toString()));
@@ -476,6 +471,13 @@ public class TeacherController {
     public ResponseEntity<?> resetClassroom(@PathVariable Long courseId) {
         teacherService.resetClassroom(courseId);
         return ResponseEntity.ok("课堂数据已重置");
+    }
+
+    @PostMapping("/classroom/{courseId}/analysis/generate")
+    public ResponseEntity<?> generateClassroomAnalysis(
+            @PathVariable Long courseId,
+            @RequestParam(required = false, defaultValue = "classroom_online_performance") String metric) {
+        return ResponseEntity.ok(teacherService.generateClassroomAnalysisResult(courseId, metric));
     }
 
     // 【新增】在线测试表现

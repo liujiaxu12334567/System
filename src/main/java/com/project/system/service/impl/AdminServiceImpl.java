@@ -5,13 +5,13 @@ import com.project.system.dto.CourseAssignRequest;
 import com.project.system.dto.CourseBatchAssignRequest;
 import com.project.system.dto.CourseGroupCreateRequest;
 import com.project.system.dto.CourseGroupUpdateLeaderRequest;
+import com.project.system.dto.CourseScheduleBatchUpdateRequest;
 import com.project.system.dto.PaginationResponse;
 import com.project.system.entity.*;
 import com.project.system.entity.Class;
 import com.project.system.mapper.*;
 import com.project.system.service.AdminService;
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -22,7 +22,10 @@ import java.util.stream.Collectors;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 @Service
@@ -35,16 +38,50 @@ public class AdminServiceImpl implements AdminService {
     @Autowired private NotificationMapper notificationMapper;
     @Autowired private PasswordEncoder passwordEncoder;
 
+    private static final DateTimeFormatter COURSE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+
+    private static String normalizeTimeString(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim();
+        if (s.isEmpty()) return null;
+        // 兼容旧数据：若包含日期，取最后的时间部分
+        if (s.contains(" ")) s = s.substring(s.lastIndexOf(' ') + 1);
+        if (s.contains("T")) s = s.substring(s.lastIndexOf('T') + 1);
+        if (s.endsWith("Z")) s = s.substring(0, s.length() - 1);
+        int dot = s.indexOf('.');
+        if (dot > 0) s = s.substring(0, dot);
+        if (s.length() == 5) s = s + ":00";
+        if (s.length() > 8) s = s.substring(0, 8);
+        return s;
+    }
+
+    private static LocalTime parseCourseTime(String raw) {
+        String s = normalizeTimeString(raw);
+        if (s == null) return null;
+        return LocalTime.parse(s, COURSE_TIME_FORMATTER);
+    }
+
     // ... (前部分 addUser, listUsers, checkAndInsertClass 等方法保持不变，此处省略以节省篇幅，请保留原有的这些方法) ...
     // 您只需替换下面的 batchEnrollFromFile 方法即可
 
     // 辅助方法：检查并自动创建班级 (保留以确保完整性)
     private void checkAndInsertClass(Long classId, String major) {
         if (classId == null) return;
-        if (classMapper.findById(classId) == null) {
+        Class existed = classMapper.findById(classId);
+        if (existed == null) {
             String className = classId + "班";
             String finalMajor = (major != null && !major.trim().isEmpty()) ? major.trim() : "未分配专业";
             classMapper.insert(new Class(classId, className, finalMajor));
+            return;
+        }
+
+        // 历史数据兼容：如果已有班级但专业为空/未分配，且本次传入专业，则补全
+        String incoming = major != null ? major.trim() : null;
+        if (incoming != null && !incoming.isEmpty()) {
+            String current = existed.getMajor() != null ? existed.getMajor().trim() : "";
+            if (current.isEmpty() || "未分配专业".equals(current)) {
+                classMapper.updateMajor(classId, incoming);
+            }
         }
     }
 
@@ -70,6 +107,7 @@ public class AdminServiceImpl implements AdminService {
         Long classId = userMap.get("classId") != null ? Long.valueOf(userMap.get("classId").toString()) : null;
         String major = (String) userMap.get("major");
         String teachingClasses = (String) userMap.get("teachingClasses");
+        String college = (String) userMap.get("college");
 
         if (userMapper.findByUsername(username) != null) throw new RuntimeException("用户名已存在");
 
@@ -79,6 +117,13 @@ public class AdminServiceImpl implements AdminService {
         user.setRoleType(roleType);
         user.setClassId(classId);
         user.setPassword(passwordEncoder.encode("123456"));
+        // 学院字段：仅对教师相关角色保留（2=组长/3=教师/5=素质教师）
+        if ("2".equals(roleType) || "3".equals(roleType) || "5".equals(roleType)) {
+            String c = college != null ? college.trim() : null;
+            user.setCollege(c == null || c.isEmpty() ? null : c);
+        } else {
+            user.setCollege(null);
+        }
 
         if ("2".equals(roleType)) {
             List<String> managerCourses = (List<String>) userMap.get("managerCourses");
@@ -100,6 +145,20 @@ public class AdminServiceImpl implements AdminService {
             user.setPassword(passwordEncoder.encode(user.getPassword()));
         } else {
             user.setPassword(null);
+        }
+
+        // 学院字段：仅对教师相关角色保留（2=组长/3=教师/5=素质教师）
+        if (user.getRoleType() == null) {
+            user.setCollege(null);
+        } else {
+            String rt = user.getRoleType().trim();
+            boolean teacherRole = "2".equals(rt) || "3".equals(rt) || "5".equals(rt);
+            if (!teacherRole) {
+                user.setCollege(null);
+            } else if (user.getCollege() != null) {
+                String c = user.getCollege().trim();
+                user.setCollege(c.isEmpty() ? null : c);
+            }
         }
         if ("2".equals(user.getRoleType())) {
             user.setTeachingClasses(null);
@@ -166,69 +225,94 @@ public class AdminServiceImpl implements AdminService {
     // 【修改核心】智能识别 Excel 和 CSV，防止格式错误
     @Override
     public String batchEnrollFromFile(MultipartFile file, Long targetClassId, Long startId, String major) {
-        List<BatchEnrollmentRequest.StudentInfo> list = new ArrayList<>();
-        String filename = file.getOriginalFilename();
+        List<String> names = new ArrayList<>();
 
-        // 尝试解析标志
         boolean parsed = false;
-        Exception lastException = null;
+        Exception excelException = null;
 
-        // 策略1：先尝试按 Excel (.xlsx) 解析
-        try (InputStream is = file.getInputStream()) {
-            Workbook wb = new XSSFWorkbook(is); // 如果是CSV这里会报错
+        // 策略1：优先按 Excel 解析（xlsx/xls），CSV/非Excel 会抛异常
+        try (InputStream is = file.getInputStream(); Workbook wb = WorkbookFactory.create(is)) {
             Sheet sheet = wb.getSheetAt(0);
-            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
-                Row row = sheet.getRow(i);
-                if (row == null) continue;
-                Cell cell = row.getCell(0);
-                if (cell != null) {
-                    String name = cell.getStringCellValue().trim();
-                    if (!name.isEmpty()) {
-                        BatchEnrollmentRequest.StudentInfo info = new BatchEnrollmentRequest.StudentInfo();
-                        info.setRealName(name);
-                        info.setUsername(String.valueOf(startId++));
-                        list.add(info);
+
+            DataFormatter formatter = new DataFormatter();
+            int nameColIdx = 0;
+            boolean hasHeader = false;
+
+            Row firstRow = sheet.getRow(0);
+            if (firstRow != null) {
+                int last = Math.max(firstRow.getLastCellNum(), 0);
+                for (int c = 0; c < last; c++) {
+                    String hl = normalizeHeaderToken(formatter.formatCellValue(firstRow.getCell(c)));
+                    if (hl.isEmpty()) continue;
+                    if (hl.contains("姓名") || hl.contains("name")) {
+                        nameColIdx = c;
+                        hasHeader = true;
+                        break;
                     }
                 }
             }
+
+            int startRow = hasHeader ? 1 : 0;
+            for (int r = startRow; r <= sheet.getLastRowNum(); r++) {
+                Row row = sheet.getRow(r);
+                if (row == null) continue;
+
+                Cell cell = row.getCell(nameColIdx);
+                String name = cell == null ? "" : formatter.formatCellValue(cell);
+                name = name == null ? "" : name.trim();
+                if (name.isEmpty()) continue;
+                if (hasHeader && ("姓名".equals(name) || "name".equalsIgnoreCase(name))) continue;
+                names.add(name);
+            }
+
             parsed = true;
         } catch (Exception e) {
-            lastException = e; // 记录错误，继续尝试策略2
+            excelException = e;
         }
 
-        // 策略2：如果Excel解析失败，尝试按 CSV 解析
+        // 策略2：Excel 解析失败时按 CSV 解析（UTF-8 -> GBK 回退），支持逗号/分号/Tab 分隔与引号
         if (!parsed) {
-            try (InputStream is = file.getInputStream();
-                 BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) { // 注意编码，如果乱码改GBK
-
-                String line;
-                int lineNum = 0;
-                while ((line = reader.readLine()) != null) {
-                    lineNum++;
-                    if (lineNum == 1) continue; // 跳过表头
-
-                    String name = line.trim();
-                    // 处理可能的CSV逗号
-                    if (name.contains(",")) {
-                        name = name.split(",")[0].trim();
+            Exception last = null;
+            Charset[] candidates = new Charset[]{StandardCharsets.UTF_8, Charset.forName("GBK")};
+            for (Charset charset : candidates) {
+                try {
+                    names = readNamesFromCsv(file, charset);
+                    if (!names.isEmpty()) {
+                        parsed = true;
+                        break;
                     }
-
-                    if (!name.isEmpty() && !name.toLowerCase().contains("content_types")) { // 简单的垃圾数据过滤
-                        BatchEnrollmentRequest.StudentInfo info = new BatchEnrollmentRequest.StudentInfo();
-                        info.setRealName(name);
-                        info.setUsername(String.valueOf(startId++));
-                        list.add(info);
-                    }
+                } catch (Exception ex) {
+                    last = ex;
                 }
-                parsed = true;
-            } catch (Exception e) {
-                // 如果两种都失败，抛出异常
-                throw new RuntimeException("文件解析失败，请确保上传的是标准的 .xlsx 或 .csv 文件。错误信息: " + lastException.getMessage());
+            }
+
+            if (!parsed) {
+                String detail = last != null ? last.getMessage() : (excelException != null ? excelException.getMessage() : "unknown");
+                throw new RuntimeException("文件解析失败：请上传标准 .xlsx/.xls/.csv 文件。错误信息：" + detail);
             }
         }
 
-        if (list.isEmpty()) {
-            return "文件解析成功，但未找到有效数据（请检查是否从第二行开始填写姓名）。";
+        if (names.isEmpty()) {
+            return "文件解析成功，但未找到有效姓名数据（请检查是否有“姓名/name”列，且从第2行开始填写）。";
+        }
+
+        // 生成用户名：从 startId 起递增，若遇到已存在账号则自动跳过，避免导入人数因重复学号而减少
+        long candidate = startId == null ? 0L : startId;
+        Set<String> reserved = new HashSet<>();
+        List<BatchEnrollmentRequest.StudentInfo> list = new ArrayList<>(names.size());
+        for (String name : names) {
+            String username;
+            while (true) {
+                username = String.valueOf(candidate++);
+                if (reserved.contains(username)) continue;
+                if (userMapper.findByUsername(username) != null) continue;
+                reserved.add(username);
+                break;
+            }
+            BatchEnrollmentRequest.StudentInfo info = new BatchEnrollmentRequest.StudentInfo();
+            info.setRealName(name);
+            info.setUsername(username);
+            list.add(info);
         }
 
         BatchEnrollmentRequest req = new BatchEnrollmentRequest();
@@ -236,6 +320,108 @@ public class AdminServiceImpl implements AdminService {
         req.setMajor(major);
         req.setStudentList(list);
         return batchEnroll(req);
+    }
+
+    private static String normalizeHeaderToken(String s) {
+        if (s == null) return "";
+        String trimmed = s.trim();
+        if (trimmed.startsWith("\uFEFF")) trimmed = trimmed.substring(1);
+        return trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    private static List<String> readNamesFromCsv(MultipartFile file, Charset charset) throws Exception {
+        List<String> names = new ArrayList<>();
+        try (InputStream is = file.getInputStream();
+             BufferedReader reader = new BufferedReader(new InputStreamReader(is, charset))) {
+
+            String firstLine = reader.readLine();
+            if (firstLine == null) return names;
+            firstLine = stripBom(firstLine);
+
+            if (firstLine.toLowerCase(Locale.ROOT).startsWith("sep=")) {
+                firstLine = reader.readLine();
+                if (firstLine == null) return names;
+                firstLine = stripBom(firstLine);
+            }
+
+            char delimiter = detectCsvDelimiter(firstLine);
+            List<String> firstFields = splitCsvLine(firstLine, delimiter);
+
+            int nameColIdx = 0;
+            boolean hasHeader = false;
+            for (int i = 0; i < firstFields.size(); i++) {
+                String hl = normalizeHeaderToken(firstFields.get(i));
+                if (hl.contains("姓名") || hl.contains("name")) {
+                    nameColIdx = i;
+                    hasHeader = true;
+                    break;
+                }
+            }
+
+            if (!hasHeader) {
+                String name = nameColIdx < firstFields.size() ? firstFields.get(nameColIdx) : "";
+                name = name == null ? "" : name.trim();
+                if (!name.isEmpty()) names.add(name);
+            }
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String trimmed = line.trim();
+                if (trimmed.isEmpty()) continue;
+                if (trimmed.toLowerCase(Locale.ROOT).contains("content_types")) continue;
+
+                List<String> cols = splitCsvLine(line, delimiter);
+                String name = nameColIdx < cols.size() ? cols.get(nameColIdx) : (cols.isEmpty() ? "" : cols.get(0));
+                name = name == null ? "" : name.trim();
+                if (name.isEmpty()) continue;
+                if (hasHeader && ("姓名".equals(name) || "name".equalsIgnoreCase(name))) continue;
+                names.add(name);
+            }
+        }
+        return names;
+    }
+
+    private static String stripBom(String s) {
+        if (s == null) return null;
+        if (s.startsWith("\uFEFF")) return s.substring(1);
+        return s;
+    }
+
+    private static char detectCsvDelimiter(String line) {
+        if (line == null) return ',';
+        if (line.contains("\t")) return '\t';
+        if (line.contains(";")) return ';';
+        return ',';
+    }
+
+    private static List<String> splitCsvLine(String line, char delimiter) {
+        List<String> out = new ArrayList<>();
+        if (line == null) return out;
+
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+        for (int i = 0; i < line.length(); i++) {
+            char ch = line.charAt(i);
+            if (ch == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    current.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+                continue;
+            }
+
+            if (ch == delimiter && !inQuotes) {
+                out.add(current.toString());
+                current.setLength(0);
+                continue;
+            }
+
+            current.append(ch);
+        }
+        out.add(current.toString());
+        return out;
     }
 
     // ... (保留后续方法: listCourses, addCourse, updateCourse, deleteCourse, batchAssignCourse 等) ...
@@ -263,6 +449,7 @@ public class AdminServiceImpl implements AdminService {
         if (request == null) throw new RuntimeException("请求体不能为空");
         CourseBatchAssignRequest wrapper = new CourseBatchAssignRequest();
         wrapper.setGroupId(request.getGroupId());
+        wrapper.setMajor(request.getMajor());
         CourseBatchAssignRequest.Item item = new CourseBatchAssignRequest.Item();
         item.setClassId(request.getClassId());
         item.setTeacherId(request.getTeacherId());
@@ -348,6 +535,29 @@ public class AdminServiceImpl implements AdminService {
             throw new RuntimeException("请至少选择一个班级进行分配");
         }
 
+        String major = request.getMajor() == null ? null : request.getMajor().trim();
+        // 兼容旧前端：未传 major 时，若所选班级专业一致则自动推断；否则提示选择专业
+        if (major == null || major.isEmpty()) {
+            Set<String> majors = new HashSet<>();
+            for (CourseBatchAssignRequest.Item item : request.getAssignments()) {
+                if (item == null || item.getClassId() == null) continue;
+                Class cls = classMapper.findById(item.getClassId());
+                if (cls == null) {
+                    throw new RuntimeException("班级不存在，无法推断专业，请先选择专业或补全班级信息：classId=" + item.getClassId());
+                }
+                String cm = cls.getMajor() == null ? "" : cls.getMajor().trim();
+                if (cm.isEmpty() || "未分配专业".equals(cm)) {
+                    throw new RuntimeException("班级未设置专业，无法推断专业：classId=" + item.getClassId());
+                }
+                majors.add(cm);
+                if (majors.size() > 1) break;
+            }
+            if (majors.size() != 1) {
+                throw new RuntimeException("请选择专业（当前所选班级专业不一致，无法自动推断）");
+            }
+            major = majors.iterator().next();
+        }
+
         CourseGroup group = resolveCourseGroup(request);
         if (group.getLeaderId() == null) {
             throw new RuntimeException("该课程组尚未设置组长，请先在「课程组管理」中指定组长");
@@ -370,6 +580,18 @@ public class AdminServiceImpl implements AdminService {
             if (classTeacherMap.containsKey(item.getClassId())) {
                 throw new RuntimeException("同一个班级只能指定一个老师，重复班级ID：" + item.getClassId());
             }
+
+            // 校验：只能给所选专业的班级分配
+            checkAndInsertClass(item.getClassId(), major);
+            Class cls = classMapper.findById(item.getClassId());
+            String classMajor = cls != null && cls.getMajor() != null ? cls.getMajor().trim() : "";
+            if (classMajor.isEmpty() || "未分配专业".equals(classMajor)) {
+                throw new RuntimeException("班级未设置专业，无法按专业分配：classId=" + item.getClassId());
+            }
+            if (!classMajor.equals(major)) {
+                throw new RuntimeException("班级专业不匹配：classId=" + item.getClassId() + "，班级专业=" + classMajor + "，选择专业=" + major);
+            }
+
             classTeacherMap.put(item.getClassId(), item.getTeacherId());
             teacherIds.add(item.getTeacherId());
         }
@@ -520,6 +742,33 @@ public class AdminServiceImpl implements AdminService {
         }
 
         // 严格规则：如需修改教师，必须传 teacherId，由后端回写 teacher 展示名，避免不一致
+        // 排课时间校验（周几 + 时间段，可单独更新）
+        boolean touchingSchedule = course.getDayOfWeek() != null || course.getStartTime() != null || course.getEndTime() != null;
+        if (touchingSchedule) {
+            Integer effectiveDow = course.getDayOfWeek() != null ? course.getDayOfWeek() : existed.getDayOfWeek();
+            if (effectiveDow == null || effectiveDow < 1 || effectiveDow > 7) {
+                throw new RuntimeException("星期几(dayOfWeek)必须是1~7");
+            }
+
+            String effectiveStart = course.getStartTime() != null ? course.getStartTime() : existed.getStartTime();
+            String effectiveEnd = course.getEndTime() != null ? course.getEndTime() : existed.getEndTime();
+
+            String ns = normalizeTimeString(effectiveStart);
+            if (ns == null) throw new RuntimeException("开始时间不能为空");
+            LocalTime st = parseCourseTime(ns);
+
+            String ne = normalizeTimeString(effectiveEnd);
+            LocalTime et = ne == null ? null : parseCourseTime(ne);
+            if (et != null && et.isBefore(st)) {
+                throw new RuntimeException("结束时间不能早于开始时间");
+            }
+
+            // 仅当请求体传入该字段时才回写（避免误覆盖）
+            if (course.getDayOfWeek() != null) course.setDayOfWeek(effectiveDow);
+            if (course.getStartTime() != null) course.setStartTime(normalizeTimeString(course.getStartTime()));
+            if (course.getEndTime() != null) course.setEndTime(normalizeTimeString(course.getEndTime()));
+        }
+
         if (course.getTeacher() != null && course.getTeacherId() == null) {
             throw new RuntimeException("请使用 teacherId 分配教师（避免 teacher 与 teacher_id 不一致）");
         }
@@ -550,6 +799,53 @@ public class AdminServiceImpl implements AdminService {
         courseMapper.updateCourse(course);
     }
     @Override
+    public List<Course> listTimetableByClassId(Long classId) {
+        if (classId == null) throw new RuntimeException("classId不能为空");
+        Class c = classMapper.findById(classId);
+        if (c == null) throw new RuntimeException("班级不存在，classId=" + classId);
+        return courseMapper.selectCoursesByClassIdOrderByStartTime(classId);
+    }
+
+    @Override
+    @Transactional
+    public void batchUpdateCourseSchedule(CourseScheduleBatchUpdateRequest request) {
+        if (request == null) throw new RuntimeException("请求体不能为空");
+        if (request.getClassId() == null) throw new RuntimeException("classId不能为空");
+        if (request.getSchedules() == null || request.getSchedules().isEmpty()) {
+            throw new RuntimeException("请至少设置一门课的时间");
+        }
+        Class c = classMapper.findById(request.getClassId());
+        if (c == null) throw new RuntimeException("班级不存在，classId=" + request.getClassId());
+
+        for (CourseScheduleBatchUpdateRequest.Item item : request.getSchedules()) {
+            if (item == null || item.getCourseId() == null) continue;
+
+            Course existed = courseMapper.selectCourseById(item.getCourseId());
+            if (existed == null) throw new RuntimeException("课程不存在，courseId=" + item.getCourseId());
+            if (existed.getClassId() == null || !existed.getClassId().equals(request.getClassId())) {
+                throw new RuntimeException("课程不属于该班级：courseId=" + item.getCourseId() + "，classId=" + request.getClassId());
+            }
+
+            Integer dow = item.getDayOfWeek();
+            if (dow == null || dow < 1 || dow > 7) {
+                throw new RuntimeException("星期几(dayOfWeek)必须是1~7：courseId=" + item.getCourseId());
+            }
+
+            String ns = normalizeTimeString(item.getStartTime());
+            if (ns == null) throw new RuntimeException("开始时间不能为空：courseId=" + item.getCourseId());
+            LocalTime st = parseCourseTime(ns);
+
+            String ne = normalizeTimeString(item.getEndTime());
+            LocalTime et = ne == null ? null : parseCourseTime(ne);
+            if (et != null && et.isBefore(st)) {
+                throw new RuntimeException("结束时间不能早于开始时间：courseId=" + item.getCourseId());
+            }
+
+            courseMapper.updateCourseSchedule(item.getCourseId(), dow, ns, ne);
+        }
+    }
+
+    @Override
     public void deleteCourse(Long id) { courseMapper.deleteCourseById(id); }
     @Override
     public Object listClasses() {
@@ -557,6 +853,7 @@ public class AdminServiceImpl implements AdminService {
             Map<String, Object> m = new HashMap<>();
             m.put("id", c.getClassId());
             m.put("name", c.getClassName());
+            m.put("major", c.getMajor());
             return m;
         }).collect(Collectors.toList());
     }

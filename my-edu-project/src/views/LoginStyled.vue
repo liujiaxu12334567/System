@@ -1,5 +1,5 @@
 <template>
-  <div class="login-page" :style="{ backgroundImage: `url(${loginBg})` }">
+  <div class="login-page" :style="{ backgroundImage: `url('${loginBg}')` }">
     <section class="login-panel" aria-label="登录面板">
       <header class="brand">
         <img class="brand-logo" :src="loginLogo" alt="logo" />
@@ -65,8 +65,10 @@ import { useRouter } from 'vue-router'
 import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
-import loginBg from '@/assets/login-bg.svg'
-import loginLogo from '@/assets/login-logo.svg'
+
+// 使用 new URL 确保在 dev/build/不同部署路径下都能正确解析静态资源
+const loginBg = `${import.meta.env.BASE_URL}login-bg.svg`
+const loginLogo = `${import.meta.env.BASE_URL}login-logo.svg`
 
 const router = useRouter()
 const loading = ref(false)
@@ -97,7 +99,8 @@ const handleSubmit = async () => {
     loading.value = true
     const res = await request.post('/auth/login', {
       username: form.username,
-      password: form.password
+      password: form.password,
+      loginType: activeTab.value
     })
 
     const token = res.token
@@ -327,4 +330,3 @@ const handleSubmit = async () => {
   }
 }
 </style>
-

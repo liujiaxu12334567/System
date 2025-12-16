@@ -25,4 +25,26 @@
         </foreach>
         ORDER BY date ASC, id ASC
     </select>
+
+    <delete id="deleteByCourseIdAndDateAndClassIds">
+        DELETE FROM teacher_interaction
+        WHERE course_id = #{courseId}
+          AND date = #{date}
+        <if test="classIds != null and classIds.size > 0">
+            AND class_id IN
+            <foreach collection="classIds" item="cid" open="(" separator="," close=")">
+                #{cid}
+            </foreach>
+        </if>
+    </delete>
+
+    <insert id="batchInsert">
+        INSERT INTO teacher_interaction
+            (course_id, class_id, teacher_id, date, talk_time_seconds, student_talk_seconds, group_talk_seconds, interaction_count)
+        VALUES
+        <foreach collection="list" item="r" separator=",">
+            (#{r.courseId}, #{r.classId}, #{r.teacherId}, #{r.date},
+             #{r.talkTimeSeconds}, #{r.studentTalkSeconds}, #{r.groupTalkSeconds}, #{r.interactionCount})
+        </foreach>
+    </insert>
 </mapper>

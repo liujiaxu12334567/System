@@ -5,6 +5,7 @@ import com.project.system.entity.ExamRecord;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import java.util.List;
+import java.util.Map;
 
 @Mapper
 public interface ExamMapper {
@@ -34,4 +35,7 @@ public interface ExamMapper {
 
     // 8. 根据考试ID查询所有考试记录 (供教师查看成绩)
     List<ExamRecord> selectExamRecordsByExamId(Long examId);
+
+    // 9. 学生端：获取“我的考试”（包含已答/未答，带课程信息与提交信息）
+    List<Map<String, Object>> selectStudentExamOverview(@Param("userId") Long userId, @Param("classId") Long classId);
 }

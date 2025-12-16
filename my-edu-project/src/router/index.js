@@ -9,6 +9,8 @@ const CourseStudy = () => import('../views/CourseStudy.vue')
 const QuizDetail = () => import('../views/QuizDetail.vue')
 const AllCourses = () => import('../views/AllCourses.vue') // 【新增引入】
 const ExamDetail = () => import('../views/ExamDetail.vue')
+const MyExams = () => import('../views/MyExams.vue')
+const PersonalLearning = () => import('../views/PersonalLearning.vue')
 const QualityTeacher = () => import('../views/QualityTeacher.vue')
 const StudentQuality = () => import('../views/StudentQuality.vue')
 const TeacherClassroom = () => import('../views/TeacherClassroom.vue')
@@ -70,6 +72,18 @@ const routes = [
         name: 'ExamDetail',
         component: ExamDetail,
         meta: { title: '在线考试' }
+    },
+    {
+        path: '/my-exams',
+        name: 'MyExams',
+        component: MyExams,
+        meta: { title: '我的考试' }
+    },
+    {
+        path: '/personal-learning',
+        name: 'PersonalLearning',
+        component: PersonalLearning,
+        meta: { title: '个性学习' }
     },
     {
         path: '/teacher/classroom/:courseId',

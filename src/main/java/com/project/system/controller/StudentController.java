@@ -2,6 +2,7 @@ package com.project.system.controller;
 
 import com.project.system.entity.*;
 import com.project.system.mapper.NotificationMapper;
+import com.project.system.mapper.OnlineQuestionMapper;
 import com.project.system.service.StudentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -21,6 +22,8 @@ public class StudentController {
     private StudentService studentService;
     @Autowired
     private NotificationMapper notificationMapper;
+    @Autowired
+    private OnlineQuestionMapper onlineQuestionMapper;
     // 1. 获取课程详情 (Service 层已集成 Redis 缓存)
     @GetMapping("/course/{courseId}/info")
     public ResponseEntity<?> getCourseInfo(@PathVariable Long courseId) {
@@ -33,6 +36,12 @@ public class StudentController {
     @GetMapping("/course/{courseId}/materials")
     public ResponseEntity<List<Material>> getCourseMaterials(@PathVariable Long courseId) {
         return ResponseEntity.ok(studentService.getCourseMaterials(courseId));
+    }
+
+    // 个性学习：获取所有课程组长下发课程（学生端可跨班级浏览）
+    @GetMapping("/personal-learning/courses")
+    public ResponseEntity<List<Course>> getPersonalLearningCourses() {
+        return ResponseEntity.ok(studentService.getPersonalLearningCourses());
     }
 
     // 3. 提交测验/作业
@@ -77,6 +86,12 @@ public class StudentController {
     @GetMapping("/course/{courseId}/exams")
     public ResponseEntity<List<Exam>> getCourseExams(@PathVariable Long courseId) {
         return ResponseEntity.ok(studentService.getCourseExams(courseId));
+    }
+
+    // 6.1 学生端：我的考试列表（包含已答/未答；limit 可选，用于首页展示）
+    @GetMapping("/my-exams")
+    public ResponseEntity<List<Map<String, Object>>> getMyExams(@RequestParam(required = false) Integer limit) {
+        return ResponseEntity.ok(studentService.getMyExams(limit));
     }
 
     // 7. 提交考试
@@ -161,7 +176,13 @@ public class StudentController {
     public ResponseEntity<?> answerOnlineQuestion(@PathVariable Long questionId, @RequestBody Map<String, String> payload) {
         try {
             String text = payload.get("answerText");
-            return ResponseEntity.ok(studentService.answerOnlineQuestion(questionId, text));
+            OnlineAnswer answer = studentService.answerOnlineQuestion(questionId, text);
+            OnlineQuestion q = onlineQuestionMapper.selectById(questionId);
+            return ResponseEntity.ok(Map.of(
+                    "answer", answer,
+                    "correct", answer == null ? null : answer.getCorrect(),
+                    "correctAnswer", q == null ? null : q.getCorrectAnswer()
+            ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

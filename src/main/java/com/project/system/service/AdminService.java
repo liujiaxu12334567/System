@@ -5,6 +5,7 @@ import com.project.system.dto.CourseAssignRequest;
 import com.project.system.dto.CourseBatchAssignRequest;
 import com.project.system.dto.CourseGroupCreateRequest;
 import com.project.system.dto.CourseGroupUpdateLeaderRequest;
+import com.project.system.dto.CourseScheduleBatchUpdateRequest;
 import com.project.system.dto.PaginationResponse;
 import com.project.system.entity.Course;
 import com.project.system.entity.User;
@@ -26,6 +27,8 @@ public interface AdminService {
     void batchAssignCourse(CourseBatchAssignRequest request);
     void assignCourse(CourseAssignRequest request);
     void updateCourse(Course course);
+    List<Course> listTimetableByClassId(Long classId);
+    void batchUpdateCourseSchedule(CourseScheduleBatchUpdateRequest request);
     void deleteCourse(Long id);
     Object listCourseGroups(String semester);
     void createCourseGroup(CourseGroupCreateRequest request);

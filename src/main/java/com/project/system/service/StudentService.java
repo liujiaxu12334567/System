@@ -25,10 +25,12 @@ public interface StudentService {
     List<Map<String, Object>> getPendingTasks();
     Course getCourseInfo(Long courseId);
     List<Material> getCourseMaterials(Long courseId);
+    List<Course> getPersonalLearningCourses();
     void submitQuiz(Long materialId, Integer score, String userAnswers, String textAnswer, List<MultipartFile> files);
     String chatWithAiTutor(Long materialId, List<Map<String, String>> history);
     QuizRecord getQuizRecord(Long materialId);
     List<Exam> getCourseExams(Long courseId);
+    List<Map<String, Object>> getMyExams(Integer limit);
     void submitExam(Long examId, Integer score, String userAnswers, Integer cheatCount);
     Object getExamRecord(Long examId);
     List<Map<String, Object>> getRecentActivities();

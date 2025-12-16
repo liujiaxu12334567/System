@@ -52,11 +52,35 @@ public class AuthController {
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
 
-        SecurityContextHolder.getContext().setAuthentication(authentication);
-
-        String jwt = jwtUtils.generateToken(loginRequest.getUsername());
-
         User user = userMapper.findByUsername(loginRequest.getUsername());
+        if (user == null) {
+            return ResponseEntity.badRequest().body("登录失败：用户不存在");
+        }
+
+        String loginType = loginRequest.getLoginType();
+        if (loginType != null) loginType = loginType.trim().toLowerCase();
+        if (loginType != null && !loginType.isEmpty()) {
+            String roleType = user.getRoleType() == null ? "" : user.getRoleType().trim();
+
+            boolean isAdmin = "1".equals(roleType);
+            boolean isTeacherSide = "2".equals(roleType) || "3".equals(roleType) || "5".equals(roleType);
+            boolean isStudentSide = "4".equals(roleType);
+
+            if ("teacher".equals(loginType)) {
+                if (!(isAdmin || isTeacherSide)) {
+                    return ResponseEntity.badRequest().body("该账号为学生账号，请切换到【学生端登录】");
+                }
+            } else if ("student".equals(loginType)) {
+                if (!(isAdmin || isStudentSide)) {
+                    return ResponseEntity.badRequest().body("该账号为教师账号，请切换到【教师端登录】");
+                }
+            } else {
+                return ResponseEntity.badRequest().body("登录失败：loginType 仅支持 teacher / student");
+            }
+        }
+
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+        String jwt = jwtUtils.generateToken(loginRequest.getUsername());
 
         return ResponseEntity.ok(new LoginResponse(
                 jwt,

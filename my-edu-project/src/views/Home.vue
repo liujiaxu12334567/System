@@ -7,8 +7,8 @@
           <nav class="nav-links">
             <a @click="$router.push('/home')" class="active">首页</a>
             <a @click="$router.push('/all-courses')">课程学习</a>
-            <a href="#">个性学习</a>
-            <a href="#">考试</a>
+            <a @click="$router.push('/personal-learning')">个性学习</a>
+            <a @click="$router.push('/my-exams')">考试</a>
             <a @click="$router.push('/student-quality')">素质活动</a>
             <a href="#">毕业设计</a>
           </nav>
@@ -191,9 +191,30 @@
         <section class="content-block half-block">
           <div class="block-header">
             <h3 class="title">我的考试</h3>
-            <el-link :underline="false" class="more-link">更多 <el-icon><ArrowRight /></el-icon></el-link>
+            <el-link :underline="false" class="more-link" @click="goToMyExams">更多 <el-icon><ArrowRight /></el-icon></el-link>
           </div>
-          <div class="empty-area small">
+
+          <div class="task-list" v-if="myExams.length > 0">
+            <div class="task-item" v-for="(exam, index) in myExams" :key="exam.examId || index">
+              <div class="item-left">
+                <el-tag :type="exam.submitted ? 'success' : 'danger'" effect="dark" size="small" class="type-tag">
+                  {{ exam.submitted ? '已答' : '未答' }}
+                </el-tag>
+                <div class="item-content">
+                  <div class="task-title">
+                    {{ exam.title }}
+                    <span class="course-badge">{{ exam.courseName }}</span>
+                  </div>
+                  <div class="task-desc">截止时间：{{ exam.deadline || '无限制' }}</div>
+                </div>
+              </div>
+              <el-button type="primary" link round size="small" @click="goToExam(exam.examId)">
+                {{ exam.submitted ? '查看' : '去完成' }}
+              </el-button>
+            </div>
+          </div>
+
+          <div class="empty-area small" v-else>
             <div class="custom-empty">
               <el-icon :size="50" color="#e0e0e0"><Tickets /></el-icon>
               <p>暂无考试</p>
@@ -298,6 +319,7 @@ const loading = ref(true)
 const courseList = ref([])
 const notificationList = ref([])
 const pendingTasks = ref([])
+const myExams = ref([])
 const enteringClassroom = ref(null) // 控制进入课堂的 loading
 
 // 通知详情状态
@@ -364,11 +386,22 @@ const fetchHomeData = async () => {
     const tasksRes = await request.get('/student/pending-tasks')
     pendingTasks.value = tasksRes || []
 
+    // 4. 获取我的考试 (含已答/未答)
+    const examsRes = await request.get('/student/my-exams', { params: { limit: 3 } })
+    myExams.value = examsRes || []
+
   } catch (error) {
     console.error(error)
   } finally {
     loading.value = false
   }
+}
+
+const goToMyExams = () => router.push('/my-exams')
+
+const goToExam = (examId) => {
+  if (!examId) return
+  router.push({ name: 'ExamDetail', params: { examId } })
 }
 
 const fetchNotifications = async () => {

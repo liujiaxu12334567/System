@@ -9,6 +9,9 @@ public class CourseBatchAssignRequest {
     // 推荐使用：严格模式以课程组ID为准
     private Long groupId;
 
+    // 【新增】按专业下发：只允许选择该专业的班级
+    private String major;
+
     // 兼容字段：当 groupId 为空时可用 name+semester 定位课程组（不建议）
     private String name;
     private String semester;
@@ -25,4 +28,3 @@ public class CourseBatchAssignRequest {
         private Long teacherId;
     }
 }
-

@@ -19,4 +19,10 @@
     <select id="selectAllClasses" resultMap="ClassResultMap">
         SELECT class_id, class_name, major FROM sys_class ORDER BY class_id ASC
     </select>
+
+    <update id="updateMajor">
+        UPDATE sys_class
+        SET major = #{major}
+        WHERE class_id = #{classId}
+    </update>
 </mapper>

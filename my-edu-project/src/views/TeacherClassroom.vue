@@ -50,6 +50,9 @@
               <el-form-item label="补充描述">
                 <el-input v-model="questionForm.content" type="textarea" :rows="2" placeholder="规则说明或补充..." resize="none" />
               </el-form-item>
+              <el-form-item v-if="questionForm.mode !== 'hand'" label="正确答案（用于判题）">
+                <el-input v-model="questionForm.correctAnswer" placeholder="请输入正确答案（可留空）" />
+              </el-form-item>
               <el-form-item v-if="questionForm.mode === 'assign'" label="点名学生ID（userId）">
                 <el-input v-model="questionForm.assignStudentId" placeholder="请输入学生 userId" />
               </el-form-item>
@@ -188,6 +191,10 @@
                   <el-table-column prop="hand" label="举手" width="80" align="center" />
                   <el-table-column prop="race" label="抢答" width="80" align="center" />
                   <el-table-column prop="answer" label="回答" width="80" align="center" />
+                  <el-table-column prop="chat" label="发言" width="80" align="center" />
+                  <el-table-column prop="called" label="点名" width="80" align="center" />
+                  <el-table-column prop="correct" label="正确" width="80" align="center" />
+                  <el-table-column prop="wrong" label="错误" width="80" align="center" />
                   <el-table-column prop="total" label="总互动" width="90" align="center" />
                   <el-table-column prop="lastTime" label="最近时间" min-width="160" />
                 </el-table>
@@ -326,7 +333,7 @@ const courseId = Number(route.params.courseId)
 const courseTitle = ref(`课程 ${courseId}`)
 const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
 
-const questionForm = ref({ title: '', content: '', mode: 'broadcast', assignStudentId: '' })
+const questionForm = ref({ title: '', content: '', correctAnswer: '', mode: 'broadcast', assignStudentId: '' })
 const modeOptions = [
   { value: 'broadcast', label: '广播' },
   { value: 'race', label: '抢答' },
@@ -364,8 +371,10 @@ let ws = null
 const startClassroom = async () => {
   try {
     await request.post(`/teacher/classroom/${courseId}/start`)
+    return true
   } catch (e) {
-    ElMessage.error('开课失败')
+    ElMessage.error(e?.response?.data || e?.message || '开课失败')
+    return false
   }
 }
 
@@ -389,7 +398,8 @@ onMounted(async () => {
     router.push('/login')
     return
   }
-  await startClassroom()
+  const ok = await startClassroom()
+  if (!ok) return
   await fetchQuestions()
   startPolling()
   connectWs()
@@ -450,6 +460,12 @@ const showPerformance = () => {
 const fetchAnalysisData = async () => {
   analysisLoading.value = true
   try {
+    try {
+      await request.post(`/teacher/classroom/${courseId}/analysis/generate`, {}, {
+        params: { metric: analysisMetric.value }
+      })
+    } catch (e) {}
+
     const latest = await request.get('/analysis/result', {
       params: { courseId, metric: analysisMetric.value }
     })
@@ -536,6 +552,7 @@ const publishQuestion = async () => {
     ElMessage.success('已发布')
     questionForm.value.title = ''
     questionForm.value.content = ''
+    questionForm.value.correctAnswer = ''
     questionForm.value.assignStudentId = ''
     await fetchQuestions()
   } catch (e) { ElMessage.error('发布失败') }

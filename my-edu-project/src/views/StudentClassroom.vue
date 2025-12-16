@@ -74,7 +74,17 @@
                 </div>
                 <div class="feed-content">
                   <span class="feed-user">学生 {{ a.studentId }}</span>
-                  <span class="feed-text">{{ a.text }}</span>
+                  <span class="feed-text">
+                    {{ a.text }}
+                    <el-tag
+                        v-if="a.type==='answer' && a.correct !== null"
+                        :type="a.correct ? 'success' : 'danger'"
+                        size="small"
+                        style="margin-left: 6px;"
+                    >
+                      {{ a.correct ? '正确' : '错误' }}
+                    </el-tag>
+                  </span>
                 </div>
                 <span class="feed-time">{{ formatTime(a.createTime) }}</span>
               </div>
@@ -317,8 +327,16 @@ const submitAnswer = async () => {
   if (!currentQuestion.value) return
   if (!answerText.value.trim()) return ElMessage.warning('请输入内容')
   try {
-    await request.post(`/student/online-question/${currentQuestion.value.id}/answer`, { answerText: answerText.value })
-    ElMessage.success('回答已提交')
+    const res = await request.post(`/student/online-question/${currentQuestion.value.id}/answer`, { answerText: answerText.value })
+    const correct = res?.correct
+    const correctAnswer = res?.correctAnswer
+    if (correct === true) {
+      ElMessage.success('回答正确')
+    } else if (correct === false) {
+      ElMessage.error(correctAnswer ? `回答错误，正确答案：${correctAnswer}` : '回答错误')
+    } else {
+      ElMessage.success('回答已提交')
+    }
     answerDialogVisible.value = false
     answerText.value = ''
     await loadAnswers()

@@ -13,6 +13,7 @@ public interface CourseMapper {
     int insertBatchCourses(@Param("list") List<Course> list);
 
     List<Course> selectAllCourses();
+    List<Course> selectCoursesByClassIdOrderByStartTime(@Param("classId") Long classId);
     Course selectCourseById(@Param("id") Long id);
     Course selectByNameSemesterClassId(@Param("name") String name, @Param("semester") String semester, @Param("classId") Long classId);
     Course selectByGroupIdAndClassId(@Param("groupId") Long groupId, @Param("classId") Long classId);
@@ -20,6 +21,10 @@ public interface CourseMapper {
     List<Long> selectDistinctClassIdsByTeacherIdAndSemester(@Param("teacherId") Long teacherId, @Param("semester") String semester);
     int updateLeaderByGroupId(@Param("groupId") Long groupId, @Param("leaderId") Long leaderId, @Param("leaderName") String leaderName);
     int updateCourse(Course course);
+    int updateCourseSchedule(@Param("id") Long id,
+                             @Param("dayOfWeek") Integer dayOfWeek,
+                             @Param("startTime") String startTime,
+                             @Param("endTime") String endTime);
     int deleteCourseById(Long id);
 
     // 【核心方法】根据课题组长姓名查询其负责的课程

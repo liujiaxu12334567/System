@@ -447,7 +447,9 @@ const courseInfo = ref({})
 const allMaterials = ref([])
 const examList = ref([])
 const currentTab = ref('导学')
-const tabs = ['导学', '教材', '教学目标', '知识图谱', '目录', 'FAQ', '学习资料', '测验', '作业', '项目', '考试']
+const baseTabs = ['导学', '教材', '教学目标', '知识图谱', '目录', 'FAQ', '学习资料', '测验', '作业', '项目', '考试']
+const isPersonalLearning = computed(() => String(route.query.mode || '') === 'personal')
+const tabs = computed(() => (isPersonalLearning.value ? baseTabs.filter(t => !['测验', '考试'].includes(t)) : baseTabs))
 const searchKeyword = ref('')
 
 // 图谱/目录数据
@@ -467,6 +469,10 @@ let checkTimer = null
 const previewWhiteList = ['pdf', 'txt', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'mp3', 'mp4']
 
 onMounted(() => {
+  // 个性学习入口：隐藏测验/考试后，确保当前 tab 合法
+  if (Array.isArray(tabs.value) && tabs.value.length > 0 && !tabs.value.includes(currentTab.value)) {
+    currentTab.value = tabs.value[0]
+  }
   fetchCourseInfo();
   fetchMaterials();
   // 启动签到检查
@@ -516,8 +522,12 @@ const fetchMaterials = async () => {
     // 1. 获取普通资料
     allMaterials.value = await request.get(`/student/course/${courseId}/materials`) || []
 
-    // 2. 获取考试列表
-    examList.value = await request.get(`/student/course/${courseId}/exams`) || []
+    // 2. 获取考试列表（个性学习入口不展示考试，避免干扰）
+    if (isPersonalLearning.value) {
+      examList.value = []
+    } else {
+      examList.value = await request.get(`/student/course/${courseId}/exams`) || []
+    }
 
     // 3. 获取测验和作业的提交状态
     for (const m of allMaterials.value) {

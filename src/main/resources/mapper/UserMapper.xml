@@ -14,6 +14,7 @@
         <result property="roleType"     column="role_type" />
         <result property="teacherRank"  column="teacher_rank" />
         <result property="accountStatus" column="account_status" />
+        <result property="college"      column="college" />
         <result property="classId"      column="class_id" />
         <result property="teachingClasses" column="teaching_classes" />
         <result property="createTime"   column="create_time" />
@@ -74,9 +75,38 @@
             <if test="realName != null">real_name = #{realName},</if>
             <if test="password != null and password != ''">password = #{password},</if>
             <if test="roleType != null">role_type = #{roleType},</if>
-            <if test="teacherRank != null">teacher_rank = #{teacherRank},</if>
+            <!-- 角色相关字段清理：仅在传入 roleType 时生效（避免密码修改等场景误清空） -->
+            <if test="roleType != null">
+                <choose>
+                    <when test="roleType == '2'">
+                        teacher_rank = #{teacherRank},
+                    </when>
+                    <otherwise>
+                        teacher_rank = NULL,
+                    </otherwise>
+                </choose>
+            </if>
+            <if test="roleType != null">
+                <choose>
+                    <when test="roleType == '2' or roleType == '3' or roleType == '5'">
+                        college = #{college},
+                    </when>
+                    <otherwise>
+                        college = NULL,
+                    </otherwise>
+                </choose>
+            </if>
             <if test="classId != null">class_id = #{classId},</if>
-            <if test="teachingClasses != null">teaching_classes = #{teachingClasses},</if>
+            <if test="roleType != null">
+                <choose>
+                    <when test="roleType == '5'">
+                        teaching_classes = #{teachingClasses},
+                    </when>
+                    <otherwise>
+                        teaching_classes = NULL,
+                    </otherwise>
+                </choose>
+            </if>
         </set>
         WHERE user_id = #{userId}
     </update>
@@ -90,14 +120,19 @@
     </select>
 
     <insert id="insert" parameterType="com.project.system.entity.User">
-        INSERT INTO sys_user (
+        INSERT INTO sys_user
+        <trim prefix="(" suffix=")" suffixOverrides=",">
             username, password, real_name, role_type,
-            teacher_rank, class_id, teaching_classes, create_time
-        )
-        VALUES (
-                   #{username}, #{password}, #{realName}, #{roleType},
-                   #{teacherRank}, #{classId}, #{teachingClasses}, NOW()
-               )
+            teacher_rank,
+            <if test="college != null">college,</if>
+            class_id, teaching_classes, create_time
+        </trim>
+        <trim prefix="VALUES (" suffix=")" suffixOverrides=",">
+            #{username}, #{password}, #{realName}, #{roleType},
+            #{teacherRank},
+            <if test="college != null">#{college},</if>
+            #{classId}, #{teachingClasses}, NOW()
+        </trim>
     </insert>
 
     <insert id="insertBatchStudents" parameterType="java.util.List">

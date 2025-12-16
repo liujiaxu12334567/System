@@ -5,6 +5,7 @@ import com.project.system.dto.CourseAssignRequest;
 import com.project.system.dto.CourseBatchAssignRequest;
 import com.project.system.dto.CourseGroupCreateRequest;
 import com.project.system.dto.CourseGroupUpdateLeaderRequest;
+import com.project.system.dto.CourseScheduleBatchUpdateRequest;
 import com.project.system.entity.Course;
 import com.project.system.entity.User;
 import com.project.system.service.AdminService;
@@ -178,6 +179,25 @@ public class AdminController {
         try {
             adminService.updateCourse(course);
             return ResponseEntity.ok("更新成功");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @GetMapping("/course/timetable")
+    public ResponseEntity<?> listTimetableByClassId(@RequestParam Long classId) {
+        try {
+            return ResponseEntity.ok(adminService.listTimetableByClassId(classId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/course/schedule/batch")
+    public ResponseEntity<?> batchUpdateCourseSchedule(@RequestBody CourseScheduleBatchUpdateRequest request) {
+        try {
+            adminService.batchUpdateCourseSchedule(request);
+            return ResponseEntity.ok("排课保存成功");
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }

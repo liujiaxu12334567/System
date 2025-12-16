@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,6 +64,11 @@ public class StudentServiceImpl implements StudentService {
 
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    private static String normalizeAnswer(String s) {
+        if (s == null) return "";
+        return s.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
     // 辅助方法：获取当前登录用户
     private User getCurrentUser() {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -70,7 +76,7 @@ public class StudentServiceImpl implements StudentService {
     }
 
     @Override
-    @Cacheable(value = "course_info", key = "#courseId")
+    @Cacheable(value = "course_info_v2", key = "#courseId")
     public Course getCourseInfo(Long courseId) {
         return courseMapper.selectCourseById(courseId);
     }
@@ -83,6 +89,34 @@ public class StudentServiceImpl implements StudentService {
     @Override
     public List<Material> getCourseMaterials(Long courseId) {
         return materialMapper.selectByCourseId(courseId);
+    }
+
+    @Override
+    public List<Course> getPersonalLearningCourses() {
+        // “专业组长下发”的课程：sys_course.leader_id 有值（由课程组长批量分配时写入）
+        List<Course> all = courseMapper.selectAllCourses();
+        if (all == null || all.isEmpty()) return Collections.emptyList();
+
+        // 为避免同一课程组对多个班级产生重复课程：按 group_id 去重（保留最新一条）
+        all.sort((a, b) -> {
+            Long ai = a == null ? null : a.getId();
+            Long bi = b == null ? null : b.getId();
+            if (ai == null && bi == null) return 0;
+            if (ai == null) return 1;
+            if (bi == null) return -1;
+            return Long.compare(bi, ai);
+        });
+
+        Map<String, Course> dedup = new LinkedHashMap<>();
+        for (Course c : all) {
+            if (c == null) continue;
+            if (c.getLeaderId() == null) continue;
+
+            Long groupId = c.getGroupId();
+            String key = groupId != null ? ("g:" + groupId) : ("c:" + c.getId());
+            dedup.putIfAbsent(key, c);
+        }
+        return new ArrayList<>(dedup.values());
     }
 
     @Override
@@ -126,10 +160,17 @@ public class StudentServiceImpl implements StudentService {
 
     @Override
     public Map<String, Object> getClassroomStatus(Long courseId) {
-        if (courseId == null) return Map.of("active", false, "sessionStart", null);
+        Map<String, Object> res = new HashMap<>();
+        if (courseId == null) {
+            res.put("active", false);
+            res.put("sessionStart", null);
+            return res;
+        }
         boolean active = Boolean.TRUE.equals(redisTemplate.hasKey("classroom:active:" + courseId));
         java.time.LocalDateTime sessionStart = getSessionStart(courseId, false);
-        return Map.of("active", active, "sessionStart", sessionStart == null ? null : sessionStart.toString());
+        res.put("active", active);
+        res.put("sessionStart", sessionStart == null ? null : sessionStart.toString());
+        return res;
     }
 
     @Override
@@ -355,6 +396,53 @@ public class StudentServiceImpl implements StudentService {
     }
 
     @Override
+    public List<Map<String, Object>> getMyExams(Integer limit) {
+        User user = getCurrentUser();
+        if (user == null || user.getClassId() == null) return Collections.emptyList();
+
+        List<Map<String, Object>> rows = examMapper.selectStudentExamOverview(user.getUserId(), user.getClassId());
+        if (rows == null || rows.isEmpty()) return Collections.emptyList();
+
+        LocalDateTime now = LocalDateTime.now();
+        List<Map<String, Object>> list = new ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            if (row == null) continue;
+
+            Map<String, Object> item = new HashMap<>(row);
+            boolean submitted = item.get("recordId") != null;
+            item.put("submitted", submitted);
+            item.put("answerStatus", submitted ? "已答" : "未答");
+
+            String startTime = item.get("startTime") == null ? null : String.valueOf(item.get("startTime"));
+            String deadline = item.get("deadline") == null ? null : String.valueOf(item.get("deadline"));
+
+            String timeStatus = "时间异常";
+            try {
+                LocalDateTime st = (startTime == null || startTime.isBlank()) ? null : LocalDateTime.parse(startTime.trim(), FORMATTER);
+                LocalDateTime dl = (deadline == null || deadline.isBlank()) ? null : LocalDateTime.parse(deadline.trim(), FORMATTER);
+
+                if (st != null && now.isBefore(st)) timeStatus = "未开始";
+                else if (dl != null && now.isAfter(dl)) timeStatus = "已结束";
+                else timeStatus = "进行中";
+            } catch (Exception ignored) {
+                timeStatus = "时间异常";
+            }
+            item.put("timeStatus", timeStatus);
+
+            // 兼容前端：如果已答，则优先标记为已交卷（课程详情页沿用此字段）
+            if (submitted) item.put("status", "已交卷");
+            else item.put("status", timeStatus);
+
+            list.add(item);
+        }
+
+        if (limit != null && limit > 0 && list.size() > limit) {
+            return list.subList(0, limit);
+        }
+        return list;
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public void submitExam(Long examId, Integer score, String userAnswers, Integer cheatCount) {
         User user = getCurrentUser();
@@ -451,9 +539,23 @@ public class StudentServiceImpl implements StudentService {
         }
         if (ids.isEmpty()) return Collections.emptyList();
         java.time.LocalDateTime sessionStart = courseId == null ? null : getSessionStart(courseId, true);
-        return onlineQuestionMapper.selectByCourseIds(ids).stream()
+        List<OnlineQuestion> questions;
+        try {
+            questions = onlineQuestionMapper.selectByCourseIds(ids);
+        } catch (BadSqlGrammarException e) {
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("correct_answer")) {
+                throw new IllegalStateException("数据库缺少 online_question.correct_answer 列：请执行 docs/online_question_correct_answer.sql 后重试。", e);
+            }
+            throw e;
+        }
+        return questions.stream()
                 .filter(q -> sessionStart == null || (q.getCreateTime() != null && q.getCreateTime().isAfter(sessionStart)))
-                .map(this::enrichQuestion)
+                .map(q -> {
+                    OnlineQuestion enriched = enrichQuestion(q);
+                    if (enriched != null) enriched.setCorrectAnswer(null);
+                    return enriched;
+                })
                 .filter(q -> !"assign".equals(q.getMode()) || (q.getAssignStudentId() != null && q.getAssignStudentId().equals(user.getUserId())))
                 .collect(Collectors.toList());
     }
@@ -479,7 +581,15 @@ public class StudentServiceImpl implements StudentService {
         OnlineAnswer answer = new OnlineAnswer();
         answer.setQuestionId(questionId);
         answer.setStudentId(student.getUserId());
-        answer.setAnswerText(buildAnswerJson("answer", answerText.trim(), "answered", student.getUserId()));
+
+        Boolean correct = null;
+        if (question.getCorrectAnswer() != null && !question.getCorrectAnswer().trim().isEmpty()) {
+            String expected = normalizeAnswer(question.getCorrectAnswer());
+            String actual = normalizeAnswer(answerText);
+            correct = expected.equals(actual);
+        }
+
+        answer.setAnswerText(buildAnswerJson("answer", answerText.trim(), "answered", student.getUserId(), correct));
         onlineAnswerMapper.insert(answer);
         OnlineAnswer enriched = enrichAnswer(answer);
         classroomEventBus.publish(new ClassroomEvent("answer", question.getCourseId(), questionId, enriched));
@@ -502,7 +612,7 @@ public class StudentServiceImpl implements StudentService {
         OnlineAnswer answer = new OnlineAnswer();
         answer.setQuestionId(questionId);
         answer.setStudentId(student.getUserId());
-        answer.setAnswerText(buildAnswerJson("hand", "举手", "pending", student.getUserId()));
+        answer.setAnswerText(buildAnswerJson("hand", "举手", "pending", student.getUserId(), null));
         onlineAnswerMapper.insert(answer);
         OnlineAnswer enriched = enrichAnswer(answer);
         if (q != null) classroomEventBus.publish(new ClassroomEvent("hand", q.getCourseId(), questionId, enriched));
@@ -525,7 +635,7 @@ public class StudentServiceImpl implements StudentService {
         OnlineAnswer answer = new OnlineAnswer();
         answer.setQuestionId(questionId);
         answer.setStudentId(student.getUserId());
-        answer.setAnswerText(buildAnswerJson("race", "抢答", "pending", student.getUserId()));
+        answer.setAnswerText(buildAnswerJson("race", "抢答", "pending", student.getUserId(), null));
         onlineAnswerMapper.insert(answer);
         OnlineAnswer enriched = enrichAnswer(answer);
         if (q != null) classroomEventBus.publish(new ClassroomEvent("race", q.getCourseId(), questionId, enriched));
@@ -659,12 +769,15 @@ public class StudentServiceImpl implements StudentService {
         return q;
     }
 
-    private String buildAnswerJson(String type, String text, String state, Long studentId) {
+    private String buildAnswerJson(String type, String text, String state, Long studentId, Boolean correct) {
         Map<String, Object> map = new HashMap<>();
         map.put("type", type);
         map.put("text", text);
         map.put("state", state);
         map.put("studentId", studentId);
+        if (correct != null) {
+            map.put("correct", correct);
+        }
         try {
             return new ObjectMapper().writeValueAsString(map);
         } catch (Exception e) {
@@ -677,12 +790,14 @@ public class StudentServiceImpl implements StudentService {
         a.setType("answer");
         a.setState("answered");
         a.setText(a.getAnswerText());
+        a.setCorrect(null);
         if (a.getAnswerText() != null && a.getAnswerText().trim().startsWith("{")) {
             try {
                 JsonNode node = new ObjectMapper().readTree(a.getAnswerText());
                 if (node.has("type")) a.setType(node.get("type").asText());
                 if (node.has("state")) a.setState(node.get("state").asText());
                 if (node.has("text")) a.setText(node.get("text").asText());
+                if (node.has("correct") && !node.get("correct").isNull()) a.setCorrect(node.get("correct").asBoolean());
             } catch (Exception ignored) {}
         }
         return a;

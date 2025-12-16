@@ -1,6 +1,7 @@
 package com.project.system.service;
 
 import com.project.system.dto.PaginationResponse;
+import com.project.system.dto.AnalysisResultResponse;
 import com.project.system.dto.StudentPortraitResponse;
 import com.project.system.entity.Application;
 import com.project.system.entity.Exam;
@@ -64,6 +65,11 @@ public interface TeacherService {
      * 获取考试作弊记录
      */
     List<Map<String, Object>> getExamCheatingRecords(Long examId);
+
+    /**
+     * 获取考试监控记录（包含所有已提交学生的成绩/作弊次数/最终成绩）
+     */
+    List<Map<String, Object>> getExamMonitorRecords(Long examId);
     List<Notification> getMyNotifications();
     // 【新增】获取仪表盘统计数据 (学生数、出勤率、图表数据等)
     Map<String, Object> getDashboardStats();
@@ -99,6 +105,8 @@ public interface TeacherService {
 
     // 【新增】在线测试表现汇总
     java.util.List<java.util.Map<String, Object>> getClassroomPerformance(Long courseId);
+
+    AnalysisResultResponse generateClassroomAnalysisResult(Long courseId, String metric);
 
     // 【新增】学生AI综合画像（按班级/课程聚合出勤/提交/互动）
     java.util.List<StudentPortraitResponse> getStudentPortraits(Long classId, java.util.List<Long> studentIds);

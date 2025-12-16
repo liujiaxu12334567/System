@@ -15,4 +15,7 @@ public interface ClassMapper {
 
     // 获取所有班级 (用于前端下拉框)
     List<Class> selectAllClasses();
+
+    // 更新班级专业（用于历史数据补全）
+    int updateMajor(@Param("classId") Long classId, @Param("major") String major);
 }

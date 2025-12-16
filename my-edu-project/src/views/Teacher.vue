@@ -72,6 +72,9 @@
                   <el-form-item label="问题描述">
                     <el-input v-model="questionForm.content" type="textarea" :rows="3" placeholder="可添加补充说明、点名学生、举手/抢答规则等" />
                   </el-form-item>
+                  <el-form-item v-if="questionForm.mode !== 'hand'" label="正确答案">
+                    <el-input v-model="questionForm.correctAnswer" placeholder="可留空，用于判题/统计" />
+                  </el-form-item>
                   <el-form-item>
                     <el-button type="primary" @click="publishQuestion" :disabled="!questionForm.title">发布问题</el-button>
                   </el-form-item>
@@ -395,28 +398,125 @@
       <div v-if="activeMenu === '4'" class="dashboard-card content-block-light fade-in">
         <div class="block-header-light">
           <h3 class="title">考试监控与作弊记录</h3>
-          <el-select v-model="selectedExamId" placeholder="选择考试场次" clearable style="width: 240px;" @change="fetchCheatingRecords">
-            <el-option v-for="exam in availableExams" :key="exam.id" :label="exam.title" :value="exam.id" />
-          </el-select>
+          <div style="display:flex; gap: 10px; align-items:center;">
+            <el-select v-model="selectedExamId" placeholder="选择考试场次" clearable style="width: 260px;" @change="handleExamChange">
+              <el-option v-for="exam in availableExams" :key="exam.id" :label="exam.title" :value="exam.id" />
+            </el-select>
+            <el-button :icon="Refresh" @click="handleExamChange" :disabled="!selectedExamId">刷新</el-button>
+          </div>
         </div>
-        <el-table :data="cheatingRecords" border style="width: 100%" header-cell-class-name="light-table-header">
-          <el-table-column prop="studentName" label="姓名" width="120" />
-          <el-table-column prop="record.cheatCount" label="切屏/违规次数" width="150" align="center">
-            <template #default="scope">
-              <el-badge :value="scope.row.record.cheatCount" class="item" type="danger" />
-            </template>
-          </el-table-column>
-          <el-table-column label="风险等级" width="120" align="center">
-            <template #default="scope">
-              <el-tag type="danger" v-if="scope.row.record.cheatCount > 5">高风险</el-tag>
-              <el-tag type="warning" v-else>中风险</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" align="center">
-            <template #default="scope"><el-button link type="primary" :icon="View">查看抓拍日志</el-button></template>
-          </el-table-column>
-        </el-table>
+
+        <el-alert
+          v-if="selectedExamId"
+          :title="`已提交 ${examMonitorRecords.length} 人，作弊 ${cheatingRecords.length} 人（每次作弊扣 10 分）`"
+          type="info"
+          show-icon
+          style="margin-bottom: 12px;"
+        />
+        <el-empty v-else description="请选择一个考试场次" />
+
+        <el-tabs v-if="selectedExamId" v-model="examTab" style="margin-top: 8px;">
+          <el-tab-pane label="考试监控" name="monitor">
+            <el-table :data="examMonitorRecords" border style="width: 100%" header-cell-class-name="light-table-header">
+              <el-table-column prop="studentName" label="姓名" width="120" />
+              <el-table-column prop="studentUsername" label="学号" width="140" />
+              <el-table-column prop="record.score" label="成绩" width="100" align="center" />
+              <el-table-column prop="record.cheatCount" label="作弊次数" width="110" align="center">
+                <template #default="scope">
+                  <el-tag v-if="(scope.row.record?.cheatCount || 0) > 0" type="danger" effect="light">
+                    {{ scope.row.record.cheatCount }}
+                  </el-tag>
+                  <span v-else>0</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="penalty" label="扣分" width="100" align="center">
+                <template #default="scope">
+                  <span v-if="(scope.row.penalty || 0) > 0" style="color:#F56C6C;">-{{ scope.row.penalty }}</span>
+                  <span v-else>0</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="finalScore" label="最终成绩" width="110" align="center">
+                <template #default="scope">
+                  <el-tag type="success" effect="light" v-if="scope.row.finalScore !== null && scope.row.finalScore !== undefined">
+                    {{ scope.row.finalScore }}
+                  </el-tag>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="提交时间" min-width="170">
+                <template #default="scope">{{ formatDateTime(scope.row.record?.submitTime) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="110" align="center">
+                <template #default="scope">
+                  <el-button link type="primary" :icon="View" @click="openExamRecordDialog(scope.row)">查看</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+
+          <el-tab-pane label="作弊记录" name="cheating">
+            <el-table :data="cheatingRecords" border style="width: 100%" header-cell-class-name="light-table-header">
+              <el-table-column prop="studentName" label="姓名" width="120" />
+              <el-table-column prop="studentUsername" label="学号" width="140" />
+              <el-table-column prop="record.score" label="成绩" width="100" align="center" />
+              <el-table-column prop="record.cheatCount" label="作弊次数" width="110" align="center">
+                <template #default="scope">
+                  <el-badge :value="scope.row.record?.cheatCount || 0" class="item" type="danger" />
+                </template>
+              </el-table-column>
+              <el-table-column label="风险等级" width="120" align="center">
+                <template #default="scope">
+                  <el-tag type="danger" v-if="(scope.row.record?.cheatCount || 0) > 5">高风险</el-tag>
+                  <el-tag type="warning" v-else>中风险</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="penalty" label="扣分" width="100" align="center">
+                <template #default="scope">
+                  <span style="color:#F56C6C;">-{{ scope.row.penalty || 0 }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="finalScore" label="最终成绩" width="110" align="center">
+                <template #default="scope">
+                  <el-tag type="success" effect="light" v-if="scope.row.finalScore !== null && scope.row.finalScore !== undefined">
+                    {{ scope.row.finalScore }}
+                  </el-tag>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="提交时间" min-width="170">
+                <template #default="scope">{{ formatDateTime(scope.row.record?.submitTime) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="110" align="center">
+                <template #default="scope">
+                  <el-button link type="primary" :icon="View" @click="openExamRecordDialog(scope.row)">查看</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+        </el-tabs>
       </div>
+
+      <el-dialog v-model="examRecordDialogVisible" title="考试提交详情" width="720px" destroy-on-close>
+        <div v-if="currentExamRecord">
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="姓名">{{ currentExamRecord.studentName }}</el-descriptions-item>
+            <el-descriptions-item label="学号">{{ currentExamRecord.studentUsername }}</el-descriptions-item>
+            <el-descriptions-item label="成绩">{{ currentExamRecord.record?.score ?? '-' }}</el-descriptions-item>
+            <el-descriptions-item label="作弊次数">{{ currentExamRecord.record?.cheatCount ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="扣分">{{ currentExamRecord.penalty ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="最终成绩">{{ currentExamRecord.finalScore ?? '-' }}</el-descriptions-item>
+            <el-descriptions-item label="提交时间" :span="2">{{ formatDateTime(currentExamRecord.record?.submitTime) }}</el-descriptions-item>
+          </el-descriptions>
+
+          <div style="margin-top: 12px;">
+            <div style="font-weight: 600; margin-bottom: 8px;">作答内容（原始 JSON）</div>
+            <pre style="max-height: 260px; overflow:auto; background:#f5f7fa; padding: 12px; border-radius: 8px;">{{ formatJson(currentExamRecord.record?.userAnswers) }}</pre>
+          </div>
+        </div>
+        <template #footer>
+          <el-button @click="examRecordDialogVisible = false">关闭</el-button>
+        </template>
+      </el-dialog>
 
       <el-dialog v-model="dialogVisible" :title="dialogTitle" width="500px" destroy-on-close>
         <el-form :model="applyForm" label-width="80px" class="dialog-form-light">
@@ -501,6 +601,7 @@ const studentList = ref([])
 const applicationList = ref([])
 const teachingMaterials = ref([])
 const cheatingRecords = ref([])
+const examMonitorRecords = ref([])
 const notificationList = ref([])
 const teachingClassIds = ref([])
 const availableExams = ref([])
@@ -517,7 +618,7 @@ const coursePanelVisible = ref(false)
 const activeCourse = ref(null)
 const onlineQuestions = ref([])
 const selectedQuestion = ref(null)
-const questionForm = ref({ title: '', content: '', mode: 'broadcast' })
+const questionForm = ref({ title: '', content: '', correctAnswer: '', mode: 'broadcast' })
 const answers = ref([])
 
 const keyword = ref('')
@@ -526,6 +627,9 @@ const pageNum = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const selectedExamId = ref(null)
+const examTab = ref('monitor')
+const examRecordDialogVisible = ref(false)
+const currentExamRecord = ref(null)
 
 const dialogVisible = ref(false)
 const submissionDialogVisible = ref(false)
@@ -615,6 +719,8 @@ const startClass = async (courseId) => {
     ElMessage.success('上课开始！签到已开启')
     refreshStatus(courseId)
     await sendClassStartNotification(courseId)
+    // 可能影响“出勤/课堂趋势”等指标，主动刷新仪表盘数据
+    fetchDashboardData()
   } catch(e){ ElMessage.error('开启失败') }
 }
 
@@ -623,6 +729,8 @@ const stopClass = async (courseId) => {
     await request.post('/teacher/checkin/stop', { courseId })
     ElMessage.success('签到已结束')
     refreshStatus(courseId)
+    // 结束签到后 attendance_summary 会写入，需重新拉取仪表盘数据
+    fetchDashboardData()
   } catch(e){}
 }
 
@@ -684,11 +792,13 @@ const publishQuestion = async () => {
     const payload = {
       courseId: activeCourse.value.id,
       title: questionForm.value.title,
-      content: `[${modeLabel(questionForm.value.mode)}] ${questionForm.value.content || ''}`
+      content: `[${modeLabel(questionForm.value.mode)}] ${questionForm.value.content || ''}`,
+      mode: questionForm.value.mode,
+      correctAnswer: questionForm.value.correctAnswer
     }
     await request.post('/teacher/online-question', payload)
     ElMessage.success('已发布在线问题')
-    questionForm.value = { title: '', content: '', mode: 'broadcast' }
+    questionForm.value = { title: '', content: '', correctAnswer: '', mode: 'broadcast' }
     await fetchOnlineQuestions(activeCourse.value.id)
   } catch (e) { ElMessage.error('发布失败') }
 }
@@ -710,10 +820,18 @@ const modeLabel = (v) => (modeOptions.find(m => m.value === v)?.label) || v
 
 // --- 初始化图表 ---
 const initCharts = (chartData) => {
+  // 允许多次刷新仪表盘：先释放旧实例，避免 echarts.init 重复绑定导致不更新/报错
+  charts.forEach(c => {
+    try { c.dispose() } catch (e) {}
+  })
+  charts = []
+
   const commonGrid = { top: '15%', left: '3%', right: '4%', bottom: '5%', containLabel: true }
   const textStyle = { color: '#606266' }
 
   if (pieChartRef.value && chartData.pieChart) {
+    const existing = echarts.getInstanceByDom(pieChartRef.value)
+    if (existing) existing.dispose()
     const pieChart = echarts.init(pieChartRef.value)
     pieChart.setOption({
       tooltip: { trigger: 'item' },
@@ -731,6 +849,8 @@ const initCharts = (chartData) => {
   }
 
   if (lineChartRef.value && chartData.lineChart) {
+    const existing = echarts.getInstanceByDom(lineChartRef.value)
+    if (existing) existing.dispose()
     const lineChart = echarts.init(lineChartRef.value)
     const lineLabels = (chartData.lineChartLabels && chartData.lineChartLabels.length)
         ? chartData.lineChartLabels
@@ -751,6 +871,8 @@ const initCharts = (chartData) => {
   }
 
   if (radarChartRef.value && chartData.radarChart) {
+    const existing = echarts.getInstanceByDom(radarChartRef.value)
+    if (existing) existing.dispose()
     const radarChart = echarts.init(radarChartRef.value)
     radarChart.setOption({
       tooltip: { trigger: 'item' },
@@ -853,9 +975,29 @@ const fetchExams = async () => {
   try { availableExams.value = await request.get('/teacher/exams') || [] } catch(e){}
 }
 
+const fetchExamMonitorRecords = async () => {
+  if (!selectedExamId.value) { examMonitorRecords.value = []; return }
+  try { examMonitorRecords.value = await request.get(`/teacher/exam/${selectedExamId.value}/monitor-records`) || [] } catch(e){ examMonitorRecords.value = [] }
+}
+
 const fetchCheatingRecords = async () => {
-  if(!selectedExamId.value) return;
-  try { cheatingRecords.value = await request.get(`/teacher/exam/${selectedExamId.value}/cheating-records`) || [] } catch(e){}
+  if (!selectedExamId.value) { cheatingRecords.value = []; return }
+  try { cheatingRecords.value = await request.get(`/teacher/exam/${selectedExamId.value}/cheating-records`) || [] } catch(e){ cheatingRecords.value = [] }
+}
+
+const handleExamChange = async () => {
+  if (!selectedExamId.value) {
+    cheatingRecords.value = []
+    examMonitorRecords.value = []
+    return
+  }
+  await fetchExamMonitorRecords()
+  await fetchCheatingRecords()
+}
+
+const openExamRecordDialog = (row) => {
+  currentExamRecord.value = row
+  examRecordDialogVisible.value = true
 }
 
 // 业务逻辑
@@ -926,6 +1068,16 @@ const getScoreColor = (percentage) => {
 }
 
 const formatTime = (t) => t ? dayjs(t).fromNow() : ''
+const formatDateTime = (t) => t ? dayjs(t).format('YYYY-MM-DD HH:mm:ss') : ''
+const formatJson = (val) => {
+  if (!val) return ''
+  try {
+    const obj = typeof val === 'string' ? JSON.parse(val) : val
+    return JSON.stringify(obj, null, 2)
+  } catch (e) {
+    return String(val)
+  }
+}
 const formatType = (t) => ({ADD:'新增',DELETE:'删除',RESET_PWD:'重置',DEADLINE_EXTENSION:'延期'}[t]||t)
 const formatStatus = (s) => ({PENDING:'审核中',APPROVED:'通过',REJECTED:'驳回'}[s]||s)
 const getStatusType = (s) => ({APPROVED:'success',REJECTED:'danger',PENDING:'warning'}[s]||'info')

@@ -9,17 +9,18 @@
         <result column="teacher_id" property="teacherId"/>
         <result column="title" property="title"/>
         <result column="content" property="content"/>
+        <result column="correct_answer" property="correctAnswer"/>
         <result column="deadline" property="deadline"/>
         <result column="create_time" property="createTime"/>
     </resultMap>
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO online_question (course_id, class_id, teacher_id, title, content, deadline, create_time)
-        VALUES (#{courseId}, #{classId}, #{teacherId}, #{title}, #{content}, #{deadline}, NOW())
+        INSERT INTO online_question (course_id, class_id, teacher_id, title, content, correct_answer, deadline, create_time)
+        VALUES (#{courseId}, #{classId}, #{teacherId}, #{title}, #{content}, #{correctAnswer}, #{deadline}, NOW())
     </insert>
 
     <select id="selectByCourseIds" resultMap="QuestionMap">
-        SELECT id, course_id, class_id, teacher_id, title, content, deadline, create_time
+        SELECT id, course_id, class_id, teacher_id, title, content, correct_answer, deadline, create_time
         FROM online_question
         WHERE course_id IN
         <foreach collection="courseIds" item="cid" open="(" separator="," close=")">
@@ -29,7 +30,7 @@
     </select>
 
     <select id="selectById" resultMap="QuestionMap">
-        SELECT id, course_id, class_id, teacher_id, title, content, deadline, create_time
+        SELECT id, course_id, class_id, teacher_id, title, content, correct_answer, deadline, create_time
         FROM online_question
         WHERE id = #{id}
     </select>
@@ -43,7 +44,7 @@
     </select>
 
     <select id="selectAllByCourseIds" resultMap="QuestionMap">
-        SELECT id, course_id, class_id, teacher_id, title, content, deadline, create_time
+        SELECT id, course_id, class_id, teacher_id, title, content, correct_answer, deadline, create_time
         FROM online_question
         WHERE course_id IN
         <foreach collection="courseIds" item="cid" open="(" separator="," close=")">

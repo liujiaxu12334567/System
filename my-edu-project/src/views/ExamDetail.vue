@@ -249,7 +249,7 @@ const submitExam = async () => {
 
   const payload = {
     examId: examId,
-    score: 0,
+    score: calculateScore(),
     userAnswers: JSON.stringify(userAnswers.value),
     cheatCount: cheatCount.value
   }
@@ -268,6 +268,22 @@ const submitExam = async () => {
 }
 
 // === 辅助函数 (逻辑不变) ===
+
+const calculateScore = () => {
+  if (!Array.isArray(questions.value) || !Array.isArray(userAnswers.value)) return 0
+  let total = 0
+  for (let i = 0; i < questions.value.length; i++) {
+    const q = questions.value[i] || {}
+    const expected = Number(q.answer)
+    const perScore = Number(q.score ?? 0)
+    const actual = Number(userAnswers.value[i])
+    if (Number.isFinite(expected) && Number.isFinite(actual) && actual === expected) {
+      total += Number.isFinite(perScore) ? perScore : 0
+    }
+  }
+  if (!Number.isFinite(total)) return 0
+  return Math.max(0, Math.round(total))
+}
 
 const formatTime = (seconds) => {
   const minutes = Math.floor(seconds / 60)

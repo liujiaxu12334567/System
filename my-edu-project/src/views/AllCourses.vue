@@ -7,8 +7,8 @@
           <nav class="nav-links">
             <a @click="$router.push('/home')">首页</a>
             <a href="#" class="active">课程学习</a>
-            <a href="#">个性学习</a>
-            <a href="#">考试</a>
+            <a @click="$router.push('/personal-learning')">个性学习</a>
+            <a @click="$router.push('/my-exams')">考试</a>
             <a href="#">素质活动</a>
             <a href="#">毕业设计</a>
           </nav>

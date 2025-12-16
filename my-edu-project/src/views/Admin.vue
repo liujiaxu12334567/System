@@ -66,8 +66,16 @@
             <el-table-column label="班级/执教范围" min-width="180">
               <template #default="scope">
                 <span v-if="scope.row.roleType === '4'" class="info-text">班级: <strong>{{ scope.row.classId || '未分班' }}</strong></span>
-                <span v-else-if="scope.row.roleType === '2'" class="info-text">负责: <strong>{{ scope.row.teacherRank || '未分配' }}</strong></span>
-                <span v-else class="info-text">{{ scope.row.teachingClasses || '-' }}</span>
+                <span v-else-if="scope.row.roleType === '2'" class="info-text">
+                  负责: <strong>{{ scope.row.teacherRank || '未分配' }}</strong><span v-if="scope.row.college">（学院：{{ scope.row.college }}）</span>
+                </span>
+                <span v-else-if="scope.row.roleType === '3'" class="info-text">
+                  学院: <strong>{{ scope.row.college || '-' }}</strong>
+                </span>
+                <span v-else-if="scope.row.roleType === '5'" class="info-text">
+                  负责班级: <strong>{{ scope.row.teachingClasses || '-' }}</strong><span v-if="scope.row.college">（学院：{{ scope.row.college }}）</span>
+                </span>
+                <span v-else class="info-text">-</span>
               </template>
             </el-table-column>
             <el-table-column prop="createTime" label="创建时间" width="160" class-name="time-col"/>
@@ -160,6 +168,7 @@
             <div class="header-buttons">
               <el-button type="warning" plain @click="openBatchAssignDialog" style="margin-right: 10px;">批量分配课程</el-button>
               <el-button type="success" plain @click="openCourseGroupDialog" style="margin-right: 10px;">课程组管理</el-button>
+              <el-button type="info" plain @click="openTimetableDialog" style="margin-right: 10px;">课程表/排课</el-button>
               <el-button type="primary" @click="openCourseDialog">+ 分配课程到班级</el-button>
             </div>
           </div>
@@ -283,6 +292,9 @@
               <el-option label="素质教师" :value="5" />
             </el-select>
           </el-form-item>
+          <template v-if="form.roleType === 2 || form.roleType === 3 || form.roleType === 5">
+            <el-form-item label="学院"><el-input v-model="form.college" placeholder="例: 计算机学院"/></el-form-item>
+          </template>
           <template v-if="form.roleType === 4 && !form.userId">
             <el-form-item label="专业"><el-input v-model="form.major" placeholder="例: 软件工程"/></el-form-item>
             <el-form-item label="班级ID"><el-input v-model="form.classId" type="number" placeholder="例: 202303"/></el-form-item>
@@ -315,18 +327,92 @@
           <el-form-item label="组长">
             <el-input :model-value="selectedCourseGroup?.leaderName || '未设置'" readonly />
           </el-form-item>
+          <el-form-item label="专业">
+            <el-select v-model="courseForm.major" filterable allow-create default-first-option placeholder="请选择专业" style="width: 100%">
+              <el-option v-for="m in majorOptions" :key="m" :label="m" :value="m"/>
+            </el-select>
+          </el-form-item>
           <el-form-item label="班级">
             <el-select v-model="courseForm.classId" placeholder="请选择所属班级" style="width: 100%">
-              <el-option v-for="c in classList" :key="c.id" :label="c.name" :value="c.id"/>
+              <el-option v-for="c in filteredCourseClassList" :key="c.id" :label="c.name" :value="c.id"/>
             </el-select>
           </el-form-item>
           <el-form-item label="主讲教师">
             <el-select v-model="courseForm.teacherId" placeholder="请选择" style="width: 100%">
-              <el-option v-for="t in teacherList" :key="t.userId" :label="t.realName" :value="t.userId"/>
+              <el-option v-for="t in teacherList" :key="t.userId" :label="formatTeacherLabel(t)" :value="t.userId"/>
             </el-select>
           </el-form-item>
         </el-form>
         <template #footer><el-button @click="courseDialogVisible = false">取消</el-button><el-button type="primary" @click="submitCourse">确认</el-button></template>
+      </el-dialog>
+
+      <el-dialog v-model="timetableDialogVisible" title="课程表 / 排课（到点才能开在线课堂）" width="980px" destroy-on-close>
+        <el-alert
+          title="说明：请为班级内每门课程设置开始/结束时间（开始时间必填）。老师只能在到达开始时间后开启在线课堂。"
+          type="info"
+          show-icon
+          style="margin-bottom: 12px;"
+        />
+        <el-form :inline="true" label-width="80px" style="margin-bottom: 6px;">
+          <el-form-item label="班级">
+            <el-select v-model="timetableClassId" filterable placeholder="请选择班级" style="width: 260px" @change="fetchTimetable">
+              <el-option v-for="c in classList" :key="c.id" :label="`${c.name}（${c.id}班）`" :value="c.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :disabled="!timetableClassId" :loading="timetableLoading" @click="saveTimetable">保存排课</el-button>
+            <el-button :disabled="!timetableClassId" :loading="timetableLoading" @click="fetchTimetable">刷新</el-button>
+          </el-form-item>
+        </el-form>
+
+        <el-table :data="timetableCourses" border style="width: 100%" v-loading="timetableLoading">
+          <el-table-column prop="name" label="课程" min-width="160" />
+          <el-table-column prop="teacher" label="任课教师" min-width="140">
+            <template #default="scope">
+              <el-tag v-if="scope.row.teacher" type="success" effect="light">{{ scope.row.teacher }}</el-tag>
+              <el-tag v-else type="info" effect="plain">未分配</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="星期" width="120">
+            <template #default="scope">
+              <el-select v-model="scope.row.dayOfWeek" placeholder="请选择" style="width: 100%">
+                <el-option label="周一" :value="1" />
+                <el-option label="周二" :value="2" />
+                <el-option label="周三" :value="3" />
+                <el-option label="周四" :value="4" />
+                <el-option label="周五" :value="5" />
+                <el-option label="周六" :value="6" />
+                <el-option label="周日" :value="7" />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="开始时间" min-width="200">
+            <template #default="scope">
+              <el-time-picker
+                v-model="scope.row.startTime"
+                value-format="HH:mm:ss"
+                format="HH:mm"
+                placeholder="请选择开始时间"
+                style="width: 100%;"
+              ></el-time-picker>
+            </template>
+          </el-table-column>
+          <el-table-column label="结束时间" min-width="200">
+            <template #default="scope">
+              <el-time-picker
+                v-model="scope.row.endTime"
+                value-format="HH:mm:ss"
+                format="HH:mm"
+                placeholder="可选"
+                style="width: 100%;"
+              ></el-time-picker>
+            </template>
+          </el-table-column>
+          <el-table-column prop="semester" label="学期" width="120" />
+        </el-table>
+        <template #footer>
+          <el-button @click="timetableDialogVisible = false">关闭</el-button>
+        </template>
       </el-dialog>
 
       <el-dialog v-model="batchAssignDialogVisible" title="批量分配" width="600px">
@@ -339,15 +425,20 @@
           <el-form-item label="组长">
             <el-input :model-value="selectedBatchCourseGroup?.leaderName || '未设置'" readonly />
           </el-form-item>
+          <el-form-item label="专业">
+            <el-select v-model="batchAssignForm.major" filterable allow-create default-first-option placeholder="请选择专业" style="width: 100%">
+              <el-option v-for="m in majorOptions" :key="m" :label="m" :value="m"/>
+            </el-select>
+          </el-form-item>
           <el-form-item label="目标班级">
             <el-select v-model="batchAssignForm.classIds" multiple style="width:100%">
-              <el-option v-for="c in classList" :key="c.id" :label="c.name" :value="c.id"/>
+              <el-option v-for="c in filteredBatchClassList" :key="c.id" :label="c.name" :value="c.id"/>
             </el-select>
           </el-form-item>
           <template v-for="cid in batchAssignForm.classIds" :key="cid">
             <el-form-item :label="`授课老师（${formatClassName(cid)}）`">
               <el-select v-model="batchAssignForm.teacherByClassId[cid]" placeholder="请选择" style="width: 100%">
-                <el-option v-for="t in teacherList" :key="t.userId" :label="t.realName" :value="t.userId"/>
+                <el-option v-for="t in teacherList" :key="t.userId" :label="formatTeacherLabel(t)" :value="t.userId"/>
               </el-select>
             </el-form-item>
           </template>
@@ -357,7 +448,7 @@
 
       <el-dialog v-model="assignDialogVisible" title="分配教师" width="400px">
         <el-select v-model="selectedTeacherId" style="width:100%">
-          <el-option v-for="t in teacherList" :key="t.userId" :label="t.realName" :value="t.userId"/>
+          <el-option v-for="t in teacherList" :key="t.userId" :label="formatTeacherLabel(t)" :value="t.userId"/>
         </el-select>
         <template #footer><el-button @click="assignDialogVisible = false">取消</el-button><el-button type="primary" @click="submitAssign">确认</el-button></template>
       </el-dialog>
@@ -381,7 +472,7 @@
             <el-col :span="8">
               <el-form-item label="组长">
                 <el-select v-model="courseGroupCreateForm.leaderId" clearable placeholder="可选" style="width: 100%">
-                  <el-option v-for="t in teacherList" :key="t.userId" :label="t.realName" :value="t.userId"/>
+                  <el-option v-for="t in teacherList" :key="t.userId" :label="formatTeacherLabel(t)" :value="t.userId"/>
                 </el-select>
               </el-form-item>
             </el-col>
@@ -403,7 +494,7 @@
                 style="width: 100%"
                 @change="() => updateCourseGroupLeader(scope.row)"
               >
-                <el-option v-for="t in teacherList" :key="t.userId" :label="t.realName" :value="t.userId"/>
+                <el-option v-for="t in teacherList" :key="t.userId" :label="formatTeacherLabel(t)" :value="t.userId"/>
               </el-select>
             </template>
           </el-table-column>
@@ -543,8 +634,8 @@ const uploadPayload = computed(() => ({
 }))
 const uploadActionUrl = '/api/admin/batch/upload'
 const uploadRef = ref(null)
-const courseForm = ref({ groupId: null, classId: null, teacherId: null })
-const batchAssignForm = ref({ groupId: null, classIds: [], teacherByClassId: {} })
+const courseForm = ref({ groupId: null, major: null, classId: null, teacherId: null })
+const batchAssignForm = ref({ groupId: null, major: null, classIds: [], teacherByClassId: {} })
 const courseGroupDialogVisible = ref(false)
 const courseGroupCreateForm = ref({ name: '', semester: '2025-1', leaderId: null })
 const notifyForm = reactive({ title: '', content: '', targetType: 'SPECIFIC', userIds: [], needReply: false })
@@ -564,6 +655,7 @@ const dialogVisible = ref(false)
 const courseDialogVisible = ref(false)
 const assignDialogVisible = ref(false)
 const batchAssignDialogVisible = ref(false)
+const timetableDialogVisible = ref(false)
 const notifyDialogVisible = ref(false)
 const statsDialogVisible = ref(false)
 const currentRow = ref({})
@@ -572,6 +664,11 @@ const notifyUserOptions = ref([])
 const currentStatsList = ref([])
 const currentStatsTitle = ref('')
 const currentStatsSummary = ref({ total: 0, readCount: 0, replyCount: 0, needReply: false })
+
+// 课程表/排课
+const timetableClassId = ref(null)
+const timetableCourses = ref([])
+const timetableLoading = ref(false)
 
 // 计算属性：检查上传条件是否满足
 const isUploadReady = computed(() => {
@@ -585,6 +682,34 @@ const classNameMap = computed(() => {
 })
 
 const formatClassName = (classId) => classNameMap.value.get(Number(classId)) || String(classId)
+
+const majorOptions = computed(() => {
+  const majors = new Set()
+  ;(classList.value || []).forEach((c) => {
+    const m = (c?.major || '').trim()
+    if (!m || m === '未分配专业') return
+    majors.add(m)
+  })
+  return Array.from(majors)
+})
+
+const filteredCourseClassList = computed(() => {
+  const m = (courseForm.value.major || '').trim()
+  if (!m) return []
+  return (classList.value || []).filter((c) => (c?.major || '').trim() === m)
+})
+
+const filteredBatchClassList = computed(() => {
+  const m = (batchAssignForm.value.major || '').trim()
+  if (!m) return []
+  return (classList.value || []).filter((c) => (c?.major || '').trim() === m)
+})
+
+const formatTeacherLabel = (t) => {
+  const name = t?.realName ? String(t.realName) : ''
+  const college = t?.college ? String(t.college).trim() : ''
+  return college ? `${name}（${college}）` : name
+}
 
 const selectedCourseGroup = computed(() => {
   if (!courseForm.value.groupId) return null
@@ -607,6 +732,21 @@ watch(
     batchAssignForm.value.teacherByClassId = mapping
   },
   { deep: true }
+)
+
+watch(
+  () => courseForm.value.major,
+  () => {
+    courseForm.value.classId = null
+  }
+)
+
+watch(
+  () => batchAssignForm.value.major,
+  () => {
+    batchAssignForm.value.classIds = []
+    batchAssignForm.value.teacherByClassId = {}
+  }
 )
 
 onMounted(() => {
@@ -828,6 +968,7 @@ const openDialog = (row) => {
       realName: row.realName,
       roleType: Number(row.roleType),
       password: '',
+      college: row.college || '',
       classId: row.classId,
       teachingClasses: row.teachingClasses,
       major: null,
@@ -835,7 +976,7 @@ const openDialog = (row) => {
       teachingClassesIds: isQualityTeacher && row.teachingClasses ? row.teachingClasses.split(',').map(id => Number(id)) : []
     }
   } else {
-    form.value = { roleType: 4, managerCourses: [], teachingClassesIds: [] }
+    form.value = { roleType: 4, college: '', managerCourses: [], teachingClassesIds: [] }
   }
   dialogVisible.value = true
 }
@@ -867,12 +1008,62 @@ const handleDelete = async (id) => {
 }
 
 // 课程相关
+const openTimetableDialog = () => {
+  timetableDialogVisible.value = true
+  timetableClassId.value = null
+  timetableCourses.value = []
+}
+
+const fetchTimetable = async () => {
+  if (!timetableClassId.value) return
+  timetableLoading.value = true
+  try {
+    const res = await request.get('/admin/course/timetable', { params: { classId: timetableClassId.value } })
+    timetableCourses.value = res || []
+  } catch (e) {
+    ElMessage.error(e?.response?.data || e?.message || '获取课程表失败')
+  } finally {
+    timetableLoading.value = false
+  }
+}
+
+const saveTimetable = async () => {
+  if (!timetableClassId.value) return ElMessage.warning('请选择班级')
+  const list = timetableCourses.value || []
+  if (list.length === 0) return ElMessage.warning('该班级暂无课程')
+
+  const schedules = list.map((c) => ({
+    courseId: c.id,
+    dayOfWeek: c.dayOfWeek,
+    startTime: c.startTime,
+    endTime: c.endTime
+  }))
+  const missing = schedules.filter((s) => !s.dayOfWeek || !s.startTime)
+  if (missing.length > 0) return ElMessage.warning('请为每门课设置星期与开始时间')
+
+  timetableLoading.value = true
+  try {
+    await request.post('/admin/course/schedule/batch', {
+      classId: timetableClassId.value,
+      schedules
+    })
+    ElMessage.success('排课已保存')
+    await fetchCourseAndTeacherData()
+    await fetchTimetable()
+  } catch (e) {
+    ElMessage.error(e?.response?.data || e?.message || '保存失败')
+  } finally {
+    timetableLoading.value = false
+  }
+}
+
 const openCourseDialog = () => {
-  courseForm.value = { groupId: null, classId: null, teacherId: null }
+  courseForm.value = { groupId: null, major: null, classId: null, teacherId: null }
   courseDialogVisible.value = true
 }
 const submitCourse = async () => {
   if (!courseForm.value.groupId) return ElMessage.warning('请选择课程')
+  if (!String(courseForm.value.major || '').trim()) return ElMessage.warning('请选择专业')
   if (!courseForm.value.classId) return ElMessage.warning('请选择班级')
   if (!courseForm.value.teacherId) return ElMessage.warning('请选择主讲教师')
   if (!selectedCourseGroup.value?.leaderId) return ElMessage.warning('该课程尚未设置组长，请先在课程组管理中指定')
@@ -880,6 +1071,7 @@ const submitCourse = async () => {
   try {
     await request.post('/admin/course/assign', {
       groupId: courseForm.value.groupId,
+      major: String(courseForm.value.major || '').trim(),
       classId: courseForm.value.classId,
       teacherId: courseForm.value.teacherId
     })
@@ -891,12 +1083,13 @@ const submitCourse = async () => {
   }
 }
 const openBatchAssignDialog = () => {
-  batchAssignForm.value = { groupId: null, classIds: [], teacherByClassId: {} }
+  batchAssignForm.value = { groupId: null, major: null, classIds: [], teacherByClassId: {} }
   batchAssignDialogVisible.value = true
 }
 const submitBatchAssign = async () => {
   if (!batchAssignForm.value.groupId) return ElMessage.warning('请选择课程')
   if (!selectedBatchCourseGroup.value?.leaderId) return ElMessage.warning('该课程尚未设置组长，请先在课程组管理中指定')
+  if (!String(batchAssignForm.value.major || '').trim()) return ElMessage.warning('请选择专业')
   if (!batchAssignForm.value.classIds || batchAssignForm.value.classIds.length === 0) return ElMessage.warning('请选择目标班级')
 
   const assignments = (batchAssignForm.value.classIds || []).map((classId) => ({
@@ -911,6 +1104,7 @@ const submitBatchAssign = async () => {
   try {
     await request.post('/admin/course/batch-assign', {
       groupId: batchAssignForm.value.groupId,
+      major: String(batchAssignForm.value.major || '').trim(),
       assignments
     })
     ElMessage.success('批量分配成功')

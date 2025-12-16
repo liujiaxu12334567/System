@@ -46,6 +46,7 @@
   "courseId": 3004,
   "title": "本题点名回答",
   "content": "请你说明结论与理由",
+  "correctAnswer": "（可选）这里填写正确答案，用于判题/统计",
   "mode": "assign",
   "assignStudentId": 10086
 }
@@ -59,4 +60,3 @@
   - 点名模式支持输入 `assignStudentId`
 - 学生课堂页：`my-edu-project/src/views/StudentClassroom.vue`
   - 进入页面先检查课堂是否开启（未开课则返回首页）
-

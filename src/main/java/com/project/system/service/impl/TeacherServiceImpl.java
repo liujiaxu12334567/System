@@ -3,6 +3,7 @@ package com.project.system.service.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.project.system.dto.PaginationResponse;
+import com.project.system.dto.AnalysisResultResponse;
 import com.project.system.dto.StudentAttendanceAgg;
 import com.project.system.dto.StudentCountAgg;
 import com.project.system.dto.StudentPortraitResponse;
@@ -17,12 +18,14 @@ import com.project.system.websocket.ClassroomEventBus;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -54,6 +57,29 @@ public class TeacherServiceImpl implements TeacherService {
     @Autowired private AnalysisResultMapper analysisResultMapper;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private ClassMapper classMapper;
+
+    private static final DateTimeFormatter COURSE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
+
+    private static String normalizeTimeString(String raw) {
+        if (raw == null) return null;
+        String s = raw.trim();
+        if (s.isEmpty()) return null;
+        // 兼容旧数据：若包含日期，取最后的时间部分
+        if (s.contains(" ")) s = s.substring(s.lastIndexOf(' ') + 1);
+        if (s.contains("T")) s = s.substring(s.lastIndexOf('T') + 1);
+        if (s.endsWith("Z")) s = s.substring(0, s.length() - 1);
+        int dot = s.indexOf('.');
+        if (dot > 0) s = s.substring(0, dot);
+        if (s.length() == 5) s = s + ":00";
+        if (s.length() > 8) s = s.substring(0, 8);
+        return s;
+    }
+
+    private static LocalTime parseCourseTime(String raw) {
+        String s = normalizeTimeString(raw);
+        if (s == null) return null;
+        return LocalTime.parse(s, COURSE_TIME_FORMATTER);
+    }
 
     // 辅助方法：获取当前登录教师
     private User getCurrentTeacher() {
@@ -340,7 +366,10 @@ public class TeacherServiceImpl implements TeacherService {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
         Map<Long, List<Long>> courseClassMap = getCourseClassMap(courseIds);
-        List<Class> allClasses = classMapper.selectAllClasses();
+        List<Class> allClasses = Collections.emptyList();
+        try {
+            allClasses = classMapper.selectAllClasses();
+        } catch (Exception ignored) {}
         Map<Long, String> classNameMap = allClasses.stream().collect(Collectors.toMap(Class::getClassId, Class::getClassName));
 
         Set<Long> classIds = new HashSet<>();
@@ -359,12 +388,18 @@ public class TeacherServiceImpl implements TeacherService {
             }
         }
 
-        long studentCount = classIds.isEmpty() ? 0 : userMapper.countStudentsByClassIds(new ArrayList<>(classIds));
+        long studentCount = 0;
+        try {
+            studentCount = classIds.isEmpty() ? 0 : userMapper.countStudentsByClassIds(new ArrayList<>(classIds));
+        } catch (Exception ignored) {}
 
         // 出勤统计
-        List<AttendanceSummary> attendanceList = courseIds.isEmpty()
-                ? Collections.emptyList()
-                : attendanceSummaryMapper.selectByCourseIds(courseIds);
+        List<AttendanceSummary> attendanceList = Collections.emptyList();
+        try {
+            attendanceList = courseIds.isEmpty()
+                    ? Collections.emptyList()
+                    : attendanceSummaryMapper.selectByCourseIds(courseIds);
+        } catch (Exception ignored) {}
         long presentSum = 0;
         long expectedSum = 0;
         Map<LocalDate, long[]> attendanceByDate = new TreeMap<>();
@@ -397,9 +432,12 @@ public class TeacherServiceImpl implements TeacherService {
         }
 
         // 作业提交统计
-        List<AssignmentSummary> assignmentList = courseIds.isEmpty()
-                ? Collections.emptyList()
-                : assignmentSummaryMapper.selectByCourseIds(courseIds);
+        List<AssignmentSummary> assignmentList = Collections.emptyList();
+        try {
+            assignmentList = courseIds.isEmpty()
+                    ? Collections.emptyList()
+                    : assignmentSummaryMapper.selectByCourseIds(courseIds);
+        } catch (Exception ignored) {}
         long submittedSum = 0;
         long totalSum = 0;
         for (AssignmentSummary a : assignmentList) {
@@ -409,12 +447,24 @@ public class TeacherServiceImpl implements TeacherService {
         double submissionRate = totalSum > 0 ? roundToOne((double) submittedSum * 100 / totalSum) : 0d;
 
         // 课堂互动统计
-        List<TeacherInteraction> interactionList = courseIds.isEmpty()
-                ? Collections.emptyList()
-                : teacherInteractionMapper.selectByCourseIds(courseIds);
-        List<OnlineAnswer> qaAnswers = courseIds.isEmpty() ? Collections.emptyList()
-                : enrichAnswers(onlineAnswerMapper.selectByCourseIds(courseIds));
-        long qaQuestionCount = courseIds.isEmpty() ? 0 : onlineQuestionMapper.countByCourseIds(courseIds);
+        List<TeacherInteraction> interactionList = Collections.emptyList();
+        try {
+            interactionList = courseIds.isEmpty()
+                    ? Collections.emptyList()
+                    : teacherInteractionMapper.selectByCourseIds(courseIds);
+        } catch (Exception ignored) {}
+
+        List<OnlineAnswer> qaAnswers = Collections.emptyList();
+        try {
+            qaAnswers = courseIds.isEmpty()
+                    ? Collections.emptyList()
+                    : enrichAnswers(onlineAnswerMapper.selectByCourseIds(courseIds));
+        } catch (Exception ignored) {}
+
+        long qaQuestionCount = 0;
+        try {
+            qaQuestionCount = courseIds.isEmpty() ? 0 : onlineQuestionMapper.countByCourseIds(courseIds);
+        } catch (Exception ignored) {}
         long teacherTalk = 0;
         long studentTalk = 0;
         long groupTalk = 0;
@@ -467,8 +517,21 @@ public class TeacherServiceImpl implements TeacherService {
             perf.put("className", c.getClassId() != null ? (c.getClassId() + "班") : "混合班级");
             perf.put("studentCount", c.getStudentCount());
 
-            List<Long> qIds = onlineQuestionMapper.selectByCourseIds(Collections.singletonList(c.getId())).stream().map(OnlineQuestion::getId).collect(Collectors.toList());
-            long courseInteractions = qaAnswers.stream().filter(a -> qIds.contains(a.getQuestionId())).count();
+            List<Long> qIds;
+            try {
+                if (c.getId() == null) {
+                    qIds = Collections.emptyList();
+                } else {
+                    qIds = onlineQuestionMapper.selectByCourseIds(Collections.singletonList(c.getId())).stream()
+                            .map(OnlineQuestion::getId)
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toList());
+                }
+            } catch (Exception ignored) {
+                qIds = Collections.emptyList();
+            }
+            final List<Long> finalQIds = qIds;
+            long courseInteractions = qaAnswers.stream().filter(a -> finalQIds.contains(a.getQuestionId())).count();
 
             int activeScore = 60;
             if (c.getStudentCount() > 0) {
@@ -588,34 +651,67 @@ public class TeacherServiceImpl implements TeacherService {
 
     @Override
     public List<Map<String, Object>> getExamCheatingRecords(Long examId) {
+        return buildExamRecordList(examId, true);
+    }
+
+    @Override
+    public List<Map<String, Object>> getExamMonitorRecords(Long examId) {
+        return buildExamRecordList(examId, false);
+    }
+
+    private List<Map<String, Object>> buildExamRecordList(Long examId, boolean onlyCheating) {
+        if (examId == null) return Collections.emptyList();
+
         Exam exam = examMapper.findExamById(examId);
         if (exam == null) return Collections.emptyList();
 
-        Course course = courseMapper.selectAllCourses().stream()
-                .filter(c -> c.getId().equals(exam.getCourseId()))
-                .findFirst().orElse(null);
-
-        if (course == null || course.getClassId() == null) return Collections.emptyList();
-
-        List<User> students = userMapper.selectStudentsByClassIds(Collections.singletonList(course.getClassId()));
-        Map<Long, User> studentMap = students.stream().collect(Collectors.toMap(User::getUserId, s -> s));
+        Set<Long> myCourseIds = getMyCourses().stream()
+                .map(Course::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (!myCourseIds.contains(exam.getCourseId())) {
+            throw new RuntimeException("无权限查看该考试");
+        }
 
         List<ExamRecord> allRecords = examMapper.selectExamRecordsByExamId(examId);
-        List<Map<String, Object>> result = new ArrayList<>();
+        if (allRecords == null || allRecords.isEmpty()) return Collections.emptyList();
 
+        List<User> allStudents = userMapper.selectUsersByRole("4");
+        Map<Long, User> studentMap = allStudents.stream()
+                .filter(u -> u.getUserId() != null)
+                .collect(Collectors.toMap(User::getUserId, s -> s, (a, b) -> a));
+
+        List<Map<String, Object>> result = new ArrayList<>();
         for (ExamRecord r : allRecords) {
-            if (r.getCheatCount() != null && r.getCheatCount() > 0) {
-                User s = studentMap.get(r.getUserId());
-                if (s != null) {
-                    Map<String, Object> item = new HashMap<>();
-                    item.put("record", r);
-                    item.put("studentName", s.getRealName());
-                    item.put("studentUsername", s.getUsername());
-                    item.put("classId", s.getClassId());
-                    result.add(item);
-                }
-            }
+            int cheatCount = r.getCheatCount() == null ? 0 : Math.max(0, r.getCheatCount());
+            if (onlyCheating && cheatCount <= 0) continue;
+
+            User student = studentMap.get(r.getUserId());
+            if (student == null) continue;
+
+            int penalty = cheatCount * 10;
+            Integer rawScore = r.getScore();
+            Integer finalScore = rawScore == null ? null : Math.max(0, rawScore - penalty);
+
+            Map<String, Object> item = new HashMap<>();
+            item.put("record", r);
+            item.put("studentName", student.getRealName());
+            item.put("studentUsername", student.getUsername());
+            item.put("classId", student.getClassId());
+            item.put("penalty", penalty);
+            item.put("finalScore", finalScore);
+            result.add(item);
         }
+
+        // 默认按“最终成绩”排序（监控/作弊记录一致）
+        result.sort((a, b) -> {
+            Integer sa = (Integer) a.get("finalScore");
+            Integer sb = (Integer) b.get("finalScore");
+            if (sa == null && sb == null) return 0;
+            if (sa == null) return 1;
+            if (sb == null) return -1;
+            return Integer.compare(sb, sa);
+        });
         return result;
     }
 
@@ -647,12 +743,22 @@ public class TeacherServiceImpl implements TeacherService {
 
             Course course = courseMapper.selectAllCourses().stream()
                     .filter(c -> c.getId().equals(courseId)).findFirst().orElse(null);
-            long totalStudents = 0;
-            Long classId = null;
-            if (course != null && course.getClassId() != null) {
-                classId = course.getClassId();
-                totalStudents = userMapper.countStudentsByTeachingClasses(null, null, Collections.singletonList(String.valueOf(classId)));
+            List<Long> classIds = new ArrayList<>();
+            if (course != null) {
+                Map<Long, List<Long>> courseClassMap = getCourseClassMap(Collections.singletonList(courseId));
+                classIds.addAll(courseClassMap.getOrDefault(courseId, Collections.emptyList()));
+                if (classIds.isEmpty() && course.getResponsibleClassIds() != null && !course.getResponsibleClassIds().trim().isEmpty()) {
+                    for (String s : course.getResponsibleClassIds().split("[,，]")) {
+                        s = s.trim();
+                        if (s.isEmpty()) continue;
+                        try { classIds.add(Long.parseLong(s)); } catch (NumberFormatException ignored) {}
+                    }
+                } else if (classIds.isEmpty() && course.getClassId() != null) {
+                    classIds.add(course.getClassId());
+                }
             }
+            classIds = classIds.stream().filter(Objects::nonNull).distinct().collect(Collectors.toList());
+            long totalStudents = classIds.isEmpty() ? 0 : userMapper.countStudentsByClassIds(classIds);
 
             Map<String, Object> payload = new HashMap<>();
             payload.put("courseId", courseId);
@@ -661,8 +767,9 @@ public class TeacherServiceImpl implements TeacherService {
             payload.put("totalCount", totalStudents);
             analysisEventPublisher.publish("analysis.attendance.closed", payload);
 
-            if (classId != null) {
-                List<User> students = userMapper.selectStudentsByClassIds(Collections.singletonList(classId));
+            if (!classIds.isEmpty()) {
+                List<User> students = userMapper.selectStudentsByClassIds(classIds);
+
                 Set<String> presentIds = redisTemplate.opsForSet().members("course:checkin:list:" + batchId);
                 Set<Long> present = new HashSet<>();
                 if (presentIds != null) {
@@ -670,15 +777,29 @@ public class TeacherServiceImpl implements TeacherService {
                         try { present.add(Long.parseLong(s)); } catch (Exception ignored) {}
                     }
                 }
+
+                Map<Long, Integer> expectedByClass = new HashMap<>();
+                Map<Long, Integer> presentByClass = new HashMap<>();
+
                 List<com.project.system.entity.AttendanceRecord> records = new ArrayList<>();
                 java.sql.Date today = java.sql.Date.valueOf(java.time.LocalDate.now());
                 for (User s : students) {
+                    if (s.getUserId() == null || s.getClassId() == null) continue;
+
+                    Long classId = s.getClassId();
+                    expectedByClass.merge(classId, 1, Integer::sum);
+
+                    boolean isPresent = present.contains(s.getUserId());
+                    if (isPresent) {
+                        presentByClass.merge(classId, 1, Integer::sum);
+                    }
+
                     com.project.system.entity.AttendanceRecord r = new com.project.system.entity.AttendanceRecord();
                     r.setClassId(classId);
                     r.setCourseId(courseId);
                     r.setStudentId(s.getUserId());
                     r.setDate(today);
-                    r.setPresent(present.contains(s.getUserId()));
+                    r.setPresent(isPresent);
                     r.setBatchId(batchId);
                     records.add(r);
                 }
@@ -686,16 +807,20 @@ public class TeacherServiceImpl implements TeacherService {
                     attendanceRecordMapper.batchInsert(records);
                 }
 
-                // 【新增修复】手动写入统计汇总表，确保仪表盘能立刻看到数据
-                AttendanceSummary summary = new AttendanceSummary();
-                summary.setCourseId(courseId);
-                summary.setClassId(classId);
-                summary.setDate(java.sql.Date.valueOf(LocalDate.now())); // 设置为今天
-                summary.setExpected((int) totalStudents);
-                summary.setPresent(checkedCount != null ? checkedCount.intValue() : 0);
+                // 【新增修复】写入统计汇总表，确保仪表盘能立刻看到数据（多班级分别汇总）
+                for (Map.Entry<Long, Integer> entry : expectedByClass.entrySet()) {
+                    Long classId = entry.getKey();
+                    Integer expected = entry.getValue();
+                    Integer presentCount = presentByClass.getOrDefault(classId, 0);
 
-                // 这里直接插入（注意：如果同一天多次签到，实际项目应先查询 update，这里简化为 insert）
-                attendanceSummaryMapper.insert(summary);
+                    AttendanceSummary summary = new AttendanceSummary();
+                    summary.setCourseId(courseId);
+                    summary.setClassId(classId);
+                    summary.setDate(java.sql.Date.valueOf(LocalDate.now()));
+                    summary.setExpected(expected == null ? 0 : expected);
+                    summary.setPresent(presentCount == null ? 0 : presentCount);
+                    attendanceSummaryMapper.insert(summary);
+                }
             }
         }
         redisTemplate.delete(activeKey);
@@ -716,8 +841,21 @@ public class TeacherServiceImpl implements TeacherService {
         Course course = courseMapper.selectAllCourses().stream()
                 .filter(c -> c.getId().equals(courseId)).findFirst().orElse(null);
         long totalStudents = 0;
-        if (course != null && course.getClassId() != null) {
-            totalStudents = userMapper.countStudentsByTeachingClasses(null, null, Collections.singletonList(String.valueOf(course.getClassId())));
+        if (course != null) {
+            List<Long> classIds = new ArrayList<>();
+            Map<Long, List<Long>> courseClassMap = getCourseClassMap(Collections.singletonList(courseId));
+            classIds.addAll(courseClassMap.getOrDefault(courseId, Collections.emptyList()));
+            if (classIds.isEmpty() && course.getResponsibleClassIds() != null && !course.getResponsibleClassIds().trim().isEmpty()) {
+                for (String s : course.getResponsibleClassIds().split("[,，]")) {
+                    s = s.trim();
+                    if (s.isEmpty()) continue;
+                    try { classIds.add(Long.parseLong(s)); } catch (NumberFormatException ignored) {}
+                }
+            } else if (classIds.isEmpty() && course.getClassId() != null) {
+                classIds.add(course.getClassId());
+            }
+            classIds = classIds.stream().filter(Objects::nonNull).distinct().collect(Collectors.toList());
+            totalStudents = classIds.isEmpty() ? 0 : userMapper.countStudentsByClassIds(classIds);
         }
 
         result.put("isActive", true);
@@ -791,6 +929,9 @@ public class TeacherServiceImpl implements TeacherService {
         }
         question.setTeacherId(teacher.getUserId());
         question.setClassId(classIds.isEmpty() ? null : classIds.get(0));
+        if (question.getCorrectAnswer() != null && question.getCorrectAnswer().trim().isEmpty()) {
+            question.setCorrectAnswer(null);
+        }
         Map<String, Object> payload = new HashMap<>();
         String mode = question.getMode() == null ? "broadcast" : question.getMode();
         payload.put("mode", mode);
@@ -806,8 +947,14 @@ public class TeacherServiceImpl implements TeacherService {
         } catch (Exception e) {
         }
         onlineQuestionMapper.insert(question);
-        classroomEventBus.publish(new ClassroomEvent("question", question.getCourseId(), question.getId(), enrichQuestion(question)));
-        return question;
+
+        OnlineQuestion saved = enrichQuestion(onlineQuestionMapper.selectById(question.getId()));
+        OnlineQuestion pub = saved;
+        if (pub != null) {
+            pub.setCorrectAnswer(null);
+        }
+        classroomEventBus.publish(new ClassroomEvent("question", question.getCourseId(), question.getId(), pub));
+        return saved;
     }
 
     @Override
@@ -819,7 +966,17 @@ public class TeacherServiceImpl implements TeacherService {
         targetIds = targetIds.stream().filter(myCourseIds::contains).collect(Collectors.toList());
         if (targetIds.isEmpty()) return Collections.emptyList();
         LocalDateTime sessionStart = courseId == null ? null : getSessionStart(courseId, true);
-        return onlineQuestionMapper.selectByCourseIds(targetIds).stream()
+        List<OnlineQuestion> questions;
+        try {
+            questions = onlineQuestionMapper.selectByCourseIds(targetIds);
+        } catch (BadSqlGrammarException e) {
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("correct_answer")) {
+                throw new IllegalStateException("数据库缺少 online_question.correct_answer 列：请执行 docs/online_question_correct_answer.sql 后重试。", e);
+            }
+            throw e;
+        }
+        return questions.stream()
                 .filter(q -> sessionStart == null || (q.getCreateTime() != null && q.getCreateTime().isAfter(sessionStart)))
                 .map(this::enrichQuestion)
                 .collect(Collectors.toList());
@@ -900,6 +1057,35 @@ public class TeacherServiceImpl implements TeacherService {
         }
 
         LocalDateTime now = LocalDateTime.now();
+
+        // 到点才能开课：按 sys_course.day_of_week/start_time/end_time 限制（周几 + 时间段）
+        Course course = courseMapper.selectCourseById(courseId);
+        if (course == null) throw new RuntimeException("课程不存在，courseId=" + courseId);
+        Integer dow = course.getDayOfWeek();
+        if (dow == null || dow < 1 || dow > 7) {
+            throw new RuntimeException("该课程未排课（星期几为空），无法开启在线课堂，请联系管理员在课程表中设置时间");
+        }
+        int today = now.getDayOfWeek().getValue();
+        if (today != dow) {
+            throw new RuntimeException("今天不是该课程的上课日，无法开启在线课堂");
+        }
+
+        LocalTime startAt = parseCourseTime(course.getStartTime());
+        if (startAt == null) {
+            throw new RuntimeException("该课程未排课（开始时间为空），无法开启在线课堂，请联系管理员在课程表中设置时间");
+        }
+        LocalTime endAt = parseCourseTime(course.getEndTime());
+        if (endAt != null && endAt.isBefore(startAt)) {
+            throw new RuntimeException("该课程排课时间不合法（结束时间早于开始时间），请联系管理员修改");
+        }
+
+        LocalTime nowTime = now.toLocalTime();
+        if (nowTime.isBefore(startAt)) {
+            throw new RuntimeException("未到上课时间，开始时间：" + normalizeTimeString(course.getStartTime()));
+        }
+        if (endAt != null && nowTime.isAfter(endAt)) {
+            throw new RuntimeException("已过上课时间，结束时间：" + normalizeTimeString(course.getEndTime()));
+        }
         redisTemplate.opsForValue().set(activeKey, "1");
         setSessionStart(courseId, now);
         classroomEventBus.publish(new ClassroomEvent("start", courseId, null, Map.of("courseId", courseId, "sessionStart", now.toString())));
@@ -912,6 +1098,11 @@ public class TeacherServiceImpl implements TeacherService {
         Set<Long> myCourseIds = getMyCourses().stream().map(Course::getId).collect(Collectors.toSet());
         if (!myCourseIds.contains(courseId)) throw new RuntimeException("无权操作该课程");
 
+        // 结束课堂时同步结束签到：确保 attendance_summary 能写入，仪表盘可以立刻看到变化
+        try {
+            stopCheckIn(courseId);
+        } catch (Exception ignored) {}
+
         resetClassroom(courseId);
         redisTemplate.delete("classroom:active:" + courseId);
         classroomEventBus.publish(new ClassroomEvent("end", courseId, null, Map.of("courseId", courseId)));
@@ -920,31 +1111,43 @@ public class TeacherServiceImpl implements TeacherService {
 
     @Override
     public Map<String, Object> getClassroomStatus(Long courseId) {
-        if (courseId == null) return Map.of("active", false, "sessionStart", null);
+        if (courseId == null) {
+            Map<String, Object> res = new HashMap<>();
+            res.put("active", false);
+            res.put("sessionStart", null);
+            return res;
+        }
         boolean active = Boolean.TRUE.equals(redisTemplate.hasKey("classroom:active:" + courseId));
         LocalDateTime sessionStart = getSessionStart(courseId, false);
-        return Map.of("active", active, "sessionStart", sessionStart == null ? null : sessionStart.toString());
+        Map<String, Object> res = new HashMap<>();
+        res.put("active", active);
+        res.put("sessionStart", sessionStart == null ? null : sessionStart.toString());
+        return res;
     }
 
     @Override
     @Transactional
     public void resetClassroom(Long courseId) {
         if (courseId == null) return;
+
+        // 课堂结束前把“本节课堂互动”沉淀到 teacher_interaction，避免 reset 后清空数据导致仪表盘不变
+        try {
+            persistClassroomInteractionToTeacherInteraction(courseId);
+        } catch (Exception ignored) {}
+
         try {
             List<Map<String, Object>> perf = getClassroomPerformance(courseId);
-            if (perf != null && !perf.isEmpty()) {
-                Map<String, Object> payload = new HashMap<>();
-                payload.put("courseId", courseId);
-                payload.put("generatedAt", java.time.LocalDateTime.now());
-                payload.put("students", perf);
-                AnalysisResult ar = new AnalysisResult();
-                ar.setCourseId(courseId);
-                ar.setMetric("classroom_online_performance");
-                ar.setEventId("classroom_perf_" + courseId + "_" + System.currentTimeMillis());
-                ar.setGeneratedAt(new java.sql.Timestamp(System.currentTimeMillis()));
-                ar.setValueJson(objectMapper.writeValueAsString(payload));
-                analysisResultMapper.insert(ar);
-            }
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("courseId", courseId);
+            payload.put("generatedAt", java.time.LocalDateTime.now());
+            payload.put("students", perf == null ? Collections.emptyList() : perf);
+            AnalysisResult ar = new AnalysisResult();
+            ar.setCourseId(courseId);
+            ar.setMetric("classroom_online_performance");
+            ar.setEventId("classroom_perf_" + courseId + "_" + System.currentTimeMillis());
+            ar.setGeneratedAt(new java.sql.Timestamp(System.currentTimeMillis()));
+            ar.setValueJson(objectMapper.writeValueAsString(payload));
+            analysisResultMapper.insert(ar);
         } catch (Exception ignored) {}
 
         List<Long> qids = onlineQuestionMapper.selectIdsByCourseId(courseId);
@@ -955,6 +1158,80 @@ public class TeacherServiceImpl implements TeacherService {
         classroomChatStore.clear(courseId);
         setSessionStart(courseId, LocalDateTime.now());
         classroomEventBus.publish(new ClassroomEvent("reset", courseId, null, Map.of("courseId", courseId)));
+    }
+
+    private void persistClassroomInteractionToTeacherInteraction(Long courseId) {
+        if (courseId == null) return;
+        LocalDateTime sessionStart = getSessionStart(courseId, false);
+        if (sessionStart == null) {
+            sessionStart = LocalDateTime.now().minusHours(4);
+        }
+        final LocalDateTime finalSessionStart = sessionStart;
+
+        User teacher = getCurrentTeacher();
+        List<User> students = getStudentsByCourseId(courseId);
+        Map<Long, Long> studentClassMap = new HashMap<>();
+        for (User s : students) {
+            if (s.getUserId() != null && s.getClassId() != null) {
+                studentClassMap.put(s.getUserId(), s.getClassId());
+            }
+        }
+
+        List<OnlineAnswer> answers = onlineAnswerMapper.selectByCourseIds(Collections.singletonList(courseId));
+        List<OnlineAnswer> sessionAnswers = answers == null ? Collections.emptyList() : answers.stream()
+                .filter(a -> a.getCreateTime() != null && a.getCreateTime().isAfter(finalSessionStart))
+                .collect(Collectors.toList());
+
+        List<CourseChat> chats = classroomChatStore.list(courseId, 200);
+        List<CourseChat> sessionChats = chats == null ? Collections.emptyList() : chats.stream()
+                .filter(c -> c.getCreateTime() != null && c.getCreateTime().isAfter(finalSessionStart))
+                .collect(Collectors.toList());
+
+        class Agg {
+            int studentTalkSeconds = 0;
+            int interactionCount = 0;
+        }
+        Map<Long, Agg> aggByClass = new HashMap<>();
+
+        for (OnlineAnswer a : sessionAnswers) {
+            Long classId = a.getStudentId() == null ? null : studentClassMap.get(a.getStudentId());
+            if (classId == null) continue;
+            Agg agg = aggByClass.computeIfAbsent(classId, k -> new Agg());
+            String type = a.getType() == null ? "answer" : a.getType();
+            agg.studentTalkSeconds += ("hand".equals(type) || "race".equals(type)) ? 20 : 45;
+            agg.interactionCount += 1;
+        }
+
+        for (CourseChat c : sessionChats) {
+            if (c == null) continue;
+            if (!"student".equals(c.getRole())) continue;
+            Long classId = c.getSenderId() == null ? null : studentClassMap.get(c.getSenderId());
+            if (classId == null) continue;
+            Agg agg = aggByClass.computeIfAbsent(classId, k -> new Agg());
+            agg.studentTalkSeconds += 15;
+            agg.interactionCount += 1;
+        }
+
+        if (aggByClass.isEmpty()) return;
+
+        java.sql.Date today = java.sql.Date.valueOf(LocalDate.now());
+        List<TeacherInteraction> rows = new ArrayList<>();
+        for (Map.Entry<Long, Agg> e : aggByClass.entrySet()) {
+            TeacherInteraction ti = new TeacherInteraction();
+            ti.setCourseId(courseId);
+            ti.setClassId(e.getKey());
+            ti.setTeacherId(teacher.getUserId());
+            ti.setDate(today);
+            ti.setTalkTimeSeconds(0);
+            ti.setStudentTalkSeconds(e.getValue().studentTalkSeconds);
+            ti.setGroupTalkSeconds(0);
+            ti.setInteractionCount(e.getValue().interactionCount);
+            rows.add(ti);
+        }
+
+        List<Long> classIds = rows.stream().map(TeacherInteraction::getClassId).filter(Objects::nonNull).distinct().collect(Collectors.toList());
+        teacherInteractionMapper.deleteByCourseIdAndDateAndClassIds(courseId, today, classIds);
+        teacherInteractionMapper.batchInsert(rows);
     }
 
     // 【核心实现】获取课堂表现（当前会话）- 按班级分组
@@ -991,6 +1268,10 @@ public class TeacherServiceImpl implements TeacherService {
             stat.put("hand", 0);
             stat.put("race", 0);
             stat.put("answer", 0);
+            stat.put("chat", 0);
+            stat.put("called", 0);
+            stat.put("correct", 0);
+            stat.put("wrong", 0);
             stat.put("total", 0);
             stat.put("lastTime", "-");
             studentStatsMap.put(s.getUserId(), stat);
@@ -998,11 +1279,50 @@ public class TeacherServiceImpl implements TeacherService {
 
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("HH:mm:ss");
 
+        // 发言（聊天）统计：以课堂群聊中学生消息作为发言次数
+        try {
+            List<CourseChat> chats = classroomChatStore.list(courseId, 200);
+            for (CourseChat c : chats) {
+                if (c == null || c.getSenderId() == null) continue;
+                if (c.getCreateTime() == null || !c.getCreateTime().isAfter(sessionStart)) continue;
+                if (!"student".equalsIgnoreCase(c.getRole())) continue;
+
+                Map<String, Object> stat = studentStatsMap.get(c.getSenderId());
+                if (stat == null) {
+                    User s = userMapper.selectById(c.getSenderId());
+                    stat = new HashMap<>();
+                    stat.put("studentId", c.getSenderId());
+                    stat.put("name", s != null ? s.getRealName() : "未知学生");
+                    stat.put("username", s != null ? s.getUsername() : String.valueOf(c.getSenderId()));
+                    stat.put("classId", s != null ? s.getClassId() : 0L);
+                    stat.put("hand", 0);
+                    stat.put("race", 0);
+                    stat.put("answer", 0);
+                    stat.put("chat", 0);
+                    stat.put("called", 0);
+                    stat.put("correct", 0);
+                    stat.put("wrong", 0);
+                    stat.put("total", 0);
+                    stat.put("lastTime", "-");
+                    studentStatsMap.put(c.getSenderId(), stat);
+                }
+
+                stat.put("chat", (int) stat.get("chat") + 1);
+                stat.put("total", (int) stat.get("total") + 1);
+
+                String timeStr = c.getCreateTime().format(dtf);
+                String last = (String) stat.get("lastTime");
+                if ("-".equals(last) || timeStr.compareTo(last) > 0) {
+                    stat.put("lastTime", timeStr);
+                }
+            }
+        } catch (Exception ignored) {}
+
         for (OnlineAnswer a : sessionAnswers) {
             Map<String, Object> stat = studentStatsMap.get(a.getStudentId());
             // 如果是有互动的学生但不在班级列表里（可能是旁听生），也加进去
             if (stat == null) {
-                User s = userMapper.selectAllUsers(null, null, null, 0, 1).stream().filter(u->u.getUserId().equals(a.getStudentId())).findFirst().orElse(null);
+                User s = userMapper.selectById(a.getStudentId());
                 stat = new HashMap<>();
                 stat.put("studentId", a.getStudentId());
                 stat.put("name", s != null ? s.getRealName() : "未知学生");
@@ -1011,6 +1331,10 @@ public class TeacherServiceImpl implements TeacherService {
                 stat.put("hand", 0);
                 stat.put("race", 0);
                 stat.put("answer", 0);
+                stat.put("chat", 0);
+                stat.put("called", 0);
+                stat.put("correct", 0);
+                stat.put("wrong", 0);
                 stat.put("total", 0);
                 stat.put("lastTime", "-");
                 studentStatsMap.put(a.getStudentId(), stat);
@@ -1022,7 +1346,17 @@ public class TeacherServiceImpl implements TeacherService {
             stat.put("total", (int)stat.get("total") + 1);
             if ("hand".equals(type)) stat.put("hand", (int)stat.get("hand") + 1);
             else if ("race".equals(type)) stat.put("race", (int)stat.get("race") + 1);
-            else stat.put("answer", (int)stat.get("answer") + 1);
+            else {
+                stat.put("answer", (int)stat.get("answer") + 1);
+                if (enriched.getCorrect() != null) {
+                    if (Boolean.TRUE.equals(enriched.getCorrect())) stat.put("correct", (int) stat.get("correct") + 1);
+                    else stat.put("wrong", (int) stat.get("wrong") + 1);
+                }
+            }
+
+            if ("called".equalsIgnoreCase(enriched.getState())) {
+                stat.put("called", (int) stat.get("called") + 1);
+            }
 
             // 更新最近时间
             String timeStr = a.getCreateTime().format(dtf);
@@ -1078,6 +1412,51 @@ public class TeacherServiceImpl implements TeacherService {
         return result;
     }
 
+    @Override
+    @Transactional
+    public AnalysisResultResponse generateClassroomAnalysisResult(Long courseId, String metric) {
+        if (courseId == null) throw new RuntimeException("courseId 不能为空");
+        Set<Long> myCourseIds = getMyCourses().stream().map(Course::getId).collect(Collectors.toSet());
+        if (!myCourseIds.contains(courseId)) throw new RuntimeException("无权操作该课程");
+
+        String m = (metric == null || metric.trim().isEmpty()) ? "classroom_online_performance" : metric.trim();
+        if (!"classroom_online_performance".equals(m)) {
+            throw new RuntimeException("暂不支持该 metric: " + m);
+        }
+
+        List<Map<String, Object>> perf = getClassroomPerformance(courseId);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("courseId", courseId);
+        payload.put("generatedAt", java.time.LocalDateTime.now());
+        payload.put("students", perf == null ? Collections.emptyList() : perf);
+
+        AnalysisResult ar = new AnalysisResult();
+        ar.setCourseId(courseId);
+        ar.setMetric(m);
+        ar.setEventId("manual_" + courseId + "_" + System.currentTimeMillis());
+        ar.setGeneratedAt(new java.sql.Timestamp(System.currentTimeMillis()));
+        try {
+            ar.setValueJson(objectMapper.writeValueAsString(payload));
+        } catch (Exception e) {
+            ar.setValueJson("{\"courseId\":" + courseId + ",\"students\":[]}");
+        }
+        analysisResultMapper.insert(ar);
+
+        AnalysisResultResponse r = new AnalysisResultResponse();
+        r.setId(ar.getId());
+        r.setCourseId(ar.getCourseId());
+        r.setMetric(ar.getMetric());
+        r.setValueJson(ar.getValueJson());
+        r.setGeneratedAt(ar.getGeneratedAt());
+        r.setEventId(ar.getEventId());
+        try {
+            r.setValue(objectMapper.readTree(ar.getValueJson()));
+        } catch (Exception ignored) {
+            r.setValue(null);
+        }
+        return r;
+    }
+
     private OnlineQuestion enrichQuestion(OnlineQuestion q) {
         if (q == null) return null;
         q.setMode("broadcast");
@@ -1100,12 +1479,14 @@ public class TeacherServiceImpl implements TeacherService {
         a.setType("answer");
         a.setState("answered");
         a.setText(a.getAnswerText());
+        a.setCorrect(null);
         if (a.getAnswerText() != null && a.getAnswerText().trim().startsWith("{")) {
             try {
                 JsonNode node = objectMapper.readTree(a.getAnswerText());
                 if (node.has("type")) a.setType(node.get("type").asText());
                 if (node.has("state")) a.setState(node.get("state").asText());
                 if (node.has("text")) a.setText(node.get("text").asText());
+                if (node.has("correct") && !node.get("correct").isNull()) a.setCorrect(node.get("correct").asBoolean());
             } catch (Exception ignored) {}
         }
         return a;

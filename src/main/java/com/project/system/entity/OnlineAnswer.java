@@ -16,4 +16,5 @@ public class OnlineAnswer {
     private String type;   // answer/hand/race/speak
     private String state;  // pending/called/answered
     private String text;   // 纯文本内容
+    private Boolean correct; // type=answer 时可用
 }

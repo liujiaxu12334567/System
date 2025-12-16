@@ -64,4 +64,24 @@
     <select id="selectExamRecordsByExamId" resultMap="ExamRecordResultMap">
         SELECT * FROM sys_exam_record WHERE exam_id = #{examId} ORDER BY score DESC, submit_time ASC
     </select>
+
+    <select id="selectStudentExamOverview" resultType="java.util.HashMap">
+        SELECT
+            e.id              AS examId,
+            e.course_id       AS courseId,
+            c.name            AS courseName,
+            e.title           AS title,
+            e.start_time      AS startTime,
+            e.deadline        AS deadline,
+            e.duration        AS duration,
+            r.id              AS recordId,
+            r.score           AS score,
+            r.cheat_count     AS cheatCount,
+            r.submit_time     AS submitTime
+        FROM sys_exam e
+        JOIN sys_course c ON c.id = e.course_id
+        LEFT JOIN sys_exam_record r ON r.exam_id = e.id AND r.user_id = #{userId}
+        WHERE c.class_id = #{classId}
+        ORDER BY e.start_time DESC, e.id DESC
+    </select>
 </mapper>
