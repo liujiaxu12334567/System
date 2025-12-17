@@ -30,6 +30,10 @@ public interface CourseMapper {
     // 【核心方法】根据课题组长姓名查询其负责的课程
     List<Course> selectCoursesByManagerName(@Param("managerName") String managerName);
 
+    List<Course> selectCoursesStartingBetween(@Param("dayOfWeek") Integer dayOfWeek,
+                                              @Param("fromTime") String fromTime,
+                                              @Param("toTime") String toTime);
+
     // 新增：按课程ID列表查询
     List<Course> selectCoursesByIds(@Param("ids") List<Long> ids);
 }

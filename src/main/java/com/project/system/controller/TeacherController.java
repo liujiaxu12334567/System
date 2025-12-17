@@ -495,14 +495,22 @@ public class TeacherController {
     }
     @PostMapping("/checkin/start")
     public ResponseEntity<?> startCheckIn(@RequestBody Map<String, Long> payload) {
-        String batchId = teacherService.startCheckIn(payload.get("courseId"));
-        return ResponseEntity.ok(Map.of("message", "签到已开启", "batchId", batchId));
+        try {
+            String batchId = teacherService.startCheckIn(payload.get("courseId"));
+            return ResponseEntity.ok(Map.of("message", "签到已开启", "batchId", batchId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("开始上课失败 " + e.getMessage());
+        }
     }
 
     @PostMapping("/checkin/stop")
     public ResponseEntity<?> stopCheckIn(@RequestBody Map<String, Long> payload) {
-        teacherService.stopCheckIn(payload.get("courseId"));
-        return ResponseEntity.ok("签到已结束");
+        try {
+            teacherService.stopCheckIn(payload.get("courseId"));
+            return ResponseEntity.ok("签到已结束");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("结束上课失败 " + e.getMessage());
+        }
     }
 
     @GetMapping("/checkin/status/{courseId}")

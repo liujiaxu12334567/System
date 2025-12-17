@@ -373,7 +373,7 @@ const startClassroom = async () => {
     await request.post(`/teacher/classroom/${courseId}/start`)
     return true
   } catch (e) {
-    ElMessage.error(e?.response?.data || e?.message || '开课失败')
+    ElMessage.warning(e?.response?.data || e?.message || '未到上课时间，无法开启在线课堂')
     return false
   }
 }
@@ -398,8 +398,24 @@ onMounted(async () => {
     router.push('/login')
     return
   }
+  // 进入前预检：未到上课时间则禁止进入，并给出提示
+  try {
+    const status = await request.get(`/teacher/classroom/${courseId}/status`)
+    if (!status?.canEnter) {
+      ElMessage.warning(status?.message || '未到上课时间，无法进入在线课堂')
+      router.replace('/teacher')
+      return
+    }
+  } catch (e) {
+    ElMessage.error(e?.response?.data || e?.message || '无法获取课堂状态')
+    router.replace('/teacher')
+    return
+  }
   const ok = await startClassroom()
-  if (!ok) return
+  if (!ok) {
+    router.replace('/teacher')
+    return
+  }
   await fetchQuestions()
   startPolling()
   connectWs()

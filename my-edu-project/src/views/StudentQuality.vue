@@ -1,12 +1,15 @@
 <template>
   <div class="quality-container">
-    <div class="page-header">
-      <h2>素质拓展与校园生活</h2>
-      <p>申请素质学分或提交请假申请</p>
-    </div>
+    <StudentHeader />
 
-    <div class="main-content">
-      <el-tabs v-model="activeTab" class="custom-tabs">
+    <div class="quality-content">
+      <div class="page-header">
+        <h2>素质拓展与校园生活</h2>
+        <p>申请素质学分或提交请假申请</p>
+      </div>
+
+      <div class="main-content">
+        <el-tabs v-model="activeTab" class="custom-tabs">
         <el-tab-pane label="素质学分申请" name="credit">
           <div class="form-card">
             <el-alert title="毕业要求：素质学分需满 2 分。参加一次比赛可申请 0.2 学分。" type="info" show-icon style="margin-bottom:20px;"/>
@@ -76,6 +79,7 @@
           </div>
         </el-tab-pane>
       </el-tabs>
+      </div>
     </div>
   </div>
 </template>
@@ -85,6 +89,7 @@ import { ref, reactive } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import StudentHeader from '@/components/StudentHeader.vue'
 
 const activeTab = ref('credit')
 const loading = ref(false)
@@ -153,7 +158,8 @@ const submitLeave = async () => {
 </script>
 
 <style scoped>
-.quality-container { padding: 20px; max-width: 800px; margin: 0 auto; }
+.quality-container { min-height: 100vh; background-color: #F5F7FA; }
+.quality-content { padding: 20px; max-width: 800px; margin: 0 auto; }
 .page-header { text-align: center; margin-bottom: 30px; color: #333; }
 .form-card { background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.1); }
 .upload-tip { font-size: 12px; color: #999; margin-top: 5px; }

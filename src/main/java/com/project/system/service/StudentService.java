@@ -1,5 +1,6 @@
 package com.project.system.service;
 
+import com.project.system.dto.CourseTimetableResponse;
 import com.project.system.entity.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -26,6 +27,7 @@ public interface StudentService {
     Course getCourseInfo(Long courseId);
     List<Material> getCourseMaterials(Long courseId);
     List<Course> getPersonalLearningCourses();
+    CourseTimetableResponse getStudentCourseSchedule();
     void submitQuiz(Long materialId, Integer score, String userAnswers, String textAnswer, List<MultipartFile> files);
     String chatWithAiTutor(Long materialId, List<Map<String, String>> history);
     QuizRecord getQuizRecord(Long materialId);

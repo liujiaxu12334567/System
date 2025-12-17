@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.project.system.dto.CourseTimetableResponse;
 import com.project.system.entity.*;
 import com.project.system.mapper.*;
 import com.project.system.mq.AnalysisEventPublisher;
+import com.project.system.service.CourseScheduleService;
 import com.project.system.service.StudentService;
 import com.project.system.service.support.ClassroomChatStore;
 import com.project.system.websocket.ClassroomEvent;
@@ -49,6 +51,7 @@ public class StudentServiceImpl implements StudentService {
     @Autowired private ClassroomEventBus classroomEventBus;
     @Autowired private AnalysisEventPublisher analysisEventPublisher;
     @Autowired private ClassroomChatStore classroomChatStore;
+    @Autowired private CourseScheduleService courseScheduleService;
 
     @Value("${file.upload-dir:./uploads}")
     private String uploadDir;
@@ -116,7 +119,18 @@ public class StudentServiceImpl implements StudentService {
             String key = groupId != null ? ("g:" + groupId) : ("c:" + c.getId());
             dedup.putIfAbsent(key, c);
         }
-        return new ArrayList<>(dedup.values());
+        List<Course> courses = new ArrayList<>(dedup.values());
+        courseScheduleService.enrichCoursesWithSchedule(courses);
+        return courses;
+    }
+
+    @Override
+    public CourseTimetableResponse getStudentCourseSchedule() {
+        User student = getCurrentUser();
+        if (student == null || student.getClassId() == null) {
+            throw new RuntimeException("当前尚未绑定班级，无法查看课程表");
+        }
+        return courseScheduleService.getClassTimetable(student.getClassId());
     }
 
     @Override

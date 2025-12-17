@@ -1,34 +1,6 @@
 <template>
   <div class="neu-ai-container">
-    <header class="neu-header">
-      <div class="header-inner">
-        <div class="left-section">
-          <h1 class="logo" @click="$router.push('/home')">Neuedu</h1>
-          <nav class="nav-links">
-            <a @click="$router.push('/home')">返回首页</a>
-            <a class="active">NEU AI</a>
-          </nav>
-        </div>
-
-        <div class="right-section">
-          <el-dropdown trigger="click">
-            <div class="user-info">
-              <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
-              <span class="username">{{ userInfo.realName || '同学' }}</span>
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-            </div>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item @click="logout">
-                  <el-icon><SwitchButton /></el-icon>
-                  退出登录
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
-      </div>
-    </header>
+    <StudentHeader />
 
     <div class="ai-layout">
       <aside class="ai-sidebar">
@@ -181,9 +153,10 @@
 <script setup>
 import { ref, nextTick, onMounted } from 'vue' // 引入 onMounted
 import { useRouter } from 'vue-router'         // 引入 useRouter
-import { ChatLineRound, EditPen, Monitor, Calendar, MagicStick, Position, Cpu, User, Loading, ArrowDown, SwitchButton } from '@element-plus/icons-vue' // 引入 ArrowDown, SwitchButton
+import { ChatLineRound, EditPen, Monitor, Calendar, MagicStick, Position, Cpu, User, Loading } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import StudentHeader from '@/components/StudentHeader.vue'
 
 const router = useRouter() // 初始化 router
 const userInfo = ref({})   // 用户信息

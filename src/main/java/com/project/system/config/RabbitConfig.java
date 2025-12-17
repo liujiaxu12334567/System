@@ -6,6 +6,8 @@ import org.springframework.amqp.core.ExchangeBuilder;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -19,6 +21,14 @@ public class RabbitConfig {
     @Bean
     public Queue notificationQueue() {
         return new Queue("notification.queue", true);
+    }
+
+    /**
+     * 使用 JSON 作为 RabbitMQ 消息体编码（跨语言兼容），避免默认 Java 序列化导致 Python 消费端无法解析。
+     */
+    @Bean
+    public MessageConverter messageConverter() {
+        return new Jackson2JsonMessageConverter();
     }
 
     @Bean

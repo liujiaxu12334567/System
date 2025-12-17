@@ -1,24 +1,6 @@
 <template>
   <div class="my-exams-container">
-    <header class="neu-header">
-      <div class="header-inner">
-        <div class="left-section">
-          <h1 class="logo" @click="$router.push('/home')">Neuedu</h1>
-          <nav class="nav-links">
-            <a @click="$router.push('/home')">首页</a>
-            <a @click="$router.push('/all-courses')">课程学习</a>
-            <a href="#" class="active">考试</a>
-            <a @click="$router.push('/student-quality')">素质活动</a>
-          </nav>
-        </div>
-        <div class="right-section">
-          <div class="user-info">
-            <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
-            <span class="username">{{ userInfo.realName || '同学' }}</span>
-          </div>
-        </div>
-      </div>
-    </header>
+    <StudentHeader />
 
     <main class="main-content">
       <div class="page-title">
@@ -81,6 +63,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ArrowLeft, Search } from '@element-plus/icons-vue'
+import StudentHeader from '@/components/StudentHeader.vue'
 
 const router = useRouter()
 const userInfo = ref({})
@@ -222,4 +205,3 @@ const goToExam = (examId) => {
   }
 }
 </style>
-

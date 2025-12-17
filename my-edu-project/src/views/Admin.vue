@@ -41,7 +41,6 @@
         <el-card shadow="hover" class="filter-card-bright">
           <div class="filter-controls">
             <el-select v-model="roleFilter" placeholder="按角色筛选" clearable @change="handleRoleChange" style="width: 160px; margin-right: 15px">
-              <el-option label="全部用户" :value="null" />
               <el-option label="管理员" value="1" />
               <el-option label="课题组长" value="2" />
               <el-option label="普通教师" value="3" />
@@ -365,51 +364,92 @@
           </el-form-item>
         </el-form>
 
-        <el-table :data="timetableCourses" border style="width: 100%" v-loading="timetableLoading">
-          <el-table-column prop="name" label="课程" min-width="160" />
-          <el-table-column prop="teacher" label="任课教师" min-width="140">
-            <template #default="scope">
-              <el-tag v-if="scope.row.teacher" type="success" effect="light">{{ scope.row.teacher }}</el-tag>
-              <el-tag v-else type="info" effect="plain">未分配</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="星期" width="120">
-            <template #default="scope">
-              <el-select v-model="scope.row.dayOfWeek" placeholder="请选择" style="width: 100%">
-                <el-option label="周一" :value="1" />
-                <el-option label="周二" :value="2" />
-                <el-option label="周三" :value="3" />
-                <el-option label="周四" :value="4" />
-                <el-option label="周五" :value="5" />
-                <el-option label="周六" :value="6" />
-                <el-option label="周日" :value="7" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="开始时间" min-width="200">
-            <template #default="scope">
+        <div v-loading="timetableLoading">
+          <el-alert
+            title="排课方式：按“周 × 第几节”网格选择课程；留空表示无课。保存后，课程到点才能开启在线课堂；并会在上课前15分钟向老师/学生发送提醒。"
+            type="success"
+            show-icon
+            :closable="false"
+            style="margin-bottom: 12px;"
+          />
+
+          <div class="timetable-period-config">
+            <div class="period-row" v-for="p in timetablePeriods" :key="p.index">
+              <div class="period-label">第{{ p.index }}节</div>
               <el-time-picker
-                v-model="scope.row.startTime"
+                v-model="p.startTime"
                 value-format="HH:mm:ss"
                 format="HH:mm"
-                placeholder="请选择开始时间"
-                style="width: 100%;"
-              ></el-time-picker>
-            </template>
-          </el-table-column>
-          <el-table-column label="结束时间" min-width="200">
-            <template #default="scope">
+                placeholder="开始时间"
+                style="width: 140px;"
+              />
               <el-time-picker
-                v-model="scope.row.endTime"
+                v-model="p.endTime"
                 value-format="HH:mm:ss"
                 format="HH:mm"
-                placeholder="可选"
-                style="width: 100%;"
-              ></el-time-picker>
+                placeholder="结束时间（可选）"
+                style="width: 160px;"
+              />
+            </div>
+          </div>
+
+          <div class="timetable-grid-wrap">
+            <table class="timetable-grid">
+              <thead>
+                <tr>
+                  <th class="timetable-grid-th period-th">节次</th>
+                  <th v-for="d in timetableDays" :key="d.value" class="timetable-grid-th">
+                    {{ d.label }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="p in timetablePeriods" :key="p.index">
+                  <td class="timetable-grid-td period-td">
+                    <div class="period-title">第{{ p.index }}节</div>
+                    <div class="period-time">{{ formatPeriodTime(p) }}</div>
+                  </td>
+                  <td v-for="d in timetableDays" :key="d.value" class="timetable-grid-td">
+                    <el-select
+                      class="slot-select"
+                      :model-value="timetableSlots[d.value]?.[p.index] ?? null"
+                      placeholder="无课"
+                      clearable
+                      filterable
+                      @change="(v) => setTimetableSlot(d.value, p.index, v)"
+                    >
+                      <el-option
+                        v-for="c in courseOptionsForSlot(d.value, p.index)"
+                        :key="c.id"
+                        :label="formatCourseOptionLabel(c)"
+                        :value="c.id"
+                      />
+                    </el-select>
+                    <div v-if="timetableSlots[d.value]?.[p.index]" class="slot-meta">
+                      <div class="slot-course">{{ courseById.get(Number(timetableSlots[d.value][p.index]))?.name || '' }}</div>
+                      <div class="slot-teacher">{{ courseById.get(Number(timetableSlots[d.value][p.index]))?.teacher || '未分配' }}</div>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <el-alert
+            v-if="unscheduledCourses.length > 0"
+            title="未排课课程（不会开启在线课堂）"
+            type="warning"
+            show-icon
+            :closable="false"
+            style="margin-top: 12px;"
+          >
+            <template #default>
+              <el-tag v-for="c in unscheduledCourses" :key="c.id" style="margin-right: 8px; margin-bottom: 6px;">
+                {{ c.name }}
+              </el-tag>
             </template>
-          </el-table-column>
-          <el-table-column prop="semester" label="学期" width="120" />
-        </el-table>
+          </el-alert>
+        </div>
         <template #footer>
           <el-button @click="timetableDialogVisible = false">关闭</el-button>
         </template>
@@ -668,7 +708,116 @@ const currentStatsSummary = ref({ total: 0, readCount: 0, replyCount: 0, needRep
 // 课程表/排课
 const timetableClassId = ref(null)
 const timetableCourses = ref([])
+const timetableSchedules = ref([])
 const timetableLoading = ref(false)
+
+// 课表网格：周 × 5节（留空=无课）
+const timetableDays = [
+  { label: '周一', value: 1 },
+  { label: '周二', value: 2 },
+  { label: '周三', value: 3 },
+  { label: '周四', value: 4 },
+  { label: '周五', value: 5 },
+  { label: '周六', value: 6 },
+  { label: '周日', value: 7 }
+]
+
+const timetablePeriods = ref([
+  { index: 1, startTime: '08:00:00', endTime: '' },
+  { index: 2, startTime: '10:00:00', endTime: '' },
+  { index: 3, startTime: '14:00:00', endTime: '' },
+  { index: 4, startTime: '16:00:00', endTime: '' },
+  { index: 5, startTime: '19:00:00', endTime: '' }
+])
+
+const timetableSlots = reactive({})
+
+const resetTimetableSlots = () => {
+  timetableDays.forEach((d) => {
+    timetableSlots[d.value] = timetableSlots[d.value] || {}
+    timetablePeriods.value.forEach((p) => {
+      timetableSlots[d.value][p.index] = null
+    })
+  })
+}
+resetTimetableSlots()
+
+const courseById = computed(() => {
+  const map = new Map()
+  ;(timetableCourses.value || []).forEach((c) => {
+    if (c?.id != null) map.set(Number(c.id), c)
+  })
+  return map
+})
+
+const selectedCourseIds = computed(() => {
+  const s = new Set()
+  timetableDays.forEach((d) => {
+    timetablePeriods.value.forEach((p) => {
+      const cid = timetableSlots?.[d.value]?.[p.index]
+      if (cid != null) s.add(Number(cid))
+    })
+  })
+  return s
+})
+
+const unscheduledCourses = computed(() => {
+  const selected = selectedCourseIds.value
+  return (timetableCourses.value || []).filter((c) => c?.id != null && !selected.has(Number(c.id)))
+})
+
+const formatPeriodTime = (p) => {
+  const s = p?.startTime ? String(p.startTime) : ''
+  const e = p?.endTime ? String(p.endTime) : ''
+  if (!s && !e) return ''
+  if (s && e) return `${s.slice(0, 5)}-${e.slice(0, 5)}`
+  return s ? s.slice(0, 5) : e.slice(0, 5)
+}
+
+const formatCourseOptionLabel = (c) => {
+  const name = c?.name ? String(c.name) : ''
+  const teacher = c?.teacher ? String(c.teacher) : ''
+  return teacher ? `${name}（${teacher}）` : name
+}
+
+const courseOptionsForSlot = () => {
+  return (timetableCourses.value || []).filter((c) => c?.id != null)
+}
+
+const setTimetableSlot = (dayOfWeek, periodIndex, courseId) => {
+  const next = courseId == null ? null : Number(courseId)
+  timetableSlots[dayOfWeek][periodIndex] = next
+}
+
+const hydrateSlotsFromSchedules = () => {
+  resetTimetableSlots()
+
+  const periodTimeMap = new Map()
+  ;(timetableSchedules.value || []).forEach((s) => {
+    const pi = Number(s?.periodIndex || 0)
+    if (!pi || pi < 1 || pi > timetablePeriods.value.length) return
+    if (periodTimeMap.has(pi)) return
+    const st = s?.startTime ? String(s.startTime).trim() : ''
+    const et = s?.endTime ? String(s.endTime).trim() : ''
+    if (!st) return
+    periodTimeMap.set(pi, { startTime: st, endTime: et })
+  })
+
+  timetablePeriods.value = timetablePeriods.value.map((p) => {
+    const hit = periodTimeMap.get(Number(p.index))
+    if (!hit) return p
+    return { ...p, startTime: hit.startTime, endTime: hit.endTime || '' }
+  })
+
+  ;(timetableSchedules.value || []).forEach((s) => {
+    const dow = Number(s?.dayOfWeek || 0)
+    const pi = Number(s?.periodIndex || 0)
+    if (!dow || dow < 1 || dow > 7) return
+    if (!pi || pi < 1 || pi > timetablePeriods.value.length) return
+    const cid = s?.courseId == null ? null : Number(s.courseId)
+    timetableSlots[dow][pi] = cid
+  })
+}
 
 // 计算属性：检查上传条件是否满足
 const isUploadReady = computed(() => {
@@ -1012,6 +1161,8 @@ const openTimetableDialog = () => {
   timetableDialogVisible.value = true
   timetableClassId.value = null
   timetableCourses.value = []
+  timetableSchedules.value = []
+  resetTimetableSlots()
 }
 
 const fetchTimetable = async () => {
@@ -1019,7 +1170,9 @@ const fetchTimetable = async () => {
   timetableLoading.value = true
   try {
     const res = await request.get('/admin/course/timetable', { params: { classId: timetableClassId.value } })
-    timetableCourses.value = res || []
+    timetableCourses.value = res?.courses || []
+    timetableSchedules.value = res?.schedules || []
+    hydrateSlotsFromSchedules()
   } catch (e) {
     ElMessage.error(e?.response?.data || e?.message || '获取课程表失败')
   } finally {
@@ -1029,17 +1182,30 @@ const fetchTimetable = async () => {
 
 const saveTimetable = async () => {
   if (!timetableClassId.value) return ElMessage.warning('请选择班级')
-  const list = timetableCourses.value || []
-  if (list.length === 0) return ElMessage.warning('该班级暂无课程')
+  const schedules = []
+  let invalidMsg = ''
 
-  const schedules = list.map((c) => ({
-    courseId: c.id,
-    dayOfWeek: c.dayOfWeek,
-    startTime: c.startTime,
-    endTime: c.endTime
-  }))
-  const missing = schedules.filter((s) => !s.dayOfWeek || !s.startTime)
-  if (missing.length > 0) return ElMessage.warning('请为每门课设置星期与开始时间')
+  // 全量保存：按「周×节次」网格写入；courseId 为空表示无课
+  timetableDays.forEach((d) => {
+    timetablePeriods.value.forEach((p) => {
+      const st = String(p.startTime || '').trim()
+      if (!st) {
+        invalidMsg = `第${p.index}节未设置开始时间，无法保存`
+        return
+      }
+      const et = String(p.endTime || '').trim()
+      const cid = timetableSlots?.[d.value]?.[p.index]
+      schedules.push({
+        dayOfWeek: d.value,
+        periodIndex: p.index,
+        startTime: st,
+        endTime: et || null,
+        courseId: cid == null ? null : Number(cid)
+      })
+    })
+  })
+
+  if (invalidMsg) return ElMessage.warning(invalidMsg)
 
   timetableLoading.value = true
   try {
@@ -1461,5 +1627,74 @@ const calcRate = (part, total) => {
 .app-meta .label {
   color: #909399;
   margin-right: 6px;
+}
+
+/* 课程表网格（周 × 5节） */
+.timetable-period-config {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.period-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.period-label {
+  width: 56px;
+  font-weight: 600;
+  color: #303133;
+}
+.timetable-grid-wrap {
+  background: #fff;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  overflow: auto;
+}
+.timetable-grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  min-width: 980px;
+}
+.timetable-grid-th,
+.timetable-grid-td {
+  border: 1px solid #ebeef5;
+  padding: 10px;
+  vertical-align: top;
+}
+.period-th,
+.period-td {
+  width: 150px;
+  background: #fafafa;
+}
+.period-title {
+  font-weight: 600;
+  color: #303133;
+}
+.period-time {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #909399;
+}
+.slot-select {
+  width: 100%;
+}
+.slot-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #606266;
+}
+.slot-course {
+  font-weight: 600;
+  color: #303133;
+}
+.slot-teacher {
+  color: #909399;
 }
 </style>

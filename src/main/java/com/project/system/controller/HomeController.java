@@ -5,6 +5,7 @@ import com.project.system.entity.Task;
 import com.project.system.entity.User;
 import com.project.system.mapper.HomeMapper;
 import com.project.system.mapper.UserMapper;
+import com.project.system.service.CourseScheduleService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -27,6 +28,9 @@ public class HomeController {
 
     @Autowired
     private UserMapper userMapper;
+
+    @Autowired
+    private CourseScheduleService courseScheduleService;
 
     @GetMapping("/data")
     public ResponseEntity<?> getHomeData() {
@@ -66,6 +70,9 @@ public class HomeController {
         // 4. 封装返回
         Map<String, Object> result = new HashMap<>();
         result.put("realName", realName);
+        if (user != null && "4".equals(user.getRoleType())) {
+            courseScheduleService.enrichCoursesWithSchedule(courses);
+        }
         result.put("courses", courses);
         result.put("tasks", tasks);
 

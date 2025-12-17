@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.project.system.mapper.CourseScheduleMapper">
+
+    <resultMap id="CourseScheduleSlotMap" type="com.project.system.entity.CourseScheduleSlot">
+        <id column="id" property="id"/>
+        <result column="class_id" property="classId"/>
+        <result column="day_of_week" property="dayOfWeek"/>
+        <result column="period_index" property="periodIndex"/>
+        <result column="start_time" property="startTime"/>
+        <result column="end_time" property="endTime"/>
+        <result column="course_id" property="courseId"/>
+    </resultMap>
+
+    <select id="selectByClassId" resultMap="CourseScheduleSlotMap">
+        SELECT s.*
+        FROM sys_course_schedule s
+        WHERE s.class_id = #{classId}
+        ORDER BY s.day_of_week ASC, s.period_index ASC
+    </select>
+
+    <delete id="deleteByClassId">
+        DELETE FROM sys_course_schedule WHERE class_id = #{classId}
+    </delete>
+
+    <insert id="insertBatch">
+        INSERT INTO sys_course_schedule
+        (class_id, day_of_week, period_index, start_time, end_time, course_id)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (
+            #{item.classId},
+            #{item.dayOfWeek},
+            #{item.periodIndex},
+            #{item.startTime},
+            #{item.endTime},
+            #{item.courseId}
+            )
+        </foreach>
+    </insert>
+
+    <select id="selectByCourseIdAndDay" resultMap="CourseScheduleSlotMap">
+        SELECT s.*
+        FROM sys_course_schedule s
+        WHERE s.course_id = #{courseId}
+          AND s.day_of_week = #{dayOfWeek}
+        ORDER BY s.start_time ASC, s.period_index ASC, s.id ASC
+    </select>
+
+    <select id="countActiveByCourseIdAndTime" resultType="int">
+        SELECT COUNT(*)
+        FROM sys_course_schedule s
+        WHERE s.course_id = #{courseId}
+          AND s.day_of_week = #{dayOfWeek}
+          AND s.start_time IS NOT NULL
+          AND s.start_time &lt;= #{nowTime}
+          AND (s.end_time IS NULL OR s.end_time &gt;= #{nowTime})
+    </select>
+
+    <select id="selectUpcomingStartingBetween" resultType="com.project.system.dto.UpcomingCourseSchedule">
+        SELECT
+            s.id AS scheduleId,
+            s.class_id AS classId,
+            s.day_of_week AS dayOfWeek,
+            s.period_index AS periodIndex,
+            s.start_time AS startTime,
+            s.end_time AS endTime,
+            s.course_id AS courseId,
+            c.name AS courseName,
+            c.teacher_id AS teacherId
+        FROM sys_course_schedule s
+        JOIN sys_course c ON c.id = s.course_id
+        WHERE s.day_of_week = #{dayOfWeek}
+          AND s.course_id IS NOT NULL
+          AND s.start_time IS NOT NULL
+          AND s.start_time &gt;= #{fromTime}
+          AND s.start_time &lt; #{toTime}
+          AND s.class_id IS NOT NULL
+        ORDER BY s.start_time ASC, s.period_index ASC, s.id ASC
+    </select>
+</mapper>
+

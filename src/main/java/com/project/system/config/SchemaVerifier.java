@@ -31,6 +31,8 @@ public class SchemaVerifier implements ApplicationRunner {
                 "检测到数据库缺少 sys_course.start_time 列：请执行 `docs/sys_course_schedule.sql`（或手动 ALTER TABLE）后重试。");
         warnIfMissingColumn("sys_course", "end_time",
                 "检测到数据库缺少 sys_course.end_time 列：请执行 `docs/sys_course_schedule.sql`（或手动 ALTER TABLE）后重试。");
+        warnIfMissingColumn("sys_course_schedule", "period_index",
+                "检测到数据库缺少 sys_course_schedule 表（或 period_index 列）：请执行 `docs/sys_course_schedule_table.sql`（或手动建表）后重试。");
         warnIfMissingColumn("sys_user", "college",
                 "检测到数据库缺少 sys_user.college 列：请执行 `docs/sys_user_college.sql`（或手动 ALTER TABLE）后重试。");
     }

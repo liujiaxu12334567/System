@@ -1,30 +1,6 @@
 <template>
   <div class="all-courses-container">
-    <header class="neu-header">
-      <div class="header-inner">
-        <div class="left-section">
-          <h1 class="logo">Neuedu</h1>
-          <nav class="nav-links">
-            <a @click="$router.push('/home')">首页</a>
-            <a @click="$router.push('/all-courses')">课程学习</a>
-            <a href="#" class="active">个性学习</a>
-            <a @click="$router.push('/my-exams')">考试</a>
-            <a @click="$router.push('/student-quality')">素质活动</a>
-            <a href="#">毕业设计</a>
-          </nav>
-        </div>
-        <div class="right-section">
-          <el-button type="primary" round class="ai-btn" @click="$router.push('/neu-ai')">
-            <el-icon style="margin-right: 4px"><MagicStick /></el-icon> NEU AI
-          </el-button>
-          <div class="user-info">
-            <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
-            <span class="username">{{ userInfo.realName || '同学' }}</span>
-            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-          </div>
-        </div>
-      </div>
-    </header>
+    <StudentHeader />
 
     <main class="main-content">
       <div class="page-title">个性学习</div>
@@ -56,7 +32,7 @@
             class="course-card"
             :class="getCourseCardClass(item)"
         >
-          <span class="top-status-tag" :class="getStatusTagClass(item.status)">{{ item.status || '进行中' }}</span>
+          <span class="top-status-tag" :class="getStatusTagClasses(getCourseStatus(item))">{{ getCourseStatus(item) }}</span>
 
           <div class="card-content">
             <div class="course-title">{{ item.name }}</div>
@@ -96,10 +72,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import dayjs from 'dayjs'
 import request from '@/utils/request'
-import { ArrowDown, MagicStick, Search } from '@element-plus/icons-vue'
+import { Search } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { streamAiChat } from '@/utils/aiStream'
+import StudentHeader from '@/components/StudentHeader.vue'
 
 const router = useRouter()
 const userInfo = ref({})
@@ -114,12 +94,92 @@ const aiLoading = ref(false)
 const aiCourseId = ref(null)
 const aiResult = ref('')
 
+const getCourseStatus = (course) => {
+  if (!course) return '未开始'
+  const now = dayjs()
+  const start = course.startTime ? dayjs(course.startTime) : null
+  const end = course.endTime ? dayjs(course.endTime) : null
+
+  if (course.status) return course.status
+  if (start && now.isBefore(start)) return '未开始'
+  if (end && now.isAfter(end)) return '未开始'
+  if (start || end) return '进行中'
+  return '未开始'
+}
+
+const getStatusTagClasses = (status) => {
+  if (status === '进行中') return 'tag-green'
+  if (status === '未开始') return 'tag-gray'
+  return 'tag-gray'
+}
+
+const streamPrompt = async (prompt) => {
+  aiDialogVisible.value = true
+  aiLoading.value = true
+  aiResult.value = ''
+  try {
+    await streamAiChat({ message: prompt, history: [] }, chunk => {
+      aiResult.value += chunk
+    })
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+const runSelectionAiQuery = async (text) => {
+  if (!text) return
+  aiCourseId.value = null
+  try {
+    const prompt = [
+      '请作为学习专家，围绕下列选中文本提供学习建议、重点提醒和疑难解析：',
+      text
+    ].join('\n\n')
+    await streamPrompt(prompt)
+  } catch (error) {
+    aiResult.value = 'AI 查询失败，请稍后重试'
+    ElMessage.error('AI 查询失败，请稍后再试')
+  }
+}
+
+let selectionPrompting = false
+const handleTextSelection = () => {
+  if (selectionPrompting) return
+  const selection = window.getSelection()
+  if (!selection) return
+  const text = selection.toString().trim()
+  if (!text || text.length < 3) return
+
+  const snippet = text.length > 200 ? `${text.slice(0, 200)}...` : text
+  selectionPrompting = true
+  ElMessageBox.confirm(
+    `是否使用 AI 查询以下选中文本？\n\n${snippet}`,
+    'AI 查询提示',
+    {
+      confirmButtonText: '是',
+      cancelButtonText: '否',
+      type: 'info',
+      closeOnClickModal: true
+    }
+  )
+    .then(() => runSelectionAiQuery(text))
+    .catch(() => {})
+    .finally(() => {
+      selectionPrompting = false
+      window.getSelection()?.removeAllRanges()
+    })
+}
+
 onMounted(() => {
   const storedUser = localStorage.getItem('userInfo')
   if (storedUser) {
     try { userInfo.value = JSON.parse(storedUser) } catch (e) {}
   }
   fetchCourses()
+  document.addEventListener('mouseup', handleTextSelection)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mouseup', handleTextSelection)
 })
 
 const fetchCourses = async () => {
@@ -167,7 +227,6 @@ const openAiDialog = async (course) => {
   aiResult.value = ''
 
   try {
-    // 拉取课程资料列表用于 AI 解析（不包含测验/考试信息）
     let materials = []
     try {
       const m = await request.get(`/student/course/${course.id}/materials`)
@@ -182,12 +241,10 @@ const openAiDialog = async (course) => {
       materialBrief ? `课程资料摘要（最多20条）：\n${materialBrief}` : `课程资料摘要：暂无`
     ].join('\n\n')
 
-    const res = await request.post('/ai/chat', { message: prompt, history: [] }, { timeout: 300000 })
-    aiResult.value = res || ''
-  } catch (e) {
-    aiResult.value = 'AI 解析失败，请稍后重试。'
-  } finally {
-    aiLoading.value = false
+    await streamPrompt(prompt)
+  } catch (error) {
+    aiResult.value = 'AI 解析失败，请稍后重试'
+    ElMessage.error('AI 解析失败，请稍后再试')
   }
 }
 
@@ -196,12 +253,6 @@ const getCourseCardClass = (item) => {
   return `bg-${color}`
 }
 
-const getStatusTagClass = (status) => {
-  if (status === '进行中') return 'tag-green'
-  if (status === '未开始') return 'tag-gray'
-  if (status === '已结束') return 'tag-red'
-  return 'tag-green'
-}
 </script>
 
 <style scoped lang="scss">
@@ -360,4 +411,3 @@ const getStatusTagClass = (status) => {
   }
 }
 </style>
-

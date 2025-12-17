@@ -11,6 +11,7 @@ const AllCourses = () => import('../views/AllCourses.vue') // 【新增引入】
 const ExamDetail = () => import('../views/ExamDetail.vue')
 const MyExams = () => import('../views/MyExams.vue')
 const PersonalLearning = () => import('../views/PersonalLearning.vue')
+const CourseSchedule = () => import('../views/CourseSchedule.vue')
 const QualityTeacher = () => import('../views/QualityTeacher.vue')
 const StudentQuality = () => import('../views/StudentQuality.vue')
 const TeacherClassroom = () => import('../views/TeacherClassroom.vue')
@@ -84,6 +85,12 @@ const routes = [
         name: 'PersonalLearning',
         component: PersonalLearning,
         meta: { title: '个性学习' }
+    },
+    {
+        path: '/course-schedule',
+        name: 'CourseSchedule',
+        component: CourseSchedule,
+        meta: { title: '课程表' }
     },
     {
         path: '/teacher/classroom/:courseId',

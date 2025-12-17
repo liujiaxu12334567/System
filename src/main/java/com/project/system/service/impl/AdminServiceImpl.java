@@ -6,11 +6,13 @@ import com.project.system.dto.CourseBatchAssignRequest;
 import com.project.system.dto.CourseGroupCreateRequest;
 import com.project.system.dto.CourseGroupUpdateLeaderRequest;
 import com.project.system.dto.CourseScheduleBatchUpdateRequest;
+import com.project.system.dto.CourseTimetableResponse;
 import com.project.system.dto.PaginationResponse;
 import com.project.system.entity.*;
 import com.project.system.entity.Class;
 import com.project.system.mapper.*;
 import com.project.system.service.AdminService;
+import com.project.system.service.CourseScheduleService;
 import org.apache.poi.ss.usermodel.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -32,6 +34,8 @@ import java.util.*;
 public class AdminServiceImpl implements AdminService {
     @Autowired private UserMapper userMapper;
     @Autowired private CourseMapper courseMapper;
+    @Autowired private CourseScheduleMapper courseScheduleMapper;
+    @Autowired private CourseScheduleService courseScheduleService;
     @Autowired private CourseGroupMapper courseGroupMapper;
     @Autowired private ClassMapper classMapper;
     @Autowired private ApplicationMapper applicationMapper;
@@ -799,16 +803,16 @@ public class AdminServiceImpl implements AdminService {
         courseMapper.updateCourse(course);
     }
     @Override
-    public List<Course> listTimetableByClassId(Long classId) {
+    public CourseTimetableResponse listTimetableByClassId(Long classId) {
         if (classId == null) throw new RuntimeException("classId不能为空");
         Class c = classMapper.findById(classId);
         if (c == null) throw new RuntimeException("班级不存在，classId=" + classId);
-        return courseMapper.selectCoursesByClassIdOrderByStartTime(classId);
+        return courseScheduleService.getClassTimetable(classId);
     }
 
-    @Override
+    @Deprecated
     @Transactional
-    public void batchUpdateCourseSchedule(CourseScheduleBatchUpdateRequest request) {
+    public void batchUpdateCourseScheduleLegacy(CourseScheduleBatchUpdateRequest request) {
         if (request == null) throw new RuntimeException("请求体不能为空");
         if (request.getClassId() == null) throw new RuntimeException("classId不能为空");
         if (request.getSchedules() == null || request.getSchedules().isEmpty()) {
@@ -824,6 +828,12 @@ public class AdminServiceImpl implements AdminService {
             if (existed == null) throw new RuntimeException("课程不存在，courseId=" + item.getCourseId());
             if (existed.getClassId() == null || !existed.getClassId().equals(request.getClassId())) {
                 throw new RuntimeException("课程不属于该班级：courseId=" + item.getCourseId() + "，classId=" + request.getClassId());
+            }
+
+            // 支持“无课/清空排课”：将该课程的 day_of_week/start_time/end_time 置空
+            if (Boolean.TRUE.equals(item.getClear())) {
+                courseMapper.updateCourseSchedule(item.getCourseId(), null, null, null);
+                continue;
             }
 
             Integer dow = item.getDayOfWeek();
@@ -843,6 +853,99 @@ public class AdminServiceImpl implements AdminService {
 
             courseMapper.updateCourseSchedule(item.getCourseId(), dow, ns, ne);
         }
+    }
+
+    @Override
+    @Transactional
+    public void batchUpdateCourseSchedule(CourseScheduleBatchUpdateRequest request) {
+        if (request == null) throw new RuntimeException("请求体不能为空");
+        if (request.getClassId() == null) throw new RuntimeException("classId不能为空");
+
+        Class c = classMapper.findById(request.getClassId());
+        if (c == null) throw new RuntimeException("班级不存在，classId=" + request.getClassId());
+
+        List<CourseScheduleBatchUpdateRequest.Item> items = request.getSchedules();
+        if (items == null || items.isEmpty()) {
+            courseScheduleMapper.deleteByClassId(request.getClassId());
+            return;
+        }
+
+        // 1) 校验：同一班级的 (dayOfWeek, periodIndex) 只能出现一次；并收集 courseIds
+        Set<String> slotKeys = new HashSet<>();
+        Set<Long> courseIds = new HashSet<>();
+        for (CourseScheduleBatchUpdateRequest.Item item : items) {
+            if (item == null) continue;
+            Integer dow = item.getDayOfWeek();
+            Integer pi = item.getPeriodIndex();
+            if (dow == null || dow < 1 || dow > 7) {
+                throw new RuntimeException("星期几(dayOfWeek)必须是1~7");
+            }
+            if (pi == null || pi < 1 || pi > 5) {
+                throw new RuntimeException("节次(periodIndex)必须是1~5");
+            }
+            String key = dow + ":" + pi;
+            if (!slotKeys.add(key)) {
+                throw new RuntimeException("课表网格重复：dayOfWeek=" + dow + "，periodIndex=" + pi);
+            }
+            if (item.getCourseId() != null) courseIds.add(item.getCourseId());
+        }
+
+        // 2) 批量校验 courseId 是否存在且属于该班级（允许同一课程出现多次）
+        Map<Long, Course> courseMap = new HashMap<>();
+        if (!courseIds.isEmpty()) {
+            List<Course> cs = courseMapper.selectCoursesByIds(new ArrayList<>(courseIds));
+            if (cs != null) {
+                for (Course cc : cs) {
+                    if (cc != null && cc.getId() != null) courseMap.put(cc.getId(), cc);
+                }
+            }
+            if (courseMap.size() != courseIds.size()) {
+                Set<Long> missing = new HashSet<>(courseIds);
+                missing.removeAll(courseMap.keySet());
+                throw new RuntimeException("课程不存在：" + missing);
+            }
+        }
+
+        // 3) 规范化时间并构造写入列表（courseId 允许为空 = 无课）
+        List<CourseScheduleSlot> rows = new ArrayList<>(items.size());
+        for (CourseScheduleBatchUpdateRequest.Item item : items) {
+            if (item == null) continue;
+
+            Integer dow = item.getDayOfWeek();
+            Integer pi = item.getPeriodIndex();
+
+            String ns = normalizeTimeString(item.getStartTime());
+            if (ns == null) {
+                throw new RuntimeException("开始时间不能为空：dayOfWeek=" + dow + "，periodIndex=" + pi);
+            }
+            LocalTime st = parseCourseTime(ns);
+
+            String ne = normalizeTimeString(item.getEndTime());
+            LocalTime et = ne == null ? null : parseCourseTime(ne);
+            if (et != null && et.isBefore(st)) {
+                throw new RuntimeException("结束时间不能早于开始时间：dayOfWeek=" + dow + "，periodIndex=" + pi);
+            }
+
+            Long courseId = item.getCourseId();
+            if (courseId != null) {
+                Course existed = courseMap.get(courseId);
+                if (existed.getClassId() == null || !existed.getClassId().equals(request.getClassId())) {
+                    throw new RuntimeException("课程不属于该班级：courseId=" + courseId + "，classId=" + request.getClassId());
+                }
+            }
+
+            CourseScheduleSlot row = new CourseScheduleSlot();
+            row.setClassId(request.getClassId());
+            row.setDayOfWeek(dow);
+            row.setPeriodIndex(pi);
+            row.setStartTime(ns);
+            row.setEndTime(ne);
+            row.setCourseId(courseId);
+            rows.add(row);
+        }
+
+        courseScheduleMapper.deleteByClassId(request.getClassId());
+        courseScheduleMapper.insertBatch(rows);
     }
 
     @Override

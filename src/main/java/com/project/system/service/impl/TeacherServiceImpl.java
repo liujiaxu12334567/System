@@ -38,6 +38,7 @@ public class TeacherServiceImpl implements TeacherService {
     @Autowired private ApplicationMapper applicationMapper;
     @Autowired private MaterialMapper materialMapper;
     @Autowired private CourseMapper courseMapper;
+    @Autowired private CourseScheduleMapper courseScheduleMapper;
     @Autowired private QuizRecordMapper quizRecordMapper;
     @Autowired private ExamMapper examMapper;
     @Autowired private NotificationMapper notificationMapper;
@@ -727,6 +728,41 @@ public class TeacherServiceImpl implements TeacherService {
 
     @Override
     public String startCheckIn(Long courseId) {
+        if (courseId == null) throw new RuntimeException("courseId不能为空");
+        Set<Long> myCourseIds = getMyCourses().stream().map(Course::getId).collect(Collectors.toSet());
+        if (!myCourseIds.contains(courseId)) throw new RuntimeException("无权操作该课程");
+
+        // 到点前不允许开启签到：与在线课堂保持一致的时间门禁（按 sys_course_schedule）
+        LocalDateTime now = LocalDateTime.now();
+        int today = now.getDayOfWeek().getValue();
+        String nowTimeStr = now.toLocalTime().format(COURSE_TIME_FORMATTER);
+        int inWindow = courseScheduleMapper.countActiveByCourseIdAndTime(courseId, today, nowTimeStr);
+        if (inWindow <= 0) {
+            List<CourseScheduleSlot> todaySlots = courseScheduleMapper.selectByCourseIdAndDay(courseId, today);
+            if (todaySlots == null || todaySlots.isEmpty()) {
+                throw new RuntimeException("今天没有该课程的排课记录，未到上课时间无法开始上课/开启签到");
+            }
+            LocalTime nowTime = now.toLocalTime();
+            CourseScheduleSlot next = null;
+            for (CourseScheduleSlot slot : todaySlots) {
+                if (slot == null) continue;
+                LocalTime st = parseCourseTime(slot.getStartTime());
+                if (st == null) continue;
+                if (st.isAfter(nowTime)) {
+                    next = slot;
+                    break;
+                }
+            }
+            if (next != null) {
+                long minutes = java.time.Duration.between(now.toLocalTime(), parseCourseTime(next.getStartTime())).toMinutes();
+                if (minutes >= 0 && minutes <= 15) {
+                    throw new RuntimeException("快到上课时间了：距离第" + next.getPeriodIndex() + "节还有" + minutes + "分钟（" + normalizeTimeString(next.getStartTime()) + "开始）");
+                }
+                throw new RuntimeException("未到上课时间，下一节为第" + next.getPeriodIndex() + "节，开始时间：" + normalizeTimeString(next.getStartTime()));
+            }
+            throw new RuntimeException("当前不在上课时间范围内，无法开始上课/开启签到");
+        }
+
         String batchId = UUID.randomUUID().toString();
         redisTemplate.opsForValue().set("course:checkin:active:" + courseId, batchId, 2, TimeUnit.HOURS);
         redisTemplate.delete("course:checkin:list:" + batchId);
@@ -1050,43 +1086,74 @@ public class TeacherServiceImpl implements TeacherService {
         if (!myCourseIds.contains(courseId)) throw new RuntimeException("无权操作该课程");
 
         String activeKey = "classroom:active:" + courseId;
+        LocalDateTime now = LocalDateTime.now();
+        int today = now.getDayOfWeek().getValue();
+        String nowTimeStr = now.toLocalTime().format(COURSE_TIME_FORMATTER);
+
+        // 若 Redis 残留了旧 active 标记（例如上次未正常下课），则仅在“当前确实处于上课时间窗”才视为有效
         boolean alreadyActive = Boolean.TRUE.equals(redisTemplate.hasKey(activeKey));
-        LocalDateTime existingStart = getSessionStart(courseId, false);
-        if (alreadyActive && existingStart != null) {
-            return Map.of("active", true, "sessionStart", existingStart.toString());
+        if (alreadyActive) {
+            int inWindow = courseScheduleMapper.countActiveByCourseIdAndTime(courseId, today, nowTimeStr);
+            if (inWindow > 0) {
+                LocalDateTime existingStart = getSessionStart(courseId, false);
+                if (existingStart != null) {
+                    return Map.of("active", true, "sessionStart", existingStart.toString());
+                }
+            }
+            // 不在时间窗内：认为是过期/残留标记，清理后继续走正常校验
+            redisTemplate.delete(activeKey);
         }
 
-        LocalDateTime now = LocalDateTime.now();
-
-        // 到点才能开课：按 sys_course.day_of_week/start_time/end_time 限制（周几 + 时间段）
+        // 到点才能开课：按 sys_course_schedule（周几 × 节次）匹配当前时间窗
         Course course = courseMapper.selectCourseById(courseId);
         if (course == null) throw new RuntimeException("课程不存在，courseId=" + courseId);
-        Integer dow = course.getDayOfWeek();
-        if (dow == null || dow < 1 || dow > 7) {
-            throw new RuntimeException("该课程未排课（星期几为空），无法开启在线课堂，请联系管理员在课程表中设置时间");
-        }
-        int today = now.getDayOfWeek().getValue();
-        if (today != dow) {
-            throw new RuntimeException("今天不是该课程的上课日，无法开启在线课堂");
+
+        List<CourseScheduleSlot> todaySlots = courseScheduleMapper.selectByCourseIdAndDay(courseId, today);
+        if (todaySlots == null || todaySlots.isEmpty()) {
+            throw new RuntimeException("今天没有该课程的排课记录，无法开启在线课堂（请联系管理员在课程表中设置）");
         }
 
-        LocalTime startAt = parseCourseTime(course.getStartTime());
-        if (startAt == null) {
-            throw new RuntimeException("该课程未排课（开始时间为空），无法开启在线课堂，请联系管理员在课程表中设置时间");
+        int active = courseScheduleMapper.countActiveByCourseIdAndTime(courseId, today, nowTimeStr);
+        if (active <= 0) {
+            LocalTime nowTime = now.toLocalTime();
+            CourseScheduleSlot next = null;
+            for (CourseScheduleSlot slot : todaySlots) {
+                if (slot == null) continue;
+                LocalTime st = parseCourseTime(slot.getStartTime());
+                if (st == null) continue;
+                if (st.isAfter(nowTime)) {
+                    next = slot;
+                    break;
+                }
+            }
+            if (next != null) {
+                long minutes = java.time.Duration.between(now.toLocalTime(), parseCourseTime(next.getStartTime())).toMinutes();
+                if (minutes >= 0 && minutes <= 15) {
+                    throw new RuntimeException("快到上课时间了：距离第" + next.getPeriodIndex() + "节还有" + minutes + "分钟（" + normalizeTimeString(next.getStartTime()) + "开始）");
+                }
+                throw new RuntimeException("未到上课时间，下一节为第" + next.getPeriodIndex() + "节，开始时间：" + normalizeTimeString(next.getStartTime()));
+            }
+            throw new RuntimeException("当前不在上课时间范围内，无法开启在线课堂");
         }
-        LocalTime endAt = parseCourseTime(course.getEndTime());
-        if (endAt != null && endAt.isBefore(startAt)) {
-            throw new RuntimeException("该课程排课时间不合法（结束时间早于开始时间），请联系管理员修改");
-        }
-
+        // 设置 activeKey 的 TTL：优先使用当前节次 end_time（+30分钟缓冲）；否则默认 6 小时，避免残留导致“未到点也能进/开课”
+        long ttlSeconds = 6 * 60 * 60;
         LocalTime nowTime = now.toLocalTime();
-        if (nowTime.isBefore(startAt)) {
-            throw new RuntimeException("未到上课时间，开始时间：" + normalizeTimeString(course.getStartTime()));
+        for (CourseScheduleSlot slot : todaySlots) {
+            if (slot == null) continue;
+            LocalTime st = parseCourseTime(slot.getStartTime());
+            if (st == null) continue;
+            LocalTime et = parseCourseTime(slot.getEndTime());
+            boolean hit = !nowTime.isBefore(st) && (et == null || !nowTime.isAfter(et));
+            if (!hit) continue;
+
+            if (et != null) {
+                LocalDateTime endAt = LocalDateTime.of(LocalDate.now(), et);
+                long seconds = java.time.Duration.between(now, endAt).getSeconds();
+                ttlSeconds = Math.max(10 * 60, seconds + 30 * 60);
+            }
+            break;
         }
-        if (endAt != null && nowTime.isAfter(endAt)) {
-            throw new RuntimeException("已过上课时间，结束时间：" + normalizeTimeString(course.getEndTime()));
-        }
-        redisTemplate.opsForValue().set(activeKey, "1");
+        redisTemplate.opsForValue().set(activeKey, "1", ttlSeconds, TimeUnit.SECONDS);
         setSessionStart(courseId, now);
         classroomEventBus.publish(new ClassroomEvent("start", courseId, null, Map.of("courseId", courseId, "sessionStart", now.toString())));
         return Map.of("active", true, "sessionStart", now.toString());
@@ -1115,13 +1182,85 @@ public class TeacherServiceImpl implements TeacherService {
             Map<String, Object> res = new HashMap<>();
             res.put("active", false);
             res.put("sessionStart", null);
+            res.put("canEnter", false);
+            res.put("canStart", false);
+            res.put("message", "courseId不能为空");
             return res;
         }
-        boolean active = Boolean.TRUE.equals(redisTemplate.hasKey("classroom:active:" + courseId));
+
+        Set<Long> myCourseIds = getMyCourses().stream().map(Course::getId).collect(Collectors.toSet());
+        if (!myCourseIds.contains(courseId)) throw new RuntimeException("无权操作该课程");
+
+        String activeKey = "classroom:active:" + courseId;
+        boolean active = Boolean.TRUE.equals(redisTemplate.hasKey(activeKey));
         LocalDateTime sessionStart = getSessionStart(courseId, false);
+        LocalDateTime now = LocalDateTime.now();
+        int today = now.getDayOfWeek().getValue();
+        String nowTimeStr = now.toLocalTime().format(COURSE_TIME_FORMATTER);
+
+        boolean canEnter = false;
+        boolean canStart = false;
+        String message = null;
+        Integer nextPeriodIndex = null;
+        String nextStartTime = null;
+
+        // 已开启的课堂：仅在“当前处于上课时间窗”才允许进入/继续；否则认为是残留 active，清理
+        if (active) {
+            int inWindow = courseScheduleMapper.countActiveByCourseIdAndTime(courseId, today, nowTimeStr);
+            if (inWindow > 0) {
+                canEnter = true;
+                canStart = true;
+            } else {
+                redisTemplate.delete(activeKey);
+                active = false;
+            }
+        }
+
+        if (!active) {
+            List<CourseScheduleSlot> todaySlots = courseScheduleMapper.selectByCourseIdAndDay(courseId, today);
+            if (todaySlots == null || todaySlots.isEmpty()) {
+                message = "今天没有该课程的排课记录，未到上课时间无法进入/开启在线课堂";
+            } else {
+                int inWindow = courseScheduleMapper.countActiveByCourseIdAndTime(courseId, today, nowTimeStr);
+                if (inWindow > 0) {
+                    canEnter = true;
+                    canStart = true;
+                } else {
+                    LocalTime nowTime = now.toLocalTime();
+                    CourseScheduleSlot next = null;
+                    for (CourseScheduleSlot slot : todaySlots) {
+                        if (slot == null) continue;
+                        LocalTime st = parseCourseTime(slot.getStartTime());
+                        if (st == null) continue;
+                        if (st.isAfter(nowTime)) {
+                            next = slot;
+                            break;
+                        }
+                    }
+                    if (next != null) {
+                        nextPeriodIndex = next.getPeriodIndex();
+                        nextStartTime = normalizeTimeString(next.getStartTime());
+                        long minutes = java.time.Duration.between(now.toLocalTime(), parseCourseTime(next.getStartTime())).toMinutes();
+                        if (minutes >= 0 && minutes <= 15) {
+                            message = "快到上课时间了：距离第" + nextPeriodIndex + "节还有" + minutes + "分钟（" + nextStartTime + "开始）";
+                        } else {
+                            message = "未到上课时间，下一节为第" + nextPeriodIndex + "节，开始时间：" + nextStartTime;
+                        }
+                    } else {
+                        message = "当前不在上课时间范围内，无法进入/开启在线课堂";
+                    }
+                }
+            }
+        }
+
         Map<String, Object> res = new HashMap<>();
         res.put("active", active);
         res.put("sessionStart", sessionStart == null ? null : sessionStart.toString());
+        res.put("canEnter", canEnter);
+        res.put("canStart", canStart);
+        res.put("message", message);
+        res.put("nextPeriodIndex", nextPeriodIndex);
+        res.put("nextStartTime", nextStartTime);
         return res;
     }
 

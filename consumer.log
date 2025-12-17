@@ -144,3 +144,4 @@
 [2025-12-15 00:02:47]     raise self._closed_result.value.error
 [2025-12-15 00:02:47] pika.exceptions.AMQPHeartbeatTimeout: No activity or too many missed heartbeats in the last 60 seconds
 [2025-12-15 00:02:47] Python脚本执行结束
+[2025-12-16 16:43:21] 开始执行Python脚本...

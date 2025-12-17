@@ -44,6 +44,15 @@ public class StudentController {
         return ResponseEntity.ok(studentService.getPersonalLearningCourses());
     }
 
+    @GetMapping("/course-schedule")
+    public ResponseEntity<?> getCourseSchedule() {
+        try {
+            return ResponseEntity.ok(studentService.getStudentCourseSchedule());
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
     // 3. 提交测验/作业
     @PostMapping(value = "/quiz/submit", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> submitQuiz(

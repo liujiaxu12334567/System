@@ -10,7 +10,7 @@
             <a @click="$router.push('/personal-learning')">个性学习</a>
             <a @click="$router.push('/my-exams')">考试</a>
             <a @click="$router.push('/student-quality')">素质活动</a>
-            <a href="#">毕业设计</a>
+            <a @click="$router.push('/course-schedule')">课程安排</a>
           </nav>
         </div>
         <div class="right-section">
@@ -73,13 +73,17 @@
             </div>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item @click="viewCourseSchedule">
+                  <el-icon><Calendar /></el-icon>
+                  查看课程表
+                </el-dropdown-item>
                 <el-dropdown-item @click="openPasswordDialog">
                   <el-icon><Setting /></el-icon>
                   修改密码
                 </el-dropdown-item>
                 <el-dropdown-item divided @click="logout">
                   <el-icon><SwitchButton /></el-icon>
-                  退出登录
+                   退出登录
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -205,7 +209,7 @@
                     {{ exam.title }}
                     <span class="course-badge">{{ exam.courseName }}</span>
                   </div>
-                  <div class="task-desc">截止时间：{{ exam.deadline || '无限制' }}</div>
+                  <div class="task-desc">截止时间：{{ exam.deadline || '无限期' }}</div>
                 </div>
               </div>
               <el-button type="primary" link round size="small" @click="goToExam(exam.examId)">
@@ -248,14 +252,14 @@
 
         <div v-if="currentNotification.isActionRequired" class="reply-area-dialog">
           <div v-if="currentNotification.userReply" class="replied-text-dialog">
-            <el-icon><Check /></el-icon> 您已填报信息：<strong>{{ currentNotification.userReply }}</strong>
+            <el-icon><Check /></el-icon> 您已填报信息 <strong>{{ currentNotification.userReply }}</strong>
           </div>
           <div v-else class="reply-input-box-dialog">
             <el-input
                 v-model="currentNotification.tempReply"
                 type="textarea"
                 :rows="4"
-                placeholder="请在此填写所需信息或回复..." />
+                placeholder="请在此填写所需信息或回复.." />
             <el-button
                 type="primary"
                 style="margin-top: 10px;"
@@ -300,9 +304,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive, computed } from 'vue'
+import { ref, onMounted, reactive, computed, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
-import { Bell, MagicStick, Platform, ArrowRight, Box, Document, Tickets, ArrowDown, Setting, SwitchButton, Check, ChatDotRound } from '@element-plus/icons-vue'
+import { Bell, MagicStick, Platform, ArrowRight, Box, Document, Tickets, ArrowDown, Setting, SwitchButton, Check, ChatDotRound, Calendar } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 
@@ -320,7 +324,7 @@ const courseList = ref([])
 const notificationList = ref([])
 const pendingTasks = ref([])
 const myExams = ref([])
-const enteringClassroom = ref(null) // 控制进入课堂的 loading
+const enteringClassroom = ref(null) // 控制进入课堂 loading
 
 // 通知详情状态
 const detailDialogVisible = ref(false)
@@ -341,7 +345,7 @@ const validatePass = (rule, value, callback) => {
   if (value === '') {
     callback(new Error('请再次输入新密码'))
   } else if (value !== passwordForm.newPassword) {
-    callback(new Error('两次输入密码不一致!'))
+    callback(new Error('两次输入密码不一至'))
   } else {
     callback()
   }
@@ -381,6 +385,7 @@ const fetchHomeData = async () => {
 
     // 2. 获取通知列表 (用于铃铛)
     await fetchNotifications()
+    if (!notificationTimer) notificationTimer = setInterval(fetchNotifications, 60 * 1000)
 
     // 3. 获取待办任务 (用于底部列表)
     const tasksRes = await request.get('/student/pending-tasks')
@@ -411,12 +416,18 @@ const fetchNotifications = async () => {
     notificationList.value = (res || []).map(n => ({
       ...n,
       tempReply: '', // 用于 v-model 绑定用户的临时输入
-      submitting: false // 用于控制提交按钮的 loading 状态
+      submitting: false // 用于控制提交按钮 loading 状态
     }))
   } catch(e) {
     console.error("获取通知失败", e)
   }
 }
+
+// 让“上课前15分钟提醒”更及时：每分钟拉取一次通知（低频轮询）
+let notificationTimer = null
+onBeforeUnmount(() => {
+  if (notificationTimer) clearInterval(notificationTimer)
+})
 
 const openDetailDialog = async (note) => {
   // Deep clone the note for binding to the dialog
@@ -429,7 +440,7 @@ const openDetailDialog = async (note) => {
   // 如果未读，调用后端接口标记为已读
   if (!note.isRead) {
     try {
-      // 1. 更新本地状态 (立即响应)
+      // 1. 更新本地状态(立即响应)
       note.isRead = true;
       // 2. 调用后端接口持久化
       await request.post(`/student/notification/read/${note.id}`);
@@ -515,8 +526,11 @@ const submitPasswordChange = () => {
 const goToCourse = (courseId) => {
   router.push(`/course-study/${courseId}`)
 }
+const viewCourseSchedule = () => {
+  router.push('/course-schedule')
+}
 
-// 【关键修改】进入课堂前的状态检查
+// 【关键修改】进入课堂前的状态检测
 const parseActive = (res) => Boolean(res?.active ?? res?.isActive)
 
 // 课堂激活探测：先走学生接口，失败或未激活则兜底教师接口
@@ -843,3 +857,4 @@ $content-width: 90%;
   background: #f0f2f5; color: #909399; font-size: 11px; padding: 1px 5px; border-radius: 4px; margin-left: 8px; font-weight: normal;
 }
 </style>
+

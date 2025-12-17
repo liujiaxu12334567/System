@@ -611,6 +611,7 @@ const unreadCount = computed(() => notificationList.value.filter(n => !n.isRead)
 const myCourseList = ref([])
 const checkInStatus = reactive({})
 let statusTimer = null
+let notificationTimer = null
 const isCourseActive = (courseId) => Boolean(checkInStatus[courseId]?.isActive ?? checkInStatus[courseId]?.active)
 
 // 在线问答
@@ -673,6 +674,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeCharts)
   charts.forEach(c => c.dispose())
   if(statusTimer) clearInterval(statusTimer)
+  if(notificationTimer) clearInterval(notificationTimer)
 })
 
 const handleSelect = (idx) => {
@@ -708,6 +710,7 @@ const fetchMyCourses = async () => {
 
     // 启动轮询
     if(!statusTimer) statusTimer = setInterval(refreshAllStatus, 3000)
+    if(!notificationTimer) notificationTimer = setInterval(fetchNotifications, 60 * 1000)
   } catch(e){
     console.error("获取课程失败", e);
   }
@@ -715,13 +718,25 @@ const fetchMyCourses = async () => {
 
 const startClass = async (courseId) => {
   try {
+    // 到点前不允许“开始上课/开启签到”（与在线课堂保持一致的时间门禁）
+    try {
+      const status = await request.get(`/teacher/classroom/${courseId}/status`)
+      if (!status?.canStart) {
+        ElMessage.warning(status?.message || '未到上课时间，无法开始上课')
+        return
+      }
+    } catch (e) {
+      ElMessage.error(e?.response?.data || e?.message || '无法获取上课时间校验结果')
+      return
+    }
+
     await request.post('/teacher/checkin/start', { courseId })
     ElMessage.success('上课开始！签到已开启')
     refreshStatus(courseId)
     await sendClassStartNotification(courseId)
     // 可能影响“出勤/课堂趋势”等指标，主动刷新仪表盘数据
     fetchDashboardData()
-  } catch(e){ ElMessage.error('开启失败') }
+  } catch(e){ ElMessage.error(e?.response?.data || e?.message || '开启失败') }
 }
 
 const stopClass = async (courseId) => {
@@ -763,8 +778,17 @@ const sendClassStartNotification = async (courseId) => {
   }
 }
 
-const openClassroom = (courseId) => {
-  router.push({ path: `/teacher/classroom/${courseId}` })
+const openClassroom = async (courseId) => {
+  try {
+    const status = await request.get(`/teacher/classroom/${courseId}/status`)
+    if (status?.canEnter) {
+      router.push({ path: `/teacher/classroom/${courseId}` })
+      return
+    }
+    ElMessage.warning(status?.message || '未到上课时间，无法进入在线课堂')
+  } catch (e) {
+    ElMessage.error(e?.response?.data || e?.message || '无法获取课堂状态')
+  }
 }
 
 // --- 在线问答 ---

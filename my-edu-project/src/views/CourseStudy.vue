@@ -420,6 +420,16 @@
         <span>学习互动</span>
       </div>
     </div>
+
+    <el-dialog v-model="aiDialogVisible" title="AI 解析" width="700px" destroy-on-close>
+      <div style="min-height: 160px; white-space: pre-wrap; line-height: 1.6;">
+        <el-skeleton :rows="4" animated v-if="aiLoading" />
+        <div v-else>{{ aiResult || '暂无解析结果' }}</div>
+      </div>
+      <template #footer>
+        <el-button @click="aiDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -427,7 +437,8 @@
 import { ref, onMounted, computed, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import request from '@/utils/request'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { streamAiChat } from '@/utils/aiStream'
 import * as echarts from 'echarts'
 import {
   ArrowLeft, Document, Bell, Search, Download, View, Location,
@@ -451,6 +462,9 @@ const baseTabs = ['导学', '教材', '教学目标', '知识图谱', '目录', 
 const isPersonalLearning = computed(() => String(route.query.mode || '') === 'personal')
 const tabs = computed(() => (isPersonalLearning.value ? baseTabs.filter(t => !['测验', '考试'].includes(t)) : baseTabs))
 const searchKeyword = ref('')
+const aiDialogVisible = ref(false)
+const aiLoading = ref(false)
+const aiResult = ref('')
 
 // 图谱/目录数据
 const chartRef = ref(null); let myChart = null;
@@ -480,12 +494,14 @@ onMounted(() => {
   checkTimer = setInterval(checkStatus, 5000);
 
   window.addEventListener('resize', resizeChart)
+  document.addEventListener('mouseup', handleTextSelection)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeChart);
   if (myChart) myChart.dispose();
   if (checkTimer) clearInterval(checkTimer);
+  document.removeEventListener('mouseup', handleTextSelection)
 })
 
 // === 签到逻辑 (修复) ===
@@ -546,6 +562,65 @@ const fetchMaterials = async () => {
     }
   } catch(e) { console.error(e) }
   finally { loading.value = false }
+}
+
+const streamPrompt = async (prompt) => {
+  aiDialogVisible.value = true
+  aiLoading.value = true
+  aiResult.value = ''
+  try {
+    await streamAiChat({ message: prompt, history: [] }, chunk => {
+      aiResult.value += chunk
+    })
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+const runSelectionAiQuery = async (text) => {
+  if (!text) return
+  aiDialogVisible.value = true
+  aiLoading.value = true
+  aiResult.value = ''
+
+  try {
+    const prompt = [
+      '请作为学习专家，围绕下列选中文本提供学习建议、重点提醒和疑难解析：',
+      text
+    ].join('\n\n')
+    await streamPrompt(prompt)
+  } catch (error) {
+    aiResult.value = 'AI 查询失败，请稍后重试'
+    ElMessage.error('AI 查询失败，请稍后再试')
+  }
+}
+
+let selectionPrompting = false
+const handleTextSelection = () => {
+  if (selectionPrompting) return
+  const selection = window.getSelection()
+  if (!selection) return
+  const text = selection.toString().trim()
+  if (!text || text.length < 3) return
+
+  const snippet = text.length > 200 ? `${text.slice(0, 200)}...` : text
+  selectionPrompting = true
+  ElMessageBox.confirm(
+    `是否使用 AI 查询以下选中文本？\n\n${snippet}`,
+    'AI 查询提示',
+    {
+      confirmButtonText: '是',
+      cancelButtonText: '否',
+      type: 'info',
+      closeOnClickModal: true
+    }
+  )
+    .then(() => runSelectionAiQuery(text))
+    .catch(() => {})
+    .finally(() => {
+      selectionPrompting = false
+      window.getSelection()?.removeAllRanges()
+    })
 }
 
 const handleTabChange = (tab) => {

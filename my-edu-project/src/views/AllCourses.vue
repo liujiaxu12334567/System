@@ -1,75 +1,6 @@
 <template>
   <div class="all-courses-container">
-    <header class="neu-header">
-      <div class="header-inner">
-        <div class="left-section">
-          <h1 class="logo">Neuedu</h1>
-          <nav class="nav-links">
-            <a @click="$router.push('/home')">首页</a>
-            <a href="#" class="active">课程学习</a>
-            <a @click="$router.push('/personal-learning')">个性学习</a>
-            <a @click="$router.push('/my-exams')">考试</a>
-            <a href="#">素质活动</a>
-            <a href="#">毕业设计</a>
-          </nav>
-        </div>
-        <div class="right-section">
-          <el-button
-              type="primary"
-              round
-              class="ai-btn"
-              @click="$router.push('/neu-ai')"
-          >
-            <el-icon style="margin-right: 4px"><MagicStick /></el-icon> NEU AI
-          </el-button>
-          <el-popover
-              placement="bottom"
-              :width="300"
-              trigger="click"
-              popper-class="notification-popover"
-          >
-            <template #reference>
-              <div class="icon-wrap">
-                <el-badge :value="unreadCount" :hidden="unreadCount === 0" class="badge-dot">
-                  <el-icon :size="20" color="#606266"><Bell /></el-icon>
-                </el-badge>
-              </div>
-            </template>
-
-            <div class="notify-box">
-              <div class="notify-header">
-                <span>消息通知 ({{ notificationList.length }})</span>
-                <el-button link type="primary" size="small" @click="fetchNotifications">刷新</el-button>
-              </div>
-              <div class="notify-list" v-if="notificationList.length > 0">
-                <div
-                    v-for="(note, index) in notificationList"
-                    :key="index"
-                    class="notify-item"
-                    :class="{'unread': !note.isRead, 'required': note.isActionRequired && !note.userReply}"
-                    @click="openDetailDialog(note)">
-                  <div class="n-title">
-                    {{ note.title }}
-                    <el-tag v-if="note.isActionRequired" size="small" :type="note.userReply ? 'success' : 'warning'" effect="dark">
-                      {{ note.userReply ? '已填报' : '需填报' }}
-                    </el-tag>
-                    <el-icon v-if="!note.isRead" color="#409EFF"><ChatDotRound /></el-icon>
-                  </div>
-                  <div class="n-desc">{{ note.message }}</div>
-                  <div class="n-time">{{ formatTime(note.createTime) }}</div>
-                </div>
-              </div>
-              <div v-else class="notify-empty">暂无新通知</div>
-            </div>
-          </el-popover>
-          <div class="user-info">
-            <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
-            <span class="username">{{ userInfo.realName || '同学' }}</span>
-            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-          </div>
-        </div>
-      </div>
-    </header>
+    <StudentHeader />
 
     <main class="main-content">
       <div class="page-title">课堂学习</div>
@@ -139,82 +70,23 @@
         </div>
       </div>
 
-      <el-empty v-if="filteredCourses.length === 0 && !loading" description="未找到符合条件的课程" />
+    <el-empty v-if="filteredCourses.length === 0 && !loading" description="未找到符合条件的课程" />
 
     </main>
-
-    <el-dialog
-        v-model="detailDialogVisible"
-        :title="currentNotification.title"
-        width="500px"
-        destroy-on-close
-    >
-      <div class="detail-content">
-        <el-alert type="info" :closable="false" style="margin-bottom: 15px;">
-          <template #title>
-            <strong>通知详情</strong>
-          </template>
-          <p>{{ currentNotification.message }}</p>
-        </el-alert>
-
-        <div class="detail-meta">
-          <p><strong>发送者：</strong> {{ currentNotification.senderName || '系统/管理员' }}</p>
-          <p><strong>发送时间：</strong> {{ currentNotification.createTime ? formatFullTime(currentNotification.createTime) : '未知' }}</p>
-        </div>
-
-        <el-divider v-if="currentNotification.isActionRequired">回执要求</el-divider>
-
-        <div v-if="currentNotification.isActionRequired" class="reply-area-dialog">
-          <div v-if="currentNotification.userReply" class="replied-text-dialog">
-            <el-icon><Check /></el-icon> 您已填报信息：<strong>{{ currentNotification.userReply }}</strong>
-          </div>
-          <div v-else class="reply-input-box-dialog">
-            <el-input
-                v-model="currentNotification.tempReply"
-                type="textarea"
-                :rows="4"
-                placeholder="请在此填写所需信息或回复..." />
-            <el-button
-                type="primary"
-                style="margin-top: 10px;"
-                @click="submitReply(currentNotification)"
-                :loading="currentNotification.submitting"
-            >
-              提交回执
-            </el-button>
-          </div>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="detailDialogVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, reactive } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
-import { ElMessage } from 'element-plus'
-import { ArrowDown, Bell, MagicStick, Platform, Plus, Search, CloseBold, ChatDotRound, Check } from '@element-plus/icons-vue'
-
-import dayjs from 'dayjs'
-import relativeTime from 'dayjs/plugin/relativeTime'
-import 'dayjs/locale/zh-cn'
-dayjs.extend(relativeTime)
-dayjs.locale('zh-cn')
+import { Plus, Search, CloseBold } from '@element-plus/icons-vue'
+import StudentHeader from '@/components/StudentHeader.vue'
 
 const router = useRouter()
 const userInfo = ref({ realName: '' })
 const loading = ref(true)
 const courseList = ref([])
-const notificationList = ref([]) // ★★★ 修复：添加通知列表状态
-const unreadCount = computed(() => notificationList.value.filter(n => !n.isRead).length); // ★★★ 修复：添加未读计数
-
-// ★★★ 修复：通知详情相关状态 ★★★
-const detailDialogVisible = ref(false)
-const currentNotification = ref({})
 
 // 筛选状态
 const keyword = ref('')
@@ -227,7 +99,6 @@ onMounted(() => {
     try { userInfo.value = JSON.parse(storedUser) } catch(e) {}
   }
   fetchCourses()
-  fetchNotifications() // ★★★ 修复：加载页面时获取通知
 })
 
 const fetchCourses = async () => {
@@ -240,74 +111,6 @@ const fetchCourses = async () => {
   } finally {
     loading.value = false
   }
-}
-
-// ★★★ 修复：添加通知获取逻辑 ★★★
-const fetchNotifications = async () => {
-  try {
-    const res = await request.get('/student/notifications')
-    notificationList.value = (res || []).map(n => ({
-      ...n,
-      tempReply: '',
-      submitting: false
-    }))
-  } catch(e) {
-    console.error("获取通知失败", e)
-  }
-}
-
-// ★★★ 修复：添加打开详情对话框逻辑 ★★★
-const openDetailDialog = async (note) => {
-  currentNotification.value = { ...note };
-  currentNotification.value.tempReply = currentNotification.value.tempReply || '';
-
-  detailDialogVisible.value = true;
-
-  if (!note.isRead) {
-    try {
-      note.isRead = true;
-      await request.post(`/student/notification/read/${note.id}`);
-    } catch (e) {
-      console.error("标记已读失败", e);
-    }
-  }
-};
-
-// ★★★ 修复：添加提交回执逻辑 ★★★
-const submitReply = async (note) => {
-  const targetNote = notificationList.value.find(n => n.id === note.id) || note;
-
-  if (!note.tempReply || targetNote.submitting) return ElMessage.warning('请填写回复内容');
-
-  targetNote.submitting = true;
-
-  try {
-    const payload = {
-      id: targetNote.id,
-      reply: note.tempReply
-    };
-    await request.post('/student/notification/reply', payload);
-
-    ElMessage.success('回执提交成功');
-    targetNote.userReply = note.tempReply;
-    targetNote.isRead = true;
-    currentNotification.value.userReply = note.tempReply;
-
-  } catch (e) {
-    ElMessage.error(e.response?.data || '提交失败');
-  } finally {
-    targetNote.submitting = false;
-  }
-}
-
-const formatTime = (timeString) => {
-  if (!timeString) return ''
-  return dayjs(timeString).fromNow()
-}
-
-const formatFullTime = (timeString) => {
-  if (!timeString) return ''
-  return dayjs(timeString).format('YYYY-MM-DD HH:mm:ss')
 }
 
 const resetFilters = () => {

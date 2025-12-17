@@ -137,6 +137,16 @@
         ORDER BY id DESC
     </select>
 
+    <select id="selectCoursesStartingBetween" resultMap="CourseResultMap">
+        SELECT c.* FROM sys_course c
+        WHERE c.day_of_week = #{dayOfWeek}
+          AND c.start_time IS NOT NULL
+          AND c.start_time &gt;= #{fromTime}
+          AND c.start_time &lt; #{toTime}
+          AND c.class_id IS NOT NULL
+        ORDER BY c.start_time ASC, c.id ASC
+    </select>
+
     <select id="selectCoursesByIds" resultMap="CourseResultMap">
         SELECT c.* FROM sys_course c
         WHERE c.id IN
