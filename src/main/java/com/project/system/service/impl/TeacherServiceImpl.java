@@ -15,6 +15,7 @@ import com.project.system.service.TeacherService;
 import com.project.system.service.support.ClassroomChatStore;
 import com.project.system.websocket.ClassroomEvent;
 import com.project.system.websocket.ClassroomEventBus;
+import com.project.system.websocket.ClassroomOnlineUserStore;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -53,6 +54,7 @@ public class TeacherServiceImpl implements TeacherService {
     @Autowired private OnlineQuestionMapper onlineQuestionMapper;
     @Autowired private OnlineAnswerMapper onlineAnswerMapper;
     @Autowired private ClassroomEventBus classroomEventBus;
+    @Autowired private ClassroomOnlineUserStore onlineUserStore;
     @Autowired private com.project.system.mapper.AttendanceRecordMapper attendanceRecordMapper;
     @Autowired private ClassroomChatStore classroomChatStore;
     @Autowired private AnalysisResultMapper analysisResultMapper;
@@ -722,6 +724,18 @@ public class TeacherServiceImpl implements TeacherService {
     }
 
     @Override
+    public void markNotificationAsRead(Long id) {
+        if (id == null) throw new RuntimeException("通知ID不能为空");
+        User me = getCurrentTeacher();
+        Notification n = notificationMapper.selectById(id);
+        if (n == null) throw new RuntimeException("通知不存在");
+        if (n.getUserId() == null || me == null || me.getUserId() == null || !me.getUserId().equals(n.getUserId())) {
+            throw new RuntimeException("无权操作该通知");
+        }
+        notificationMapper.updateReadStatus(id);
+    }
+
+    @Override
     public void replyNotification(Long notificationId, String content) {
         notificationMapper.updateReply(notificationId, content);
     }
@@ -1041,6 +1055,7 @@ public class TeacherServiceImpl implements TeacherService {
     public void callAnswer(Long answerId) {
         OnlineAnswer answer = onlineAnswerMapper.selectById(answerId);
         if (answer == null) return;
+        OnlineQuestion q = onlineQuestionMapper.selectById(answer.getQuestionId());
         OnlineAnswer enriched = enrichAnswer(answer);
         Map<String, Object> json = buildAnswerJson(
                 enriched.getType() == null ? "answer" : enriched.getType(),
@@ -1051,7 +1066,11 @@ public class TeacherServiceImpl implements TeacherService {
             String text = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(json);
             onlineAnswerMapper.updateAnswerTextById(answerId, text);
         } catch (Exception ignored) {}
-        classroomEventBus.publish(new ClassroomEvent("call", answer.getQuestionId(), answer.getQuestionId(), Map.of("answerId", answerId)));
+        classroomEventBus.publish(new ClassroomEvent(
+                "call",
+                q == null ? null : q.getCourseId(),
+                answer.getQuestionId(),
+                Map.of("answerId", answerId, "studentId", answer.getStudentId())));
     }
 
     @Override
@@ -1261,6 +1280,62 @@ public class TeacherServiceImpl implements TeacherService {
         res.put("message", message);
         res.put("nextPeriodIndex", nextPeriodIndex);
         res.put("nextStartTime", nextStartTime);
+        return res;
+    }
+
+    @Override
+    public Map<String, Object> getClassroomParticipants(Long courseId) {
+        if (courseId == null) throw new RuntimeException("courseId 不能为空");
+        List<Course> myCourses = getMyCourses();
+        Set<Long> myCourseIds = myCourses.stream().map(Course::getId).filter(Objects::nonNull).collect(Collectors.toSet());
+        if (!myCourseIds.contains(courseId)) throw new RuntimeException("无权访问该课程");
+
+        List<Long> classIds = new ArrayList<>(getCourseClassMap(Collections.singletonList(courseId))
+                .getOrDefault(courseId, Collections.emptyList()));
+        if (classIds.isEmpty()) {
+            Course course = myCourses.stream().filter(c -> courseId.equals(c.getId())).findFirst().orElse(null);
+            if (course != null && course.getResponsibleClassIds() != null && !course.getResponsibleClassIds().trim().isEmpty()) {
+                for (String s : course.getResponsibleClassIds().split(",")) {
+                    s = s.trim();
+                    if (s.isEmpty()) continue;
+                    try { classIds.add(Long.parseLong(s)); } catch (NumberFormatException ignored) {}
+                }
+            } else if (course != null && course.getClassId() != null) {
+                classIds.add(course.getClassId());
+            }
+        }
+
+        List<User> students = classIds.isEmpty() ? Collections.emptyList() : userMapper.selectStudentsByClassIds(classIds);
+        Set<Long> onlineUserIds = onlineUserStore.getOnlineUserIds(courseId);
+
+        List<Map<String, Object>> online = new ArrayList<>();
+        List<Map<String, Object>> offline = new ArrayList<>();
+
+        for (User u : students) {
+            if (u == null || u.getUserId() == null) continue;
+            boolean isOnline = onlineUserIds.contains(u.getUserId());
+            Map<String, Object> item = new HashMap<>();
+            item.put("userId", u.getUserId());
+            item.put("username", u.getUsername());
+            item.put("realName", u.getRealName());
+            item.put("classId", u.getClassId());
+            item.put("online", isOnline);
+            if (isOnline) online.add(item);
+            else offline.add(item);
+        }
+
+        Comparator<Map<String, Object>> byUsername = Comparator.comparing(
+                m -> String.valueOf(m.getOrDefault("username", "")),
+                Comparator.nullsLast(String::compareTo));
+        online.sort(byUsername);
+        offline.sort(byUsername);
+
+        Map<String, Object> res = new HashMap<>();
+        res.put("total", online.size() + offline.size());
+        res.put("onlineCount", online.size());
+        res.put("offlineCount", offline.size());
+        res.put("onlineStudents", online);
+        res.put("offlineStudents", offline);
         return res;
     }
 

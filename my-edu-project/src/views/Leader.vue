@@ -353,7 +353,7 @@
           <el-table-column label="生成时间" width="170">
             <template #default="scope">{{ formatTs(scope.row.generatedAt) }}</template>
           </el-table-column>
-          <el-table-column label="分析JSON" min-width="320" show-overflow-tooltip>
+          <el-table-column label="分析摘要" min-width="320" show-overflow-tooltip>
             <template #default="scope">
               <span v-if="scope.row.valueJson">{{ previewJson(scope.row.valueJson) }}</span>
               <span v-else class="text-gray">暂无</span>
@@ -432,6 +432,11 @@
 
       <el-dialog v-model="notificationDialogVisible" title="发送通知" width="500px">
         <el-form label-width="80px">
+          <el-form-item label="接收人">
+            <el-tag type="info" effect="plain">
+              {{ notificationTarget ? (notificationTarget.realName || notificationTarget.username) : '全体教师' }}
+            </el-tag>
+          </el-form-item>
           <el-form-item label="标题"><el-input v-model="notificationForm.title" /></el-form-item>
           <el-form-item label="内容"><el-input type="textarea" v-model="notificationForm.content" :rows="4" /></el-form-item>
         </el-form>
@@ -872,8 +877,54 @@ const goToTeacherPage = () => router.push('/teacher')
   const formatTs = (t) => (t ? dayjs(t).format('YYYY-MM-DD HH:mm') : '—')
   const previewJson = (s) => {
     if (!s) return '—'
-    const text = typeof s === 'string' ? s : JSON.stringify(s)
-    return text.length > 140 ? text.slice(0, 140) + '…' : text
+
+    const rawText = typeof s === 'string' ? s : JSON.stringify(s)
+    const truncate = (text) => (text.length > 140 ? text.slice(0, 140) + '…' : text)
+
+    const buildSummary = (obj) => {
+      if (!obj || typeof obj !== 'object') return null
+
+      if (Array.isArray(obj.students)) {
+        const total = obj.students.length
+        const scores = obj.students
+            .map(o => Number(o?.score))
+            .filter(n => Number.isFinite(n))
+        const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length) : null
+        const below60 = scores.filter(n => n < 60).length
+        const avgText = avg == null ? '' : `，均分${avg.toFixed(1)}`
+        const failText = scores.length ? `，不及格${below60}人` : ''
+        return `学生${total}人${avgText}${failText}`
+      }
+
+      const latest = obj.latest
+      if (latest && typeof latest === 'object') {
+        const dateText = latest.date ? `${latest.date}：` : ''
+        if (latest.rate != null) {
+          const rate = Number(latest.rate)
+          const present = latest.present ?? latest.presentCount
+          const expected = latest.expected ?? latest.expectedCount
+          const fraction = (present != null && expected != null) ? `${present}/${expected}` : ''
+          const percent = Number.isFinite(rate) ? `${(rate * 100).toFixed(1)}%` : ''
+          const suffix = [fraction, percent ? `(${percent})` : ''].filter(Boolean).join(' ')
+          return `${dateText}出勤${suffix ? ` ${suffix}` : ''}`.trim()
+        }
+        if (latest.score != null) {
+          const score = Number(latest.score)
+          return `${dateText}得分${Number.isFinite(score) ? score.toFixed(1) : String(latest.score)}`
+        }
+      }
+
+      if (obj.metric) return `指标：${obj.metric}`
+      return null
+    }
+
+    try {
+      const parsed = typeof s === 'string' ? JSON.parse(s) : s
+      const summary = buildSummary(parsed)
+      return summary ? truncate(summary) : truncate(rawText)
+    } catch (e) {
+      return truncate(rawText)
+    }
   }
   const openTeacherAnalysisDetail = (row) => {
     currentTeacherAnalysis.value = row
@@ -1044,7 +1095,18 @@ const openNotificationDialog = (t) => {
 }
 
 const submitNotification = async () => {
-  await request.post('/leader/notification/send',{title:notificationForm.title,content:notificationForm.content,targets:notificationTarget.value?[notificationTarget.value.username]:null});
+  const title = (notificationForm.title || '').trim()
+  const content = (notificationForm.content || '').trim()
+  if (!title) return ElMessage.warning('请填写通知标题')
+  if (!content) return ElMessage.warning('请填写通知内容')
+
+  await request.post('/leader/notification/send', {
+    title,
+    content,
+    targets: notificationTarget.value ? [notificationTarget.value.username] : null
+  })
+
+  ElMessage.success(notificationTarget.value ? '消息已发送' : '通知已下发给全体教师')
   notificationDialogVisible.value=false
 }
 

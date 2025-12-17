@@ -52,14 +52,19 @@
           <div class="action-area">
             <div class="btn-group">
               <el-button type="primary" class="action-btn" @click="handRaise" :disabled="!canHand">
-                <el-icon><Pointer /></el-icon> 举手
+                <el-icon><Pointer /></el-icon> {{ currentQuestion?.mode === 'race' ? '举手抢答' : '举手' }}
               </el-button>
-              <el-button type="warning" class="action-btn" @click="raceAnswer" :disabled="!canRace">
+              <el-button v-if="currentQuestion?.mode !== 'race'" type="warning" class="action-btn" @click="raceAnswer" :disabled="!canRace">
                 <el-icon><Timer /></el-icon> 抢答
               </el-button>
               <el-button type="success" class="action-btn" @click="openAnswerDialog" :disabled="!canAnswer">
                 <el-icon><EditPen /></el-icon> 回答
               </el-button>
+            </div>
+            <div v-if="needApproval" style="margin-top: 8px; color:#909399; font-size:12px;">
+              <span v-if="!myQueueEntry">请先{{ currentQuestion?.mode === 'race' ? '举手抢答/抢答' : '举手' }}，等待老师同意后再答题</span>
+              <span v-else-if="myQueueEntry.state !== 'called'">已{{ myQueueEntry.type === 'race' ? '抢答' : '举手' }}，等待老师同意...</span>
+              <span v-else style="color:#67C23A;">老师已同意，可以答题</span>
             </div>
           </div>
           <div class="feed-list">
@@ -184,9 +189,22 @@ const chats = ref([])
 const chatInput = ref('')
 const chatScrollRef = ref(null)
 const wsStatus = ref(false)
-const canHand = computed(() => currentQuestion.value && currentQuestion.value.mode === 'hand')
-const canRace = computed(() => currentQuestion.value && currentQuestion.value.mode === 'race')
-const canAnswer = computed(() => Boolean(currentQuestion.value))
+const myUserId = computed(() => userInfo?.id ?? userInfo?.userId ?? userInfo?.user_id)
+const needApproval = computed(() => ['hand', 'race'].includes(currentQuestion.value?.mode))
+const myQueueEntry = computed(() => {
+  if (!currentQuestion.value) return null
+  const uid = myUserId.value
+  if (!uid) return null
+  const mine = (answers.value || []).filter(a => a?.studentId == uid && (a?.type === 'hand' || a?.type === 'race'))
+  return mine.length ? mine[mine.length - 1] : null
+})
+const canHand = computed(() => ['hand', 'race'].includes(currentQuestion.value?.mode) && !myQueueEntry.value)
+const canRace = computed(() => currentQuestion.value?.mode === 'race' && !myQueueEntry.value)
+const canAnswer = computed(() => {
+  if (!currentQuestion.value) return false
+  if (!needApproval.value) return true
+  return myQueueEntry.value?.state === 'called'
+})
 
 let timer = null
 let ws = null
@@ -306,13 +324,20 @@ const sendChat = async () => {
 // === Interaction Actions ===
 const handRaise = async () => {
   if (!currentQuestion.value) return
-  await request.post(`/student/classroom/question/${currentQuestion.value.id}/hand`)
-  ElMessage.success('已举手')
+  if (myQueueEntry.value) return ElMessage.info('已提交，请等待老师同意')
+  if (currentQuestion.value.mode === 'race') {
+    await request.post(`/student/classroom/question/${currentQuestion.value.id}/race`)
+    ElMessage.success('已举手抢答')
+  } else {
+    await request.post(`/student/classroom/question/${currentQuestion.value.id}/hand`)
+    ElMessage.success('已举手')
+  }
   await loadAnswers()
 }
 
 const raceAnswer = async () => {
   if (!currentQuestion.value) return
+  if (myQueueEntry.value) return ElMessage.info('已提交，请等待老师同意')
   await request.post(`/student/classroom/question/${currentQuestion.value.id}/race`)
   ElMessage.success('抢答已提交')
   await loadAnswers()
@@ -320,6 +345,7 @@ const raceAnswer = async () => {
 
 const openAnswerDialog = () => {
   if (!currentQuestion.value) return
+  if (!canAnswer.value) return ElMessage.warning('请先举手/抢答，等待老师同意后再答题')
   answerDialogVisible.value = true
 }
 
@@ -355,7 +381,8 @@ const startPolling = () => {
 
 const connectWs = () => {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const url = `${protocol}://${window.location.host}/ws/classroom?courseId=${courseId}`
+  const token = localStorage.getItem('token') || ''
+  const url = `${protocol}://${window.location.host}/ws/classroom?courseId=${courseId}&token=${encodeURIComponent(token)}`
   ws = new WebSocket(url)
 
   ws.onopen = () => { wsStatus.value = true }

@@ -305,21 +305,65 @@ public class LeaderServiceImpl implements LeaderService {
 
     @Override
     public void sendNotification(String title, String content, List<String> targetUsernames) {
+        User leader = getCurrentLeader();
+        if (leader == null) throw new RuntimeException("未登录或无权限");
+
+        String t = title == null ? "" : title.trim();
+        String c = content == null ? "" : content.trim();
+        if (t.isEmpty() || c.isEmpty()) throw new RuntimeException("通知标题和内容不能为空");
+
+        // 收件人范围：仅允许发送给本组长负责课程组内的教师（按 sys_course_group.leader_id -> sys_course.group_id -> teacher_id）
+        List<CourseGroup> managedGroups = courseGroupMapper.selectByLeaderId(leader.getUserId());
+        if (managedGroups == null || managedGroups.isEmpty()) {
+            throw new RuntimeException("当前账号未绑定负责的课程组，无法发送通知");
+        }
+
+        Set<Long> managedGroupIds = managedGroups.stream()
+                .map(CourseGroup::getGroupId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Set<Long> allowedTeacherIds = courseMapper.selectAllCourses().stream()
+                .filter(course -> course.getGroupId() != null && managedGroupIds.contains(course.getGroupId()))
+                .map(Course::getTeacherId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        if (allowedTeacherIds.isEmpty()) {
+            throw new RuntimeException("当前负责课程组暂无可通知的教师");
+        }
+
+        List<User> recipients = new ArrayList<>();
         if (targetUsernames == null || targetUsernames.isEmpty()) {
-            // 发送给全体 (这里需要根据业务确定全体的范围，假设是所有用户或特定范围，暂用 MQ 广播)
-            System.out.println("暂不支持全员广播，请指定目标");
+            for (Long teacherId : allowedTeacherIds) {
+                User u = userMapper.selectById(teacherId);
+                if (u != null && u.getUserId() != null) recipients.add(u);
+            }
         } else {
             for (String username : targetUsernames) {
-                User u = userMapper.findByUsername(username);
-                if (u != null) {
-                    Notification n = new Notification();
-                    n.setUserId(u.getUserId());
-                    n.setType("GENERAL_NOTICE");
-                    n.setTitle(title);
-                    n.setMessage(content);
-                    notificationMapper.insert(n);
+                if (username == null || username.trim().isEmpty()) continue;
+                User u = userMapper.findByUsername(username.trim());
+                if (u == null || u.getUserId() == null) continue;
+                if (!allowedTeacherIds.contains(u.getUserId())) {
+                    throw new RuntimeException("无权发送给该用户：" + username);
                 }
+                recipients.add(u);
             }
+        }
+
+        if (recipients.isEmpty()) throw new RuntimeException("未找到可发送的目标教师");
+
+        String batchId = recipients.size() > 1 ? ("leader-" + UUID.randomUUID()) : null;
+        for (User u : recipients) {
+            Notification n = new Notification();
+            n.setUserId(u.getUserId());
+            n.setType("LEADER_NOTICE");
+            n.setTitle(t);
+            n.setMessage(c);
+            n.setBatchId(batchId);
+            n.setSenderName(leader.getRealName());
+            n.setIsActionRequired(false);
+            notificationMapper.insert(n);
         }
     }
 

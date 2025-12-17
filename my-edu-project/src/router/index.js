@@ -16,6 +16,7 @@ const QualityTeacher = () => import('../views/QualityTeacher.vue')
 const StudentQuality = () => import('../views/StudentQuality.vue')
 const TeacherClassroom = () => import('../views/TeacherClassroom.vue')
 const StudentClassroom = () => import('../views/StudentClassroom.vue')
+const DataDashboard = () => import('../views/DataDashboard.vue')
 const routes = [
 
     {
@@ -121,6 +122,12 @@ const routes = [
         name: 'StudentQuality',
         component: StudentQuality,
         meta: { title: '素质活动与请假' }
+    },
+    {
+        path: '/data-dashboard',
+        name: 'DataDashboard',
+        component: DataDashboard,
+        meta: { title: '学生数据大屏' }
     }
 ]
 

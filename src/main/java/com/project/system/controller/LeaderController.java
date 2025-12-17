@@ -67,8 +67,12 @@ public class LeaderController {
 
     @PostMapping("/notification/send")
     public ResponseEntity<?> sendNotification(@RequestBody Map<String, Object> data) {
-        leaderService.sendNotification((String) data.get("title"), (String) data.get("content"), (List<String>) data.get("targets"));
-        return ResponseEntity.ok("通知已下发");
+        try {
+            leaderService.sendNotification((String) data.get("title"), (String) data.get("content"), (List<String>) data.get("targets"));
+            return ResponseEntity.ok("通知已下发");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     @PostMapping("/course/update")

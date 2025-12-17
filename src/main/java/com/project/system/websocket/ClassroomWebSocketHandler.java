@@ -15,6 +15,11 @@ public class ClassroomWebSocketHandler extends TextWebSocketHandler {
 
     // courseId -> sessions
     private final Map<Long, Set<WebSocketSession>> courseSessions = new ConcurrentHashMap<>();
+    private final ClassroomOnlineUserStore onlineUserStore;
+
+    public ClassroomWebSocketHandler(ClassroomOnlineUserStore onlineUserStore) {
+        this.onlineUserStore = onlineUserStore;
+    }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -22,6 +27,11 @@ public class ClassroomWebSocketHandler extends TextWebSocketHandler {
         if (courseId != null) {
             courseSessions.computeIfAbsent(courseId, k -> ConcurrentHashMap.newKeySet()).add(session);
             session.getAttributes().put("courseId", courseId);
+
+            Object uid = session.getAttributes().get("userId");
+            if (uid instanceof Long) {
+                onlineUserStore.connect(courseId, (Long) uid);
+            }
         } else {
             session.close(CloseStatus.BAD_DATA);
         }
@@ -30,6 +40,7 @@ public class ClassroomWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
         Object cid = session.getAttributes().get("courseId");
+        Object uid = session.getAttributes().get("userId");
         if (cid instanceof Long) {
             Set<WebSocketSession> set = courseSessions.get((Long) cid);
             if (set != null) {
@@ -37,6 +48,9 @@ public class ClassroomWebSocketHandler extends TextWebSocketHandler {
                 if (set.isEmpty()) {
                     courseSessions.remove((Long) cid);
                 }
+            }
+            if (uid instanceof Long) {
+                onlineUserStore.disconnect((Long) cid, (Long) uid);
             }
         }
     }

@@ -592,6 +592,11 @@ public class StudentServiceImpl implements StudentService {
         if ("assign".equals(question.getMode()) && (question.getAssignStudentId() == null || !question.getAssignStudentId().equals(student.getUserId()))) {
             throw new RuntimeException("该题为点名题，当前学生无权回答");
         }
+        if ("hand".equals(question.getMode()) || "race".equals(question.getMode())) {
+            if (!hasBeenCalled(questionId, student.getUserId())) {
+                throw new RuntimeException("请先举手/抢答，等待老师同意后再答题");
+            }
+        }
         OnlineAnswer answer = new OnlineAnswer();
         answer.setQuestionId(questionId);
         answer.setStudentId(student.getUserId());
@@ -608,6 +613,20 @@ public class StudentServiceImpl implements StudentService {
         OnlineAnswer enriched = enrichAnswer(answer);
         classroomEventBus.publish(new ClassroomEvent("answer", question.getCourseId(), questionId, enriched));
         return enriched;
+    }
+
+    private boolean hasBeenCalled(Long questionId, Long studentId) {
+        if (questionId == null || studentId == null) return false;
+        for (OnlineAnswer a : enrichAnswers(onlineAnswerMapper.selectByQuestionId(questionId))) {
+            if (a == null) continue;
+            if (a.getStudentId() == null || !a.getStudentId().equals(studentId)) continue;
+            if (!"hand".equals(a.getType()) && !"race".equals(a.getType())) continue;
+            if ("called".equals(a.getState()) || "answered".equals(a.getState())) {
+                // called：老师已同意；answered：兼容历史数据（或答题记录）
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

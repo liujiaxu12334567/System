@@ -10,6 +10,8 @@ import java.util.Map;
 public interface NotificationMapper {
     int insert(Notification notification);
 
+    Notification selectById(@Param("id") Long id);
+
     List<Notification> selectByUserId(@Param("userId") Long userId);
 
     // 用户提交回复 (同时标记已读)

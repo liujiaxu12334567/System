@@ -331,6 +331,16 @@ public class TeacherController {
     public ResponseEntity<List<Notification>> getMyNotifications() {
         return ResponseEntity.ok(teacherService.getMyNotifications());
     }
+
+    @PostMapping("/notification/read/{id}")
+    public ResponseEntity<?> markNotificationAsRead(@PathVariable Long id) {
+        try {
+            teacherService.markNotificationAsRead(id);
+            return ResponseEntity.ok("已读");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
     // 【新增接口】获取仪表盘数据
     @GetMapping("/dashboard")
     public ResponseEntity<?> getDashboardStats() {
@@ -379,6 +389,15 @@ public class TeacherController {
     @GetMapping("/classroom/{courseId}/status")
     public ResponseEntity<?> classroomStatus(@PathVariable Long courseId) {
         return ResponseEntity.ok(teacherService.getClassroomStatus(courseId));
+    }
+
+    @GetMapping("/classroom/{courseId}/participants")
+    public ResponseEntity<?> classroomParticipants(@PathVariable Long courseId) {
+        try {
+            return ResponseEntity.ok(teacherService.getClassroomParticipants(courseId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     @PostMapping("/classroom/question")

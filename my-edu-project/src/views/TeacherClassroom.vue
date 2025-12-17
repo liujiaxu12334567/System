@@ -17,6 +17,10 @@
           结束课堂
         </el-button>
 
+        <el-button type="info" plain round @click="openParticipants" style="margin-right: 10px;">
+          <el-icon style="margin-right: 4px"><UserFilled /></el-icon> 人员
+        </el-button>
+
         <el-button type="info" plain round @click="showAnalysis" style="margin-right: 10px;">
           <el-icon style="margin-right: 4px"><DataAnalysis /></el-icon> 分析结果
         </el-button>
@@ -50,11 +54,29 @@
               <el-form-item label="补充描述">
                 <el-input v-model="questionForm.content" type="textarea" :rows="2" placeholder="规则说明或补充..." resize="none" />
               </el-form-item>
-              <el-form-item v-if="questionForm.mode !== 'hand'" label="正确答案（用于判题）">
+              <el-form-item v-if="!['hand','race'].includes(questionForm.mode)" label="正确答案（用于判题）">
                 <el-input v-model="questionForm.correctAnswer" placeholder="请输入正确答案（可留空）" />
               </el-form-item>
-              <el-form-item v-if="questionForm.mode === 'assign'" label="点名学生ID（userId）">
-                <el-input v-model="questionForm.assignStudentId" placeholder="请输入学生 userId" />
+              <el-form-item v-if="questionForm.mode === 'assign'" label="点名学生（在线）">
+                <el-select
+                    v-model="questionForm.assignStudentId"
+                    filterable
+                    placeholder="请选择在线学生"
+                    style="width: 100%"
+                    :loading="participantsLoading"
+                    @visible-change="(v)=>{ if(v) refreshParticipants() }"
+                >
+                  <el-option
+                      v-for="s in onlineStudents"
+                      :key="s.userId"
+                      :label="`${s.realName || ''}${s.username ? ' (' + s.username + ')' : ''}`"
+                      :value="s.userId"
+                  />
+                </el-select>
+                <div style="margin-top: 6px; color: #909399; font-size: 12px;">
+                  在线：{{ participants?.onlineCount ?? 0 }} / 总：{{ participants?.total ?? 0 }}
+                  <el-button link type="primary" size="small" @click="refreshParticipants">刷新</el-button>
+                </div>
               </el-form-item>
             </el-form>
           </div>
@@ -316,6 +338,32 @@
         <el-button type="primary" @click="fetchPerformanceData">刷新数据</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="participantsVisible" title="课堂人员" size="420px" direction="rtl">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
+        <div style="font-weight:600;">
+          在线 {{ participants?.onlineCount ?? 0 }} / 总 {{ participants?.total ?? 0 }}
+        </div>
+        <el-button :loading="participantsLoading" size="small" @click="refreshParticipants">刷新</el-button>
+      </div>
+
+      <el-tabs v-model="participantsTab">
+        <el-tab-pane :label="`在线(${participants?.onlineCount ?? 0})`" name="online">
+          <el-table :data="onlineStudents" size="small" stripe style="width: 100%" empty-text="暂无在线学生">
+            <el-table-column prop="realName" label="姓名" width="120" />
+            <el-table-column prop="username" label="学号" min-width="140" />
+            <el-table-column prop="classId" label="班级" width="90" align="center" />
+          </el-table>
+        </el-tab-pane>
+        <el-tab-pane :label="`未在线(${participants?.offlineCount ?? 0})`" name="offline">
+          <el-table :data="offlineStudents" size="small" stripe style="width: 100%" empty-text="暂无未在线学生">
+            <el-table-column prop="realName" label="姓名" width="120" />
+            <el-table-column prop="username" label="学号" min-width="140" />
+            <el-table-column prop="classId" label="班级" width="90" align="center" />
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
+    </el-drawer>
   </div>
 </template>
 
@@ -323,7 +371,7 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Promotion, Refresh, DataLine, ArrowRight, DataAnalysis } from '@element-plus/icons-vue'
+import { ArrowLeft, Promotion, Refresh, DataLine, ArrowRight, DataAnalysis, UserFilled } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import dayjs from 'dayjs'
 
@@ -336,6 +384,7 @@ const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
 const questionForm = ref({ title: '', content: '', correctAnswer: '', mode: 'broadcast', assignStudentId: '' })
 const modeOptions = [
   { value: 'broadcast', label: '广播' },
+  { value: 'hand', label: '举手' },
   { value: 'race', label: '抢答' },
   { value: 'assign', label: '点名' }
 ]
@@ -347,6 +396,14 @@ const answers = ref([])
 const chats = ref([])
 const chatInput = ref('')
 const chatScrollRef = ref(null)
+
+// 课堂人员（在线/未在线）
+const participantsVisible = ref(false)
+const participantsLoading = ref(false)
+const participantsTab = ref('online')
+const participants = ref({ total: 0, onlineCount: 0, offlineCount: 0, onlineStudents: [], offlineStudents: [] })
+const onlineStudents = computed(() => participants.value?.onlineStudents || [])
+const offlineStudents = computed(() => participants.value?.offlineStudents || [])
 
 // 课堂表现状态
 const performanceVisible = ref(false)
@@ -592,7 +649,8 @@ const startPolling = () => {
 
 const connectWs = () => {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const url = `${protocol}://${window.location.host}/ws/classroom?courseId=${courseId}`
+  const token = localStorage.getItem('token') || ''
+  const url = `${protocol}://${window.location.host}/ws/classroom?courseId=${courseId}&token=${encodeURIComponent(token)}`
   ws = new WebSocket(url)
   ws.onmessage = (evt) => {
     try {
@@ -607,6 +665,20 @@ const connectWs = () => {
   }
   ws.onerror = () => {}
   ws.onclose = () => setTimeout(connectWs, 5000)
+}
+
+const refreshParticipants = async () => {
+  participantsLoading.value = true
+  try {
+    participants.value = await request.get(`/teacher/classroom/${courseId}/participants`) || participants.value
+  } finally {
+    participantsLoading.value = false
+  }
+}
+
+const openParticipants = async () => {
+  participantsVisible.value = true
+  await refreshParticipants()
 }
 
 const goBack = () => router.push('/teacher')

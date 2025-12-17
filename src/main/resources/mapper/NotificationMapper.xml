@@ -24,6 +24,10 @@
             (#{userId}, #{relatedId}, #{type}, #{title}, #{message}, FALSE, #{isActionRequired}, #{userReply}, #{batchId}, #{senderName}, NOW())
     </insert>
 
+    <select id="selectById" resultMap="NotificationResultMap">
+        SELECT * FROM sys_notification WHERE id = #{id} LIMIT 1
+    </select>
+
     <select id="selectByUserId" resultMap="NotificationResultMap">
         SELECT * FROM sys_notification WHERE user_id = #{userId} ORDER BY create_time DESC LIMIT 50
     </select>

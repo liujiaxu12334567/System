@@ -71,6 +71,7 @@ public interface TeacherService {
      */
     List<Map<String, Object>> getExamMonitorRecords(Long examId);
     List<Notification> getMyNotifications();
+    void markNotificationAsRead(Long id);
     // 【新增】获取仪表盘统计数据 (学生数、出勤率、图表数据等)
     Map<String, Object> getDashboardStats();
 
@@ -99,6 +100,7 @@ public interface TeacherService {
     java.util.Map<String, Object> startClassroom(Long courseId);
     java.util.Map<String, Object> endClassroom(Long courseId);
     java.util.Map<String, Object> getClassroomStatus(Long courseId);
+    java.util.Map<String, Object> getClassroomParticipants(Long courseId);
 
     // 【新增】重置课堂（清空聊天、在线提问与回答）
     void resetClassroom(Long courseId);

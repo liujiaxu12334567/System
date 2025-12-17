@@ -23,6 +23,7 @@
         <el-menu-item index="3"><el-icon><Reading /></el-icon><span>课程管理</span></el-menu-item>
         <el-menu-item index="4"><el-icon><DocumentChecked /></el-icon><span>申请审核</span></el-menu-item>
         <el-menu-item index="5"><el-icon><Bell /></el-icon><span>通知管理与统计</span></el-menu-item>
+        <el-menu-item index="6"><el-icon><DataBoard /></el-icon><span>数据大屏</span></el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -1060,6 +1061,10 @@ const handleMenuSelect = (idx) => {
   }
   if(idx==='5') {
     request.get('/admin/notification/history').then(res => notifyHistory.value = res || [])
+  }
+  if(idx==='6') {
+    // 跳转到Python数据大屏
+    window.open('http://127.0.0.1:8008/', '_blank');
   }
 }
 

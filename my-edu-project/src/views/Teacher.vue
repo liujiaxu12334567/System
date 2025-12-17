@@ -35,9 +35,45 @@
         </div>
         <div class="header-actions">
           <div class="action-item">
-            <el-badge :value="unreadCount" :hidden="unreadCount === 0" type="danger" class="badge-dot">
-              <el-button circle class="icon-btn" :icon="Bell" @click="fetchNotifications"></el-button>
-            </el-badge>
+            <el-popover
+              placement="bottom"
+              :width="340"
+              trigger="click"
+              popper-class="notification-popover"
+            >
+              <template #reference>
+                <el-badge :value="unreadCount" :hidden="unreadCount === 0" type="danger" class="badge-dot">
+                  <el-button circle class="icon-btn" :icon="Bell" @click="fetchNotifications"></el-button>
+                </el-badge>
+              </template>
+
+              <div class="notify-box">
+                <div class="notify-header">
+                  <span>消息通知 ({{ notificationList.length }})</span>
+                  <el-button link type="primary" size="small" @click="fetchNotifications">刷新</el-button>
+                </div>
+                <div class="notify-list" v-if="notificationList.length > 0">
+                  <div
+                    v-for="note in notificationList"
+                    :key="note.id"
+                    class="notify-item"
+                    :class="{'unread': !note.isRead, 'required': note.isActionRequired && !note.userReply}"
+                    @click="openNotificationDetail(note)"
+                  >
+                    <div class="n-title">
+                      {{ note.title }}
+                      <el-tag v-if="note.isActionRequired" size="small" :type="note.userReply ? 'success' : 'warning'" effect="dark">
+                        {{ note.userReply ? '已填报' : '需填报' }}
+                      </el-tag>
+                      <el-icon v-if="!note.isRead" color="#409EFF"><ChatLineRound /></el-icon>
+                    </div>
+                    <div class="n-desc">{{ note.message }}</div>
+                    <div class="n-time">{{ formatTime(note.createTime) }}</div>
+                  </div>
+                </div>
+                <div v-else class="notify-empty">暂无新通知</div>
+              </div>
+            </el-popover>
           </div>
           <el-dropdown trigger="click">
             <div class="user-profile-area">
@@ -567,6 +603,43 @@
         </el-table>
       </el-dialog>
 
+      <el-dialog
+        v-model="notificationDetailVisible"
+        :title="currentNotification?.title || '通知详情'"
+        width="520px"
+      >
+        <div v-if="currentNotification">
+          <p style="white-space: pre-wrap;">{{ currentNotification.message }}</p>
+          <div style="margin-top: 10px; color: #909399; font-size: 13px;">
+            <div><strong>发送者：</strong>{{ currentNotification.senderName || '系统/管理员' }}</div>
+            <div><strong>发送时间：</strong>{{ currentNotification.createTime ? formatDateTime(currentNotification.createTime) : '未知' }}</div>
+          </div>
+
+          <el-divider v-if="currentNotification.isActionRequired">回执要求</el-divider>
+          <div v-if="currentNotification.isActionRequired">
+            <div v-if="currentNotification.userReply" class="replied-text-dialog">
+              <el-icon><Check /></el-icon> 您已填报信息 <strong>{{ currentNotification.userReply }}</strong>
+            </div>
+            <div v-else class="reply-area-dialog">
+              <el-input
+                v-model="currentNotification.tempReply"
+                type="textarea"
+                :rows="3"
+                placeholder="请输入回执内容"
+              />
+              <div style="margin-top: 10px; text-align: right;">
+                <el-button type="primary" :loading="currentNotification.submitting" @click="submitNotificationReply(currentNotification)">
+                  提交回执
+                </el-button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <template #footer>
+          <el-button @click="notificationDetailVisible = false">关闭</el-button>
+        </template>
+      </el-dialog>
+
     </el-main>
   </div>
 </template>
@@ -603,6 +676,8 @@ const teachingMaterials = ref([])
 const cheatingRecords = ref([])
 const examMonitorRecords = ref([])
 const notificationList = ref([])
+const notificationDetailVisible = ref(false)
+const currentNotification = ref(null)
 const teachingClassIds = ref([])
 const availableExams = ref([])
 const unreadCount = computed(() => notificationList.value.filter(n => !n.isRead).length)
@@ -995,6 +1070,36 @@ const fetchNotifications = async () => {
   try { notificationList.value = await request.get('/teacher/notifications') || [] } catch(e){}
 }
 
+const markNotificationAsRead = async (note) => {
+  if (!note?.id || note.isRead) return
+  try {
+    await request.post(`/teacher/notification/read/${note.id}`)
+    note.isRead = true
+  } catch (e) {}
+}
+
+const openNotificationDetail = async (note) => {
+  if (!note) return
+  currentNotification.value = { ...note, tempReply: '', submitting: false }
+  notificationDetailVisible.value = true
+  await markNotificationAsRead(note)
+}
+
+const submitNotificationReply = async (note) => {
+  if (!note?.id) return
+  const reply = (note.tempReply || '').trim()
+  if (!reply) return ElMessage.warning('请填写回执内容')
+  note.submitting = true
+  try {
+    await request.post('/teacher/notification/reply', { id: note.id, reply })
+    ElMessage.success('回执已提交')
+    note.userReply = reply
+    await fetchNotifications()
+  } finally {
+    note.submitting = false
+  }
+}
+
 const fetchExams = async () => {
   try { availableExams.value = await request.get('/teacher/exams') || [] } catch(e){}
 }
@@ -1141,6 +1246,34 @@ $success: #67C23A;
 $warning: #E6A23C;
 $danger: #F56C6C;
 $card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+
+:deep(.notification-popover) {
+  padding: 0;
+}
+:deep(.notification-popover .notify-box) {
+  padding: 10px 12px;
+}
+.notify-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.notify-list { max-height: 320px; overflow-y: auto; }
+.notify-item {
+  padding: 8px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.notify-item:hover { background: #f5f7fa; }
+.notify-item.unread { border-left: 3px solid $primary; }
+.notify-item.required { border-left: 3px solid $warning; }
+.n-title { display:flex; gap: 6px; align-items:center; font-size: 13px; font-weight: 600; color: #606266; }
+.n-desc { font-size: 12px; color: #909399; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.n-time { font-size: 12px; color: #c0c4cc; margin-top: 2px; }
+.notify-empty { padding: 18px 0; text-align:center; color:#909399; }
+.replied-text-dialog { color: $success; margin-bottom: 10px; }
 
 .teacher-container-light {
   display: flex; height: 100vh; background-color: $light-bg;
